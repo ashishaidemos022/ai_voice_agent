@@ -12,6 +12,7 @@ export class AudioManager {
   private initializationPromise: Promise<void> | null = null;
   private audioQueue: Array<{ buffer: AudioBuffer; resolve: () => void }> = [];
   private isPlayingAudio = false;
+  private currentSource: AudioBufferSourceNode | null = null;
 
   async initialize(): Promise<void> {
     if (this.isInitializing && this.initializationPromise) {
@@ -251,6 +252,7 @@ export class AudioManager {
   private processAudioQueue(): void {
     if (this.audioQueue.length === 0 || !this.audioContext) {
       this.isPlayingAudio = false;
+      this.currentSource = null;
       return;
     }
 
@@ -259,10 +261,12 @@ export class AudioManager {
 
     try {
       const source = this.audioContext.createBufferSource();
+      this.currentSource = source;
       source.buffer = buffer;
       source.connect(this.audioContext.destination);
 
       source.onended = () => {
+        this.currentSource = null;
         resolve();
         this.processAudioQueue();
       };
@@ -270,8 +274,23 @@ export class AudioManager {
       source.start();
     } catch (error) {
       console.error('Failed to play audio chunk:', error);
+      this.currentSource = null;
       resolve();
       this.processAudioQueue();
+    }
+  }
+
+  stopPlayback(): void {
+    this.audioQueue = [];
+    this.isPlayingAudio = false;
+    if (this.currentSource) {
+      try {
+        this.currentSource.stop();
+      } catch (err) {
+        console.warn('Error stopping current audio source:', err);
+      }
+      this.currentSource.disconnect();
+      this.currentSource = null;
     }
   }
 
@@ -327,12 +346,25 @@ export class AudioManager {
     console.log('AudioManager cleanup complete');
   }
 
-  close(): void {
-    if (this.isInitializing) {
-      console.warn('Attempted to close AudioManager while initializing');
+  close(force = false): void {
+    if (this.isInitializing && !force) {
+      console.warn('⚠️ Prevented cleanup during initialization');
+      return;
     }
 
     this.stopCapture();
-    this.performCleanup();
+
+    if (force) {
+      this.performCleanup();
+      return;
+    }
+
+    if (this.audioContext) {
+      try {
+        this.audioContext.suspend();
+      } catch (e) {
+        console.warn('Audio suspend error', e);
+      }
+    }
   }
 }

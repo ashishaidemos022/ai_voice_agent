@@ -229,7 +229,9 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
         <div className="space-y-2">
           <Card>
             <CardContent className="p-0">
-              <button
+              <div
+                role="button"
+                tabIndex={0}
                 onClick={() => setExpandedSection(expandedSection === 'client' ? null : 'client')}
                 className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
               >
@@ -244,20 +246,24 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
                   <Badge variant="secondary">{clientSelectedCount}/{clientTools.length}</Badge>
                 </div>
                 <div className="flex gap-1">
-                  <button
+                  <span
+                    role="button"
+                    tabIndex={0}
                     onClick={(e) => { e.stopPropagation(); handleSelectAll('client'); }}
                     className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded"
                   >
                     All
-                  </button>
-                  <button
+                  </span>
+                  <span
+                    role="button"
+                    tabIndex={0}
                     onClick={(e) => { e.stopPropagation(); handleDeselectAll('client'); }}
                     className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded"
                   >
                     None
-                  </button>
+                  </span>
                 </div>
-              </button>
+              </div>
 
               {expandedSection === 'client' && (
                 <div className="border-t border-gray-200 p-3 space-y-2">
@@ -288,7 +294,9 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
 
           <Card>
             <CardContent className="p-0">
-              <button
+              <div
+                role="button"
+                tabIndex={0}
                 onClick={() => setExpandedSection(expandedSection === 'server' ? null : 'server')}
                 className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
               >
@@ -303,20 +311,24 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
                   <Badge variant="secondary">{serverSelectedCount}/{serverTools.length}</Badge>
                 </div>
                 <div className="flex gap-1">
-                  <button
+                  <span
+                    role="button"
+                    tabIndex={0}
                     onClick={(e) => { e.stopPropagation(); handleSelectAll('server'); }}
                     className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded"
                   >
                     All
-                  </button>
-                  <button
+                  </span>
+                  <span
+                    role="button"
+                    tabIndex={0}
                     onClick={(e) => { e.stopPropagation(); handleDeselectAll('server'); }}
                     className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded"
                   >
                     None
-                  </button>
+                  </span>
                 </div>
-              </button>
+              </div>
 
               {expandedSection === 'server' && (
                 <div className="border-t border-gray-200 p-3 space-y-2">
@@ -348,7 +360,9 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
           {mcpTools.length > 0 && (
             <Card>
               <CardContent className="p-0">
-                <button
+                <div
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setExpandedSection(expandedSection === 'mcp' ? null : 'mcp')}
                   className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
                 >
@@ -363,20 +377,24 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
                     <Badge variant="secondary">{mcpSelectedCount}/{mcpTools.length}</Badge>
                   </div>
                   <div className="flex gap-1">
-                    <button
+                    <span
+                      role="button"
+                      tabIndex={0}
                       onClick={(e) => { e.stopPropagation(); handleSelectAll('mcp'); }}
                       className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded"
                     >
                       All
-                    </button>
-                    <button
+                    </span>
+                    <span
+                      role="button"
+                      tabIndex={0}
                       onClick={(e) => { e.stopPropagation(); handleDeselectAll('mcp'); }}
                       className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded"
                     >
                       None
-                    </button>
+                    </span>
                   </div>
-                </button>
+                </div>
 
                 {expandedSection === 'mcp' && (
                   <div className="border-t border-gray-200 p-3 space-y-2">

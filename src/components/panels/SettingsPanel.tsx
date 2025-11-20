@@ -28,17 +28,12 @@ interface SettingsPanelProps {
 
 const DEFAULT_INSTRUCTIONS = 'You are a helpful AI voice assistant. You can help users with various tasks, answer questions, and execute tools when needed. Be conversational and friendly.';
 
+// Latest GPT Realtime voices
 const VOICE_OPTIONS = [
-  { value: 'alloy', label: 'Alloy', description: 'Neutral and balanced' },
-  { value: 'echo', label: 'Echo', description: 'Warm and engaging' },
-  { value: 'shimmer', label: 'Shimmer', description: 'Soft and gentle' },
-  { value: 'ash', label: 'Ash', description: 'Clear and expressive' },
-  { value: 'ballad', label: 'Ballad', description: 'Smooth and melodic' },
-  { value: 'coral', label: 'Coral', description: 'Bright and cheerful' },
-  { value: 'sage', label: 'Sage', description: 'Calm and wise' },
-  { value: 'verse', label: 'Verse', description: 'Dynamic and expressive' },
-  { value: 'cedar', label: 'Cedar', description: 'Deep and resonant' },
-  { value: 'marin', label: 'Marin', description: 'Fresh and lively' }
+  { value: 'alloy', label: 'Alloy', description: 'Balanced, default choice' },
+  { value: 'verse', label: 'Verse', description: 'Expressive and dynamic' },
+  { value: 'shimmer', label: 'Shimmer', description: 'Warm and gentle' },
+  { value: 'echo', label: 'Echo', description: 'Clear and energetic' }
 ];
 
 export function SettingsPanel({

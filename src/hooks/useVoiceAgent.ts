@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AudioManager } from '../lib/audio-manager';
-import { RealtimeAPIClient } from '../lib/realtime-client';
+import { AgentState, RealtimeAPIClient } from '../lib/realtime-client';
 import { supabase } from '../lib/supabase';
 import { executeTool, loadMCPTools } from '../lib/tools-registry';
 import { Message, RealtimeConfig } from '../types/voice-agent';
+
+type LiveTranscripts = { user: string; assistant: string };
 
 export function useVoiceAgent() {
   const [isConnected, setIsConnected] = useState(false);
@@ -16,16 +18,22 @@ export function useVoiceAgent() {
   const [config, setConfig] = useState<RealtimeConfig | null>(null);
   const [activeConfigId, setActiveConfigId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [transcriptDebug, setTranscriptDebug] = useState<string>('');
+  const [agentState, setAgentState] = useState<AgentState>('idle');
+  const [liveUserTranscript, setLiveUserTranscript] = useState('');
+  const [liveAssistantTranscript, setLiveAssistantTranscript] = useState('');
 
   const audioManagerRef = useRef<AudioManager | null>(null);
   const realtimeClientRef = useRef<RealtimeAPIClient | null>(null);
   const audioIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const currentTranscriptRef = useRef<{ user: string; assistant: string }>({ user: '', assistant: '' });
   const sessionIdRef = useRef<string | null>(null);
+  const transcriptsRef = useRef<LiveTranscripts>({ user: '', assistant: '' });
+  const messagesRef = useRef<Message[]>([]);
+  const savedMessagesRef = useRef<Set<string>>(new Set());
+  const isCleaningUpRef = useRef(false);
+  const micStartedRef = useRef(false);
 
   const createSession = useCallback(async (sessionConfig: RealtimeConfig, configId: string | null) => {
-    const { data, error } = await supabase
+    const { data, error: dbError } = await supabase
       .from('va_sessions')
       .insert({
         session_metadata: { config: sessionConfig, configId },
@@ -34,221 +42,228 @@ export function useVoiceAgent() {
       .select()
       .single();
 
-    if (error) {
-      console.error('Failed to create session:', error);
+    if (dbError) {
+      console.error('Failed to create session:', dbError);
       return null;
     }
 
     return data.id;
   }, []);
 
-  const addMessage = useCallback(async (role: 'user' | 'assistant' | 'system', content: string, toolCalls: any[] = []) => {
+  const updateSessionMessageCount = useCallback(async (count: number) => {
     const currentSessionId = sessionIdRef.current;
-
-    if (!currentSessionId) {
-      console.error('❌ Cannot add message: No session ID');
-      return;
-    }
-
-    console.log(`💾 Attempting to save ${role} message:`, content.substring(0, 100));
-
-    const { data, error } = await supabase
-      .from('va_messages')
-      .insert({
-        session_id: currentSessionId,
-        role,
-        content,
-        tool_calls: toolCalls
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('❌ Failed to add message to database:', error);
-      setError(`Failed to save transcript: ${error.message}`);
-      return;
-    }
-
-    console.log('✅ Message saved successfully:', data.id);
-    setMessages(prev => [...prev, data]);
-
-    await supabase
-      .from('va_sessions')
-      .update({
-        message_count: messages.length + 1,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', currentSessionId);
-  }, [messages.length]);
-
-  const initialize = useCallback(async (initConfig: RealtimeConfig, configId: string | null = null) => {
+    if (!currentSessionId) return;
     try {
-      setError(null);
-      setConfig(initConfig);
-      setActiveConfigId(configId);
+      await supabase
+        .from('va_sessions')
+        .update({
+          message_count: count,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', currentSessionId);
+    } catch (err) {
+      console.warn('Failed to update session message count', err);
+    }
+  }, []);
 
-      console.log('🔌 Loading MCP tools...');
-      await loadMCPTools(configId || undefined);
-      console.log('✅ MCP tools loaded');
+  const persistMessage = useCallback(
+    async (role: 'user' | 'assistant' | 'system', content: string, toolCalls: any[] = []) => {
+      const currentSessionId = sessionIdRef.current;
+      if (!currentSessionId || !content.trim()) return;
 
-      const sid = await createSession(initConfig, configId);
-      if (!sid) {
-        throw new Error('Failed to create session');
+      const key = `${role}:${content.trim()}`;
+      if (savedMessagesRef.current.has(key)) {
+        return;
       }
+      savedMessagesRef.current.add(key);
 
-      sessionIdRef.current = sid;
-      setSessionId(sid);
-      console.log('✅ Session created with ID:', sid);
+      try {
+        const { data, error: insertError } = await supabase
+          .from('va_messages')
+          .insert({
+            session_id: currentSessionId,
+            role,
+            content,
+            tool_calls: toolCalls
+          })
+          .select()
+          .single();
 
-      if (audioManagerRef.current) {
-        console.warn('AudioManager already exists, cleaning up before re-initialization');
-        audioManagerRef.current.close();
-      }
-
-      audioManagerRef.current = new AudioManager();
-      await audioManagerRef.current.initialize();
-
-      realtimeClientRef.current = new RealtimeAPIClient(initConfig);
-
-      realtimeClientRef.current.on('connected', () => {
-        setIsConnected(true);
-      });
-
-      realtimeClientRef.current.on('disconnected', () => {
-        setIsConnected(false);
-        setIsRecording(false);
-      });
-
-      realtimeClientRef.current.on('error', (event: any) => {
-        console.error('Realtime API error:', event.error);
-        setError(event.error);
-      });
-
-      realtimeClientRef.current.on('audio.delta', async (event: any) => {
-        console.log('Received audio.delta event');
-        if (audioManagerRef.current) {
-          await audioManagerRef.current.playAudioData(event.delta);
-        } else {
-          console.warn('AudioManager not available for playback');
-        }
-      });
-
-      realtimeClientRef.current.on('transcript.delta', (event: any) => {
-        if (event.role === 'user') {
-          currentTranscriptRef.current.user += event.delta;
-          setTranscriptDebug(`User: ${currentTranscriptRef.current.user}`);
-        } else if (event.role === 'assistant') {
-          currentTranscriptRef.current.assistant += event.delta;
-          setTranscriptDebug(`Assistant: ${currentTranscriptRef.current.assistant}`);
-        }
-      });
-
-      realtimeClientRef.current.on('transcript.done', async (event: any) => {
-        console.log('📥 Received transcript.done event:', event);
-
-        if (!event.transcript || !event.transcript.trim()) {
-          console.warn('⚠️ Empty transcript received, skipping');
+        if (insertError) {
+          console.error('Failed to add message to database:', insertError);
+          setError(`Failed to save transcript: ${insertError.message}`);
           return;
         }
 
-        console.log(`🗣️ ${event.role.toUpperCase()} said:`, event.transcript);
-
-        if (event.role === 'user') {
-          await addMessage('user', event.transcript);
-          currentTranscriptRef.current.user = '';
-          setTranscriptDebug('');
-        } else if (event.role === 'assistant') {
-          await addMessage('assistant', event.transcript);
-          currentTranscriptRef.current.assistant = '';
-          setTranscriptDebug('');
-        }
-        setIsProcessing(false);
-      });
-
-      realtimeClientRef.current.on('function_call', async (event: any) => {
-        const { id, name, arguments: argsStr } = event.call;
-        const currentSessionId = sessionIdRef.current;
-
-        try {
-          setIsProcessing(true);
-          const args = JSON.parse(argsStr);
-          const result = await executeTool(name, args, currentSessionId || '');
-
-          if (realtimeClientRef.current) {
-            realtimeClientRef.current.sendFunctionCallOutput(id, result);
-          }
-        } catch (error: any) {
-          console.error('Tool execution error:', error);
-          if (realtimeClientRef.current) {
-            realtimeClientRef.current.sendFunctionCallOutput(id, {
-              error: error.message
-            });
-          }
-        } finally {
-          setIsProcessing(false);
-        }
-      });
-
-      await realtimeClientRef.current.connect();
-
-      await startRecording();
-    } catch (error: any) {
-      console.error('Failed to initialize:', error);
-
-      if (audioManagerRef.current && !audioManagerRef.current.isCurrentlyInitializing()) {
-        audioManagerRef.current.close();
-        audioManagerRef.current = null;
+        setMessages(prev => {
+          const next = [...prev, data];
+          messagesRef.current = next;
+          updateSessionMessageCount(next.length);
+          return next;
+        });
+      } catch (err: any) {
+        console.error('Failed to persist message', err);
       }
-      const errorMessage = error.name === 'NotAllowedError'
-        ? 'Microphone permission denied. Please allow microphone access to use the voice agent.'
-        : error.name === 'NotFoundError'
-        ? 'No microphone found. Please connect a microphone to use the voice agent.'
-        : `Failed to initialize: ${error.message}`;
-      setError(errorMessage);
-      throw error;
-    }
-  }, [createSession, addMessage]);
+    },
+    [updateSessionMessageCount]
+  );
+
+  const resetTranscripts = useCallback(() => {
+    transcriptsRef.current = { user: '', assistant: '' };
+    setLiveUserTranscript('');
+    setLiveAssistantTranscript('');
+  }, []);
+
+  const attachRealtimeHandlers = useCallback(() => {
+    const client = realtimeClientRef.current;
+    const audioManager = audioManagerRef.current;
+    if (!client) return;
+
+    client.on('connected', async () => {
+      setIsConnected(true);
+      setAgentState('idle');
+      if (!micStartedRef.current) {
+        console.log('🎤 Starting microphone on connected');
+        await startRecording();
+      }
+    });
+
+    client.on('disconnected', () => {
+      setIsConnected(false);
+      setAgentState('idle');
+      setIsRecording(false);
+    });
+
+    client.on('agent_state', (event) => {
+      setAgentState(event.state);
+      if (event.state === 'listening' && audioManager) {
+        audioManager.stopPlayback();
+      }
+    });
+
+    client.on('error', (event: any) => {
+      console.error('Realtime API error:', event.error);
+      setError(event.error);
+    });
+
+    client.on('audio.delta', async (event: any) => {
+      if (audioManager) {
+        await audioManager.playAudioData(event.delta);
+      }
+    });
+
+    client.on('transcript.delta', (event: any) => {
+      if (event.role === 'user') {
+        transcriptsRef.current.user += event.delta;
+        setLiveUserTranscript(transcriptsRef.current.user);
+        setAgentState('listening');
+      } else {
+        transcriptsRef.current.assistant += event.delta;
+        setLiveAssistantTranscript(transcriptsRef.current.assistant);
+      }
+    });
+
+    client.on('transcript.done', async (event: any) => {
+      if (!event.transcript || !event.transcript.trim()) return;
+
+      if (event.role === 'user') {
+        await persistMessage('user', event.transcript);
+        transcriptsRef.current.user = '';
+        setLiveUserTranscript('');
+      } else {
+        await persistMessage('assistant', event.transcript);
+        transcriptsRef.current.assistant = '';
+        setLiveAssistantTranscript('');
+      }
+      setIsProcessing(false);
+    });
+
+    client.on('transcript.reset', (event: any) => {
+      if (event.role === 'user') {
+        transcriptsRef.current.user = '';
+        setLiveUserTranscript('');
+      } else {
+        transcriptsRef.current.assistant = '';
+        setLiveAssistantTranscript('');
+      }
+    });
+
+    client.on('response.created', () => {
+      setIsProcessing(true);
+      setAgentState('thinking');
+      setLiveAssistantTranscript('');
+    });
+
+    client.on('response.done', () => {
+      setIsProcessing(false);
+      setAgentState('idle');
+      setLiveAssistantTranscript('');
+    });
+
+    client.on('interruption', () => {
+      if (audioManager) {
+        audioManager.stopPlayback();
+      }
+      setAgentState('interrupted');
+      setIsProcessing(false);
+      resetTranscripts();
+    });
+
+    client.on('function_call', async (event: any) => {
+      const { id, name, arguments: argsStr } = event.call;
+      const currentSessionId = sessionIdRef.current;
+
+      try {
+        setIsProcessing(true);
+        const args = JSON.parse(argsStr);
+        const result = await executeTool(name, args, currentSessionId || '');
+        client.sendFunctionCallOutput(id, result);
+      } catch (toolError: any) {
+        console.error('Tool execution error:', toolError);
+        client.sendFunctionCallOutput(id, { error: toolError.message });
+      } finally {
+        setIsProcessing(false);
+      }
+    });
+  }, [persistMessage, resetTranscripts]);
 
   const startRecording = useCallback(async () => {
     if (!audioManagerRef.current || !realtimeClientRef.current) return;
+    if (isRecording || micStartedRef.current) return;
 
     try {
       await audioManagerRef.current.startCapture((audioData: Int16Array) => {
-        if (realtimeClientRef.current) {
-          realtimeClientRef.current.sendAudio(audioData);
-        }
+        realtimeClientRef.current?.sendAudio(audioData);
       });
 
       setIsRecording(true);
 
       audioIntervalRef.current = setInterval(() => {
         if (!audioManagerRef.current) return;
-
         const waveform = audioManagerRef.current.getWaveformData();
         const vol = audioManagerRef.current.getVolume();
-
         if (waveform) {
           setWaveformData(new Uint8Array(waveform));
           setVolume(vol);
         }
-      }, 50);
-    } catch (error) {
-      console.error('Failed to start recording:', error);
+      }, 40);
+      micStartedRef.current = true;
+    } catch (err) {
+      console.error('Failed to start recording:', err);
       setError('Failed to start recording');
     }
-  }, []);
+  }, [isRecording]);
 
   const stopRecording = useCallback(() => {
     if (!audioManagerRef.current) return;
-
     audioManagerRef.current.stopCapture();
     setIsRecording(false);
+    micStartedRef.current = false;
 
     if (audioIntervalRef.current) {
       clearInterval(audioIntervalRef.current);
       audioIntervalRef.current = null;
     }
-
     setWaveformData(null);
     setVolume(0);
   }, []);
@@ -261,14 +276,82 @@ export function useVoiceAgent() {
     }
   }, [isRecording, startRecording, stopRecording]);
 
+  const interrupt = useCallback(() => {
+    if (realtimeClientRef.current) {
+      realtimeClientRef.current.cancelResponse();
+    }
+    if (audioManagerRef.current) {
+      audioManagerRef.current.stopPlayback();
+    }
+    resetTranscripts();
+    setAgentState('interrupted');
+    setIsProcessing(false);
+  }, [resetTranscripts]);
+
+  const initialize = useCallback(
+    async (initConfig: RealtimeConfig, configId: string | null = null) => {
+      try {
+        setError(null);
+        setConfig(initConfig);
+        setActiveConfigId(configId);
+        resetTranscripts();
+        savedMessagesRef.current.clear();
+        messagesRef.current = [];
+        setMessages([]);
+
+        await loadMCPTools(configId || undefined);
+
+        const sid = await createSession(initConfig, configId);
+        if (!sid) throw new Error('Failed to create session');
+
+        sessionIdRef.current = sid;
+        setSessionId(sid);
+
+        if (audioManagerRef.current) {
+          console.warn('AudioManager already exists — reusing existing instance');
+        } else {
+          audioManagerRef.current = new AudioManager();
+          await audioManagerRef.current.initialize();
+        }
+
+        if (realtimeClientRef.current) {
+          realtimeClientRef.current.disconnect();
+        }
+        realtimeClientRef.current = new RealtimeAPIClient(initConfig);
+
+        attachRealtimeHandlers();
+        await realtimeClientRef.current.connect();
+        setAgentState('idle');
+      } catch (err: any) {
+        console.error('Failed to initialize:', err);
+
+        if (audioManagerRef.current && !audioManagerRef.current.isCurrentlyInitializing()) {
+          audioManagerRef.current.close(true);
+          audioManagerRef.current = null;
+        }
+        const errorMessage = err.name === 'NotAllowedError'
+          ? 'Microphone permission denied. Please allow microphone access to use the voice agent.'
+          : err.name === 'NotFoundError'
+          ? 'No microphone found. Please connect a microphone to use the voice agent.'
+          : `Failed to initialize: ${err.message}`;
+        setError(errorMessage);
+        throw err;
+      }
+    },
+    [attachRealtimeHandlers, createSession, resetTranscripts, startRecording]
+  );
+
   const cleanup = useCallback(async () => {
+    if (isCleaningUpRef.current) return;
+    isCleaningUpRef.current = true;
+
     stopRecording();
 
     if (realtimeClientRef.current) {
       try {
         realtimeClientRef.current.disconnect();
-      } catch (error) {
-        console.warn('Error during realtime client disconnect:', error);
+      } catch (cleanupErr) {
+        console.warn('Error during realtime client disconnect:', cleanupErr);
       }
       realtimeClientRef.current = null;
     }
@@ -276,12 +359,11 @@ export function useVoiceAgent() {
     if (audioManagerRef.current) {
       try {
         if (audioManagerRef.current.isCurrentlyInitializing()) {
-          console.warn('Attempted cleanup during initialization, waiting briefly...');
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise(resolve => setTimeout(resolve, 300));
         }
-        audioManagerRef.current.close();
-      } catch (error) {
-        console.warn('Error during audio manager cleanup:', error);
+        audioManagerRef.current.close(true);
+      } catch (cleanupErr) {
+        console.warn('Error during audio manager cleanup:', cleanupErr);
       }
       audioManagerRef.current = null;
     }
@@ -296,37 +378,43 @@ export function useVoiceAgent() {
             updated_at: new Date().toISOString()
           })
           .eq('id', currentSessionId);
-      } catch (error) {
-        console.warn('Error updating session status:', error);
+      } catch (err) {
+        console.warn('Error updating session status:', err);
       }
-
-      sessionIdRef.current = null;
-      setSessionId(null);
     }
 
+    sessionIdRef.current = null;
+    setSessionId(null);
     setMessages([]);
-    currentTranscriptRef.current = { user: '', assistant: '' };
-    setTranscriptDebug('');
+    messagesRef.current = [];
+    resetTranscripts();
     setIsProcessing(false);
-  }, [stopRecording]);
+    setAgentState('idle');
+    setIsConnected(false);
+    micStartedRef.current = false;
+    isCleaningUpRef.current = false;
+  }, [resetTranscripts, stopRecording]);
+
+  const skipInitialCleanupRef = useRef(true);
 
   useEffect(() => {
     return () => {
-      if (isConnected || audioManagerRef.current) {
+      if (skipInitialCleanupRef.current) {
+        skipInitialCleanupRef.current = false;
+        return;
+      }
+      if (audioManagerRef.current || isConnected) {
         cleanup();
       }
     };
-  }, []);
+  }, [cleanup]);
 
   const updateConfig = useCallback((newConfig: RealtimeConfig) => {
-    if (config) {
-      setConfig(newConfig);
-      if (realtimeClientRef.current && isConnected) {
-        console.log('🔄 Applying config changes to active session');
-        realtimeClientRef.current.updateSessionConfig(newConfig);
-      }
+    setConfig(newConfig);
+    if (realtimeClientRef.current && isConnected) {
+      realtimeClientRef.current.updateSessionConfig(newConfig);
     }
-  }, [isConnected, config]);
+  }, [isConnected]);
 
   const setActiveConfig = useCallback((configId: string | null) => {
     setActiveConfigId(configId);
@@ -342,12 +430,15 @@ export function useVoiceAgent() {
     isProcessing,
     config,
     error,
-    transcriptDebug,
+    agentState,
+    liveUserTranscript,
+    liveAssistantTranscript,
     activeConfigId,
     setConfig: updateConfig,
     setActiveConfig,
     initialize,
     toggleRecording,
+    interrupt,
     cleanup
   };
 }

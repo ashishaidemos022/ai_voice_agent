@@ -1,16 +1,24 @@
 import { RealtimeConfig } from '../types/voice-agent';
 import { getToolSchemas } from './tools-registry';
 
+export type AgentState = 'idle' | 'listening' | 'speaking' | 'thinking' | 'interrupted';
+
 export type RealtimeEvent =
   | { type: 'connected' }
   | { type: 'disconnected'; reason?: string }
   | { type: 'error'; error: string }
+  | { type: 'agent_state'; state: AgentState; reason?: string }
   | { type: 'audio.delta'; delta: string }
+  | { type: 'audio.done' }
   | { type: 'transcript.delta'; delta: string; role: 'user' | 'assistant' }
   | { type: 'transcript.done'; transcript: string; role: 'user' | 'assistant' }
+  | { type: 'transcript.reset'; role: 'user' | 'assistant' }
+  | { type: 'response.created'; id?: string }
   | { type: 'response.done'; response: any }
+  | { type: 'interruption' }
   | { type: 'function_call'; call: { id: string; name: string; arguments: string } }
-  | { type: 'conversation.item.created'; item: any };
+  | { type: 'conversation.item.created'; item: any }
+  | { type: 'session.updated' };
 
 export class RealtimeAPIClient {
   private ws: WebSocket | null = null;
@@ -19,6 +27,13 @@ export class RealtimeAPIClient {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
+  private agentState: AgentState = 'idle';
+  private intentionalClose = false;
+  private hasBufferedAudio = false;
+  private bufferedSamples = 0;
+  private hasReceivedAudio = false;
+  private sessionUpdateSent = false;
+  private pendingClear = true;
 
   constructor(config: RealtimeConfig) {
     this.config = config;
@@ -32,6 +47,12 @@ export class RealtimeAPIClient {
   }
 
   async connect(): Promise<void> {
+    this.intentionalClose = false;
+    this.sessionUpdateSent = false;
+    this.pendingClear = true;
+    this.hasReceivedAudio = false;
+    this.hasBufferedAudio = false;
+    this.bufferedSamples = 0;
     const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
     if (!apiKey) {
       throw new Error('Missing OpenAI API key');
@@ -69,9 +90,11 @@ export class RealtimeAPIClient {
             console.error('Connection closed due to policy violation');
           }
 
-          this.emit({ type: 'disconnected', reason: event.reason });
+          this.emit({ type: 'disconnected', reason: event.reason || `code:${event.code}` });
+          this.setAgentState('idle', 'socket-closed');
 
-          if (!event.wasClean && this.reconnectAttempts < this.maxReconnectAttempts) {
+          const shouldRetry = !this.intentionalClose && this.reconnectAttempts < this.maxReconnectAttempts && (!event.wasClean || event.code === 1005);
+          if (shouldRetry) {
             this.attemptReconnect();
           }
         };
@@ -85,7 +108,6 @@ export class RealtimeAPIClient {
         this.ws.onmessage = (event) => {
           try {
             const message = JSON.parse(event.data);
-            console.log('Received message:', message.type, message);
             this.handleServerMessage(message);
           } catch (error) {
             console.error('Failed to parse message:', error, event.data);
@@ -98,8 +120,11 @@ export class RealtimeAPIClient {
   }
 
   sendSessionUpdate(): void {
+    if (this.sessionUpdateSent) {
+      console.log('Session update already sent, skipping duplicate');
+      return;
+    }
     const tools = getToolSchemas();
-
     const sessionConfig = {
       type: 'session.update',
       session: {
@@ -112,7 +137,12 @@ export class RealtimeAPIClient {
           model: 'whisper-1',
           language: 'en'
         },
-        turn_detection: this.config.turn_detection,
+        turn_detection: this.config.turn_detection ?? {
+          type: 'server_vad',
+          threshold: 0.65,
+          prefix_padding_ms: 200,
+          silence_duration_ms: 700
+        },
         tools,
         tool_choice: 'auto',
         temperature: this.config.temperature,
@@ -120,36 +150,68 @@ export class RealtimeAPIClient {
       }
     };
 
-    console.log('📤 Sending session.update with transcription enabled:', {
-      hasTranscription: !!sessionConfig.session.input_audio_transcription,
+    console.log('📤 Sending session.update', {
       turnDetection: sessionConfig.session.turn_detection,
       voice: sessionConfig.session.voice,
-      instructions: sessionConfig.session.instructions.substring(0, 50) + '...'
+      model: this.config.model
     });
+
     this.send(sessionConfig);
+    this.sessionUpdateSent = true;
   }
 
   private handleServerMessage(message: any): void {
     switch (message.type) {
       case 'session.created':
-        console.log('Session created successfully:', message);
+        console.log('Session created successfully');
         break;
 
       case 'session.updated':
-        console.log('✅ Session updated successfully');
-        console.log('📋 Session config:', {
-          modalities: message.session?.modalities,
-          inputTranscription: message.session?.input_audio_transcription,
-          turnDetection: message.session?.turn_detection
+        console.log('✅ Session updated');
+        this.emit({ type: 'session.updated' });
+        break;
+
+      case 'input_audio_buffer.speech_started':
+        // Reset local counters but defer server clear until we stream audio
+        this.bufferedSamples = 0;
+        this.hasBufferedAudio = false;
+        this.hasReceivedAudio = false;
+        this.pendingClear = true;
+        if (this.agentState === 'speaking') {
+          this.cancelResponse();
+          this.emit({ type: 'interruption' });
+        }
+        this.emit({ type: 'transcript.reset', role: 'user' });
+        this.setAgentState('listening');
+        break;
+
+      case 'input_audio_buffer.speech_stopped':
+        // With server VAD, let the server handle commit; just reset local flags
+        this.pendingClear = true;
+        this.hasBufferedAudio = false;
+        this.hasReceivedAudio = false;
+        this.bufferedSamples = 0;
+        this.setAgentState('thinking');
+        break;
+
+      case 'input_audio_buffer.committed':
+        break;
+      case 'input_audio_buffer.cleared':
+        this.hasBufferedAudio = false;
+        this.hasReceivedAudio = false;
+        this.bufferedSamples = 0;
+        this.pendingClear = false;
+        break;
+
+      case 'conversation.item.input_audio_transcription.delta':
+        this.emit({
+          type: 'transcript.delta',
+          delta: message.delta,
+          role: 'user'
         });
         break;
 
-      case 'response.audio.delta':
-        this.emit({ type: 'audio.delta', delta: message.delta });
-        break;
-
       case 'conversation.item.input_audio_transcription.completed':
-        console.log('✅ USER TRANSCRIPT COMPLETED:', message.transcript);
         this.emit({
           type: 'transcript.done',
           transcript: message.transcript,
@@ -157,8 +219,21 @@ export class RealtimeAPIClient {
         });
         break;
 
+      case 'response.created':
+        this.setAgentState('thinking');
+        this.emit({ type: 'response.created', id: message.response?.id });
+        break;
+
+      case 'response.audio.delta':
+        this.setAgentState('speaking');
+        this.emit({ type: 'audio.delta', delta: message.delta });
+        break;
+
+      case 'response.audio.done':
+        this.emit({ type: 'audio.done' });
+        break;
+
       case 'response.audio_transcript.delta':
-        console.log('📝 ASSISTANT TRANSCRIPT DELTA:', message.delta);
         this.emit({
           type: 'transcript.delta',
           delta: message.delta,
@@ -167,7 +242,6 @@ export class RealtimeAPIClient {
         break;
 
       case 'response.audio_transcript.done':
-        console.log('✅ ASSISTANT TRANSCRIPT COMPLETED:', message.transcript);
         this.emit({
           type: 'transcript.done',
           transcript: message.transcript,
@@ -175,8 +249,24 @@ export class RealtimeAPIClient {
         });
         break;
 
-      case 'response.done':
-        this.emit({ type: 'response.done', response: message.response });
+      case 'response.output_item.added':
+        console.log('🧩 Response item added:', message.item);
+        break;
+
+      case 'response.output_item.done':
+        console.log('🧩 Response item done:', message.item);
+        break;
+
+      case 'response.content_part.added':
+        console.log('🧩 Content part added:', message.part);
+        break;
+
+      case 'response.content_part.done':
+        console.log('🧩 Content part done:', message.part);
+        break;
+
+      case 'response.function_call_arguments.delta':
+        console.log('🛠️ Function call args delta:', message.delta);
         break;
 
       case 'response.function_call_arguments.done':
@@ -190,51 +280,25 @@ export class RealtimeAPIClient {
         });
         break;
 
+      case 'response.interrupted':
+      case 'response.canceled':
+      case 'response.cancelled': // handle both spellings just in case
+        this.setAgentState('interrupted');
+        this.emit({ type: 'interruption' });
+        this.hasBufferedAudio = false;
+        this.bufferedSamples = 0;
+        break;
+
+      case 'response.done':
+        this.setAgentState('idle');
+        this.emit({ type: 'response.done', response: message.response ?? message });
+        break;
+
       case 'conversation.item.created':
         this.emit({ type: 'conversation.item.created', item: message.item });
         break;
 
-      case 'input_audio_buffer.speech_started':
-        console.log('User started speaking');
-        break;
-
-      case 'input_audio_buffer.speech_stopped':
-        console.log('User stopped speaking');
-        break;
-
-      case 'input_audio_buffer.committed':
-        console.log('Audio buffer committed');
-        break;
-
-      case 'response.created':
-        console.log('Response created');
-        break;
-
-      case 'response.output_item.added':
-        console.log('Output item added');
-        break;
-
-      case 'response.output_item.done':
-        console.log('Output item done');
-        break;
-
-      case 'response.content_part.added':
-        console.log('Content part added');
-        break;
-
-      case 'response.content_part.done':
-        console.log('Content part done');
-        break;
-
-      case 'response.audio.done':
-        console.log('Audio playback done');
-        break;
-
       case 'rate_limits.updated':
-        break;
-
-      case 'conversation.item.input_audio_transcription.delta':
-        console.log('📝 User transcript delta:', message.delta);
         break;
 
       case 'error':
@@ -250,11 +314,21 @@ export class RealtimeAPIClient {
 
   sendAudio(audioData: Int16Array): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('WebSocket not connected');
       return;
     }
 
+    if (this.pendingClear) {
+      this.hasBufferedAudio = false;
+      this.bufferedSamples = 0;
+      this.hasReceivedAudio = false;
+      this.pendingClear = false;
+      this.send({ type: 'input_audio_buffer.clear' });
+    }
+
     const base64Audio = this.arrayBufferToBase64(audioData.buffer);
+    this.hasBufferedAudio = true;
+    this.bufferedSamples += audioData.length;
+    this.hasReceivedAudio = true;
     this.send({
       type: 'input_audio_buffer.append',
       audio: base64Audio
@@ -262,12 +336,23 @@ export class RealtimeAPIClient {
   }
 
   commitAudio(): void {
+    if (!this.hasBufferedAudio || this.bufferedSamples < 2400 || !this.hasReceivedAudio) {
+      console.warn('Skip commit: insufficient buffered audio', { bufferedSamples: this.bufferedSamples, hasReceivedAudio: this.hasReceivedAudio });
+      return;
+    }
     this.send({
       type: 'input_audio_buffer.commit'
     });
+    this.hasBufferedAudio = false;
+    this.bufferedSamples = 0;
+    this.hasReceivedAudio = false;
   }
 
   clearAudioBuffer(): void {
+    this.hasBufferedAudio = false;
+    this.bufferedSamples = 0;
+    this.hasReceivedAudio = false;
+    this.pendingClear = false;
     this.send({
       type: 'input_audio_buffer.clear'
     });
@@ -289,28 +374,32 @@ export class RealtimeAPIClient {
   }
 
   cancelResponse(): void {
+    this.hasBufferedAudio = false;
+    this.bufferedSamples = 0;
+    this.hasReceivedAudio = false;
+    this.pendingClear = true;
     this.send({
       type: 'response.cancel'
     });
+    this.setAgentState('interrupted');
   }
 
   private send(message: any): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      console.log('Sending message:', message.type);
       this.ws.send(JSON.stringify(message));
     } else {
       console.warn('Cannot send message, WebSocket not open. State:', this.ws?.readyState);
     }
   }
 
-  on(eventType: string, handler: (event: any) => void): void {
+  on(eventType: RealtimeEvent['type'], handler: (event: any) => void): void {
     if (!this.eventHandlers.has(eventType)) {
       this.eventHandlers.set(eventType, new Set());
     }
     this.eventHandlers.get(eventType)!.add(handler);
   }
 
-  off(eventType: string, handler: (event: any) => void): void {
+  off(eventType: RealtimeEvent['type'], handler: (event: any) => void): void {
     const handlers = this.eventHandlers.get(eventType);
     if (handlers) {
       handlers.delete(handler);
@@ -324,6 +413,12 @@ export class RealtimeAPIClient {
     }
   }
 
+  private setAgentState(state: AgentState, reason?: string): void {
+    if (this.agentState === state && !reason) return;
+    this.agentState = state;
+    this.emit({ type: 'agent_state', state, reason });
+  }
+
   private attemptReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.error('Max reconnection attempts reached');
@@ -332,7 +427,6 @@ export class RealtimeAPIClient {
 
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
-
     console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
     setTimeout(() => {
@@ -352,6 +446,12 @@ export class RealtimeAPIClient {
   }
 
   disconnect(): void {
+    this.intentionalClose = true;
+    this.sessionUpdateSent = false;
+    this.pendingClear = true;
+    this.hasReceivedAudio = false;
+    this.hasBufferedAudio = false;
+    this.bufferedSamples = 0;
     if (this.ws) {
       try {
         if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
@@ -363,6 +463,7 @@ export class RealtimeAPIClient {
       this.ws = null;
     }
     this.eventHandlers.clear();
+    this.agentState = 'idle';
   }
 
   isConnected(): boolean {

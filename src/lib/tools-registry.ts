@@ -193,15 +193,6 @@ export async function loadMCPTools(configId?: string): Promise<void> {
 
           const executionTime = Date.now() - startTime;
 
-          await supabase.from('va_mcp_tool_usage').insert({
-            tool_id: mcpTool.id,
-            connection_id: mcpTool.connection_id,
-            tool_name: mcpTool.tool_name,
-            execution_time_ms: executionTime,
-            success: result.success,
-            error_message: result.error || null
-          });
-
           if (!result.success) {
             throw new Error(result.error || 'MCP tool execution failed');
           }
@@ -209,15 +200,6 @@ export async function loadMCPTools(configId?: string): Promise<void> {
           return result.data || result.result;
         } catch (error: any) {
           const executionTime = Date.now() - startTime;
-
-          await supabase.from('va_mcp_tool_usage').insert({
-            tool_id: mcpTool.id,
-            connection_id: mcpTool.connection_id,
-            tool_name: mcpTool.tool_name,
-            execution_time_ms: executionTime,
-            success: false,
-            error_message: error.message || 'Unknown error'
-          });
 
           throw error;
         }
@@ -278,6 +260,12 @@ export async function executeTool(
   let errorMessage: string | undefined;
 
   try {
+    // Enforce execute_sql shape: always { query: string }
+    if (toolName === 'execute_sql') {
+      const raw = typeof params === 'string' ? params : (params?.query ?? params?.statement ?? params?.sql ?? '');
+      params = { query: String(raw || '') };
+    }
+
     result = await tool.execute(params);
   } catch (error: any) {
     status = 'error';

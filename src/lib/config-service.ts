@@ -26,8 +26,11 @@ export interface AgentConfigPreset {
 }
 
 export function configPresetToRealtimeConfig(preset: AgentConfigPreset): RealtimeConfig {
+  const normalizedModel = preset.model && preset.model.startsWith('gpt-4o-realtime')
+    ? 'gpt-realtime'
+    : preset.model;
   return {
-    model: preset.model,
+    model: normalizedModel,
     voice: preset.voice,
     instructions: preset.instructions,
     temperature: preset.temperature,

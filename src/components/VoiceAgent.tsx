@@ -35,6 +35,7 @@ export function VoiceAgent() {
   const [isMCPPanelOpen, setIsMCPPanelOpen] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
+  const [isSwitchingPreset, setIsSwitchingPreset] = useState(false);
   const [toolsCount, setToolsCount] = useState({ client: 0, server: 0, mcp: 0 });
   const [currentConfig, setCurrentConfig] = useState<RealtimeConfig>(defaultConfig);
   const [activeConfigName, setActiveConfigName] = useState<string | undefined>();
@@ -51,16 +52,20 @@ export function VoiceAgent() {
     isRecording,
     messages,
     waveformData,
+    volume,
     sessionId,
     isProcessing,
     config,
     error,
-    transcriptDebug,
+    agentState,
+    liveUserTranscript,
+    liveAssistantTranscript,
     activeConfigId,
     setConfig,
     setActiveConfig,
     initialize,
     toggleRecording,
+    interrupt,
     cleanup
   } = useVoiceAgent();
 
@@ -282,6 +287,36 @@ export function VoiceAgent() {
     updateToolsCount();
   };
 
+  const handlePresetChange = async (presetId: string | null) => {
+    if (!presetId) return;
+    const preset = presets.find(p => p.id === presetId);
+    if (!preset) return;
+
+    const newConfig = configPresetToRealtimeConfig(preset);
+    setPendingConfigId(presetId);
+    setActiveConfig(presetId);
+    setActiveConfigName(preset.name);
+    setCurrentConfig(newConfig);
+
+    // If already running, end current session and restart with new config
+    if (isInitialized) {
+      setIsSwitchingPreset(true);
+      try {
+        await cleanup();
+        setIsInitialized(false);
+        await initialize(newConfig, presetId);
+        setIsInitialized(true);
+        setViewMode('current');
+        setSelectedHistoricalSessionId(undefined);
+        setHistoricalMessages([]);
+      } catch (error) {
+        console.error('Failed to switch preset:', error);
+      } finally {
+        setIsSwitchingPreset(false);
+      }
+    }
+  };
+
   const sidebar = (
     <Sidebar
       toolsCount={toolsCount}
@@ -326,6 +361,15 @@ export function VoiceAgent() {
               <div className="flex-1 grid grid-cols-2 gap-6 min-h-0 overflow-hidden">
                 <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
                   <div className="flex-1 min-h-0 overflow-hidden">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-xs text-gray-500">
+                        Active preset: <span className="font-medium text-gray-800">{activeConfigName || 'Custom'}</span>
+                        {isSwitchingPreset && <span className="ml-2 text-amber-600">Switching…</span>}
+                      </div>
+                      {sessionId && (
+                        <span className="text-[11px] text-gray-400">Session: {sessionId}</span>
+                      )}
+                    </div>
                     <ConversationThread
                       key={viewMode === 'history' ? `history-${selectedHistoricalSessionId}` : 'current'}
                       messages={viewMode === 'current' ? messages : historicalMessages}
@@ -333,6 +377,9 @@ export function VoiceAgent() {
                       isHistorical={viewMode === 'history'}
                       isLoadingHistory={isLoadingHistory}
                       historyError={historyError}
+                      liveAssistantTranscript={liveAssistantTranscript}
+                      liveUserTranscript={liveUserTranscript}
+                      agentState={agentState}
                     />
                   </div>
                 </div>
@@ -341,11 +388,15 @@ export function VoiceAgent() {
                   {viewMode === 'current' ? (
                     <>
                       <VoiceInteractionArea
+                        agentState={agentState}
                         isRecording={isRecording}
                         isConnected={isConnected}
-                        isProcessing={isProcessing}
+                        liveUserTranscript={liveUserTranscript}
+                        liveAssistantTranscript={liveAssistantTranscript}
                         onToggle={toggleRecording}
                         waveformData={waveformData}
+                        volume={volume}
+                        onInterrupt={interrupt}
                       />
 
                       {config && config.turn_detection && (
@@ -354,11 +405,6 @@ export function VoiceAgent() {
                         </p>
                       )}
 
-                      {transcriptDebug && (
-                        <Card className="p-4">
-                          <p className="text-sm text-blue-600 italic">{transcriptDebug}</p>
-                        </Card>
-                      )}
                     </>
                   ) : (
                     <Card className="p-6 flex items-center justify-center h-full">
@@ -390,17 +436,8 @@ export function VoiceAgent() {
         }}
         activeConfigId={isInitialized ? activeConfigId : pendingConfigId}
         onActiveConfigChange={(configId) => {
-          if (isInitialized) {
-            setActiveConfig(configId);
-          } else {
-            setPendingConfigId(configId);
-            if (configId) {
-              const preset = presets.find(p => p.id === configId);
-              if (preset) {
-                setCurrentConfig(configPresetToRealtimeConfig(preset));
-                setActiveConfigName(preset.name);
-              }
-            }
+          if (configId) {
+            handlePresetChange(configId);
           }
         }}
       />
