@@ -13,7 +13,6 @@ interface VoiceInteractionAreaProps {
   waveformData: Uint8Array | null;
   volume: number;
   onToggle: () => void;
-  onInterrupt?: () => void;
 }
 
 const stateLabel: Record<AgentState, string> = {
@@ -52,8 +51,7 @@ export function VoiceInteractionArea({
   liveAssistantTranscript,
   waveformData,
   volume,
-  onToggle,
-  onInterrupt
+  onToggle
 }: VoiceInteractionAreaProps) {
   const heights = buildWaveHeights(waveformData, volume);
   const isActive = agentState === 'listening' || agentState === 'speaking';
@@ -138,33 +136,28 @@ export function VoiceInteractionArea({
               </AnimatePresence>
             </div>
 
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3 text-white/70 text-sm">
-                <span className={`h-2 w-2 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
-                {isConnected ? 'Realtime connected' : 'Connecting…'}
-              </div>
-              <div className="flex items-center gap-4">
-                {onInterrupt && (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 text-white/70 text-sm">
+                  <span className={`h-2 w-2 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
+                  {isConnected ? 'Realtime connected' : 'Connecting…'}
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="text-xs text-white/60 pr-2">
+                    {isRecording ? 'Listening – tap to pause' : 'Mic paused – tap to start'}
+                  </div>
                   <button
-                    onClick={onInterrupt}
-                    className="h-11 px-4 rounded-xl border border-amber-400/60 text-amber-100 bg-amber-500/10 hover:bg-amber-500/20 transition"
+                    onClick={onToggle}
+                    className={`h-12 w-12 rounded-2xl flex items-center justify-center text-white shadow-lg transition transform hover:scale-[1.02] ${
+                      isRecording
+                        ? 'bg-gradient-to-br from-rose-500 to-amber-400 hover:from-rose-400 hover:to-amber-300'
+                        : 'bg-white/10 hover:bg-white/20 border border-white/15'
+                    }`}
+                    aria-label={isRecording ? 'Stop recording' : 'Start recording'}
                   >
-                    Interrupt
+                    {isRecording ? <Square className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                   </button>
-                )}
-                <button
-                  onClick={onToggle}
-                  className={`h-12 w-12 rounded-2xl flex items-center justify-center text-white shadow-lg transition transform hover:scale-[1.02] ${
-                    isRecording
-                      ? 'bg-gradient-to-br from-rose-500 to-amber-400 hover:from-rose-400 hover:to-amber-300'
-                      : 'bg-white/10 hover:bg-white/20 border border-white/15'
-                  }`}
-                  aria-label={isRecording ? 'Stop recording' : 'Start recording'}
-                >
-                  {isRecording ? <Square className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                </button>
+                </div>
               </div>
-            </div>
           </div>
         </div>
       </div>

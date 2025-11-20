@@ -119,13 +119,9 @@ export function useVoiceAgent() {
     const audioManager = audioManagerRef.current;
     if (!client) return;
 
-    client.on('connected', async () => {
+    client.on('connected', () => {
       setIsConnected(true);
       setAgentState('idle');
-      if (!micStartedRef.current) {
-        console.log('🎤 Starting microphone on connected');
-        await startRecording();
-      }
     });
 
     client.on('disconnected', () => {

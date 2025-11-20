@@ -353,6 +353,9 @@ export function VoiceAgent() {
           isInitializing={isInitializing}
           activeConfigName={activeConfigName}
           error={error}
+          presets={presets.map(p => ({ id: p.id, name: p.name }))}
+          selectedPresetId={pendingConfigId || activeConfigId || null}
+          onPresetSelect={(id) => handlePresetChange(id)}
         />
       ) : (
         <MainLayout sidebar={sidebar} topBar={topBar}>
@@ -392,12 +395,11 @@ export function VoiceAgent() {
                         isRecording={isRecording}
                         isConnected={isConnected}
                         liveUserTranscript={liveUserTranscript}
-                        liveAssistantTranscript={liveAssistantTranscript}
-                        onToggle={toggleRecording}
-                        waveformData={waveformData}
-                        volume={volume}
-                        onInterrupt={interrupt}
-                      />
+                      liveAssistantTranscript={liveAssistantTranscript}
+                      onToggle={toggleRecording}
+                      waveformData={waveformData}
+                      volume={volume}
+                    />
 
                       {config && config.turn_detection && (
                         <p className="text-center text-sm text-gray-400">
