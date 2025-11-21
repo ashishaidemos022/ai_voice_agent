@@ -3,7 +3,7 @@ import { RealtimeConfig } from '../types/voice-agent';
 
 export interface SelectedTool {
   tool_name: string;
-  tool_source: 'client' | 'server' | 'mcp';
+  tool_source: 'mcp';
   tool_id?: string;
   connection_id?: string;
 }

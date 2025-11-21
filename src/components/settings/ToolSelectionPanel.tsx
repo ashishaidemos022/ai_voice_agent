@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Check, ChevronDown, ChevronRight, Loader2, Wrench, Cloud, Server } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Loader2, Wrench } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { getConfigTools, updateConfigTools, SelectedTool } from '../../lib/config-service';
-import { clientTools, serverTools } from '../../lib/tools-registry';
 import { Button } from '../ui/Button';
 import { Card, CardContent } from '../ui/Card';
 import { Badge } from '../ui/Badge';
@@ -26,73 +25,83 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
   const [mcpTools, setMcpTools] = useState<MCPToolInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [expandedSection, setExpandedSection] = useState<string | null>('client');
+  const [isExpanded, setIsExpanded] = useState(true);
   const [hasChanges, setHasChanges] = useState(false);
 
-  useEffect(() => {
-    if (configId) {
-      loadToolSelection();
-      loadMCPTools();
-    } else {
-      setSelectedTools(new Set());
-      setHasChanges(false);
+  const fetchMcpTools = async (): Promise<MCPToolInfo[]> => {
+    const { data: connections } = await supabase
+      .from('va_mcp_connections')
+      .select('id, name')
+      .eq('is_enabled', true)
+      .eq('status', 'active');
+
+    if (!connections || connections.length === 0) {
+      return [];
     }
-  }, [configId]);
 
-  const loadToolSelection = async () => {
-    if (!configId) return;
+    const { data: tools } = await supabase
+      .from('va_mcp_tools')
+      .select('id, tool_name, description, connection_id, category')
+      .eq('is_enabled', true)
+      .in('connection_id', connections.map(c => c.id));
 
-    setIsLoading(true);
-    try {
-      const tools = await getConfigTools(configId);
-
-      if (tools.length === 0) {
-        const allToolNames = [
-          ...clientTools.map(t => t.name),
-          ...serverTools.map(t => t.name)
-        ];
-        setSelectedTools(new Set(allToolNames));
-      } else {
-        setSelectedTools(new Set(tools.map(t => t.tool_name)));
-      }
-      setHasChanges(false);
-    } catch (error) {
-      console.error('Failed to load tool selection:', error);
-    } finally {
-      setIsLoading(false);
+    if (!tools) {
+      return [];
     }
+
+    return tools.map(tool => ({
+      ...tool,
+      connection_name: connections.find(c => c.id === tool.connection_id)?.name || 'Unknown'
+    }));
   };
 
-  const loadMCPTools = async () => {
-    try {
-      const { data: connections } = await supabase
-        .from('va_mcp_connections')
-        .select('id, name')
-        .eq('is_enabled', true)
-        .eq('status', 'active');
+  useEffect(() => {
+    let isMounted = true;
 
-      if (!connections || connections.length === 0) {
+    const loadData = async () => {
+      if (!configId) {
+        setSelectedTools(new Set());
         setMcpTools([]);
+        setHasChanges(false);
         return;
       }
 
-      const { data: tools } = await supabase
-        .from('va_mcp_tools')
-        .select('id, tool_name, description, connection_id, category')
-        .eq('is_enabled', true)
-        .in('connection_id', connections.map(c => c.id));
+      setIsLoading(true);
+      try {
+        const [availableMcpTools, toolsFromConfig] = await Promise.all([
+          fetchMcpTools(),
+          getConfigTools(configId)
+        ]);
 
-      if (tools) {
-        const toolsWithConnection = tools.map(tool => ({
-          ...tool,
-          connection_name: connections.find(c => c.id === tool.connection_id)?.name || 'Unknown'
-        }));
-        setMcpTools(toolsWithConnection);
+        if (!isMounted) return;
+
+        setMcpTools(availableMcpTools);
+
+        const savedToolNames = toolsFromConfig.map(t => t.tool_name);
+        const nextSelection = toolsFromConfig.length === 0
+          ? availableMcpTools.map(t => t.tool_name)
+          : savedToolNames;
+
+        setSelectedTools(new Set(nextSelection));
+        setHasChanges(false);
+      } catch (error) {
+        console.error('Failed to load MCP tools or selection:', error);
+        if (isMounted) {
+          setSelectedTools(new Set());
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
-    } catch (error) {
-      console.error('Failed to load MCP tools:', error);
-    }
-  };
+    };
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [configId]);
 
   const handleToggleTool = (toolName: string) => {
     const newSelected = new Set(selectedTools);
@@ -105,37 +114,13 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
     setHasChanges(true);
   };
 
-  const handleSelectAll = (source: 'client' | 'server' | 'mcp') => {
-    const newSelected = new Set(selectedTools);
-    let tools: string[];
-
-    if (source === 'client') {
-      tools = clientTools.map(t => t.name);
-    } else if (source === 'server') {
-      tools = serverTools.map(t => t.name);
-    } else {
-      tools = mcpTools.map(t => t.tool_name);
-    }
-
-    tools.forEach(name => newSelected.add(name));
-    setSelectedTools(newSelected);
+  const handleSelectAll = () => {
+    setSelectedTools(new Set(mcpTools.map(t => t.tool_name)));
     setHasChanges(true);
   };
 
-  const handleDeselectAll = (source: 'client' | 'server' | 'mcp') => {
-    const newSelected = new Set(selectedTools);
-    let tools: string[];
-
-    if (source === 'client') {
-      tools = clientTools.map(t => t.name);
-    } else if (source === 'server') {
-      tools = serverTools.map(t => t.name);
-    } else {
-      tools = mcpTools.map(t => t.tool_name);
-    }
-
-    tools.forEach(name => newSelected.delete(name));
-    setSelectedTools(newSelected);
+  const handleDeselectAll = () => {
+    setSelectedTools(new Set());
     setHasChanges(true);
   };
 
@@ -145,24 +130,6 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
     setIsSaving(true);
     try {
       const toolsToSave: SelectedTool[] = [];
-
-      clientTools.forEach(tool => {
-        if (selectedTools.has(tool.name)) {
-          toolsToSave.push({
-            tool_name: tool.name,
-            tool_source: 'client'
-          });
-        }
-      });
-
-      serverTools.forEach(tool => {
-        if (selectedTools.has(tool.name)) {
-          toolsToSave.push({
-            tool_name: tool.name,
-            tool_source: 'server'
-          });
-        }
-      });
 
       mcpTools.forEach(tool => {
         if (selectedTools.has(tool.tool_name)) {
@@ -194,11 +161,9 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
     );
   }
 
-  const clientSelectedCount = clientTools.filter(t => selectedTools.has(t.name)).length;
-  const serverSelectedCount = serverTools.filter(t => selectedTools.has(t.name)).length;
   const mcpSelectedCount = mcpTools.filter(t => selectedTools.has(t.tool_name)).length;
-  const totalSelected = clientSelectedCount + serverSelectedCount + mcpSelectedCount;
-  const totalAvailable = clientTools.length + serverTools.length + mcpTools.length;
+  const totalSelected = mcpSelectedCount;
+  const totalAvailable = mcpTools.length;
 
   return (
     <div className="space-y-4">
@@ -232,24 +197,24 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
               <div
                 role="button"
                 tabIndex={0}
-                onClick={() => setExpandedSection(expandedSection === 'client' ? null : 'client')}
+                onClick={() => setIsExpanded(!isExpanded)}
                 className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
               >
                 <div className="flex items-center gap-2">
-                  {expandedSection === 'client' ? (
+                  {isExpanded ? (
                     <ChevronDown className="w-4 h-4 text-gray-600" />
                   ) : (
                     <ChevronRight className="w-4 h-4 text-gray-600" />
                   )}
-                  <Server className="w-4 h-4 text-blue-600" />
-                  <span className="text-sm font-medium text-gray-800">Client Tools</span>
-                  <Badge variant="secondary">{clientSelectedCount}/{clientTools.length}</Badge>
+                  <Wrench className="w-4 h-4 text-purple-600" />
+                  <span className="text-sm font-medium text-gray-800">MCP Tools</span>
+                  <Badge variant="secondary">{mcpSelectedCount}/{mcpTools.length}</Badge>
                 </div>
                 <div className="flex gap-1">
                   <span
                     role="button"
                     tabIndex={0}
-                    onClick={(e) => { e.stopPropagation(); handleSelectAll('client'); }}
+                    onClick={(e) => { e.stopPropagation(); handleSelectAll(); }}
                     className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded"
                   >
                     All
@@ -257,7 +222,7 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
                   <span
                     role="button"
                     tabIndex={0}
-                    onClick={(e) => { e.stopPropagation(); handleDeselectAll('client'); }}
+                    onClick={(e) => { e.stopPropagation(); handleDeselectAll(); }}
                     className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded"
                   >
                     None
@@ -265,140 +230,14 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
                 </div>
               </div>
 
-              {expandedSection === 'client' && (
+              {isExpanded && (
                 <div className="border-t border-gray-200 p-3 space-y-2">
-                  {clientTools.map(tool => (
-                    <label
-                      key={tool.name}
-                      className="flex items-start gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedTools.has(tool.name)}
-                        onChange={() => handleToggleTool(tool.name)}
-                        className="mt-0.5 w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-gray-800">{tool.name}</div>
-                        <div className="text-xs text-gray-500 line-clamp-2">{tool.description}</div>
-                      </div>
-                      {selectedTools.has(tool.name) && (
-                        <Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
-                      )}
-                    </label>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-0">
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => setExpandedSection(expandedSection === 'server' ? null : 'server')}
-                className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
-              >
-                <div className="flex items-center gap-2">
-                  {expandedSection === 'server' ? (
-                    <ChevronDown className="w-4 h-4 text-gray-600" />
+                  {mcpTools.length === 0 ? (
+                    <p className="text-xs text-gray-500">
+                      No MCP tools available. Enable an MCP connection to select tools.
+                    </p>
                   ) : (
-                    <ChevronRight className="w-4 h-4 text-gray-600" />
-                  )}
-                  <Cloud className="w-4 h-4 text-green-600" />
-                  <span className="text-sm font-medium text-gray-800">Server Tools</span>
-                  <Badge variant="secondary">{serverSelectedCount}/{serverTools.length}</Badge>
-                </div>
-                <div className="flex gap-1">
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={(e) => { e.stopPropagation(); handleSelectAll('server'); }}
-                    className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded"
-                  >
-                    All
-                  </span>
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={(e) => { e.stopPropagation(); handleDeselectAll('server'); }}
-                    className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded"
-                  >
-                    None
-                  </span>
-                </div>
-              </div>
-
-              {expandedSection === 'server' && (
-                <div className="border-t border-gray-200 p-3 space-y-2">
-                  {serverTools.map(tool => (
-                    <label
-                      key={tool.name}
-                      className="flex items-start gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedTools.has(tool.name)}
-                        onChange={() => handleToggleTool(tool.name)}
-                        className="mt-0.5 w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-gray-800">{tool.name}</div>
-                        <div className="text-xs text-gray-500 line-clamp-2">{tool.description}</div>
-                      </div>
-                      {selectedTools.has(tool.name) && (
-                        <Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
-                      )}
-                    </label>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {mcpTools.length > 0 && (
-            <Card>
-              <CardContent className="p-0">
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setExpandedSection(expandedSection === 'mcp' ? null : 'mcp')}
-                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    {expandedSection === 'mcp' ? (
-                      <ChevronDown className="w-4 h-4 text-gray-600" />
-                    ) : (
-                      <ChevronRight className="w-4 h-4 text-gray-600" />
-                    )}
-                    <Wrench className="w-4 h-4 text-purple-600" />
-                    <span className="text-sm font-medium text-gray-800">MCP Tools</span>
-                    <Badge variant="secondary">{mcpSelectedCount}/{mcpTools.length}</Badge>
-                  </div>
-                  <div className="flex gap-1">
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      onClick={(e) => { e.stopPropagation(); handleSelectAll('mcp'); }}
-                      className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded"
-                    >
-                      All
-                    </span>
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      onClick={(e) => { e.stopPropagation(); handleDeselectAll('mcp'); }}
-                      className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded"
-                    >
-                      None
-                    </span>
-                  </div>
-                </div>
-
-                {expandedSection === 'mcp' && (
-                  <div className="border-t border-gray-200 p-3 space-y-2">
-                    {mcpTools.map(tool => (
+                    mcpTools.map(tool => (
                       <label
                         key={tool.id}
                         className="flex items-start gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer"
@@ -425,12 +264,12 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
                           <Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
                         )}
                       </label>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
+                    ))
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       )}
 

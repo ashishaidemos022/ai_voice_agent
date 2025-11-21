@@ -5,20 +5,16 @@ import { cn } from '../../lib/utils';
 interface ToolCardProps {
   name: string;
   description?: string;
-  category?: 'client' | 'server' | 'mcp';
+  category?: 'mcp';
   icon?: LucideIcon;
 }
 
-export function ToolCard({ name, description, category = 'client', icon: Icon }: ToolCardProps) {
+export function ToolCard({ name, description, category = 'mcp', icon: Icon }: ToolCardProps) {
   const categoryStyles = {
-    client: 'border-l-4 border-l-blue-500 hover:border-l-blue-600',
-    server: 'border-l-4 border-l-amber-500 hover:border-l-amber-600',
     mcp: 'border-l-4 border-l-green-500 hover:border-l-green-600',
   };
 
   const categoryColors = {
-    client: 'text-blue-600',
-    server: 'text-amber-600',
     mcp: 'text-green-600',
   };
 

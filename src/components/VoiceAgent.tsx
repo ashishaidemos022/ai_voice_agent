@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useVoiceAgent } from '../hooks/useVoiceAgent';
 import { RealtimeConfig, Message } from '../types/voice-agent';
-import { clientTools, serverTools, mcpTools } from '../lib/tools-registry';
+import { mcpTools } from '../lib/tools-registry';
 import { getDefaultConfigPreset, configPresetToRealtimeConfig, getAllConfigPresets, AgentConfigPreset } from '../lib/config-service';
 import { supabase } from '../lib/supabase';
 
@@ -36,7 +36,7 @@ export function VoiceAgent() {
   const [isInitialized, setIsInitialized] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [isSwitchingPreset, setIsSwitchingPreset] = useState(false);
-  const [toolsCount, setToolsCount] = useState({ client: 0, server: 0, mcp: 0 });
+  const [toolsCount, setToolsCount] = useState(0);
   const [currentConfig, setCurrentConfig] = useState<RealtimeConfig>(defaultConfig);
   const [activeConfigName, setActiveConfigName] = useState<string | undefined>();
   const [viewMode, setViewMode] = useState<'current' | 'history'>('current');
@@ -65,7 +65,6 @@ export function VoiceAgent() {
     setActiveConfig,
     initialize,
     toggleRecording,
-    interrupt,
     cleanup
   } = useVoiceAgent();
 
@@ -247,11 +246,7 @@ export function VoiceAgent() {
   };
 
   const updateToolsCount = () => {
-    setToolsCount({
-      client: clientTools.length,
-      server: serverTools.length,
-      mcp: mcpTools.length
-    });
+    setToolsCount(mcpTools.length);
   };
 
   useEffect(() => {
@@ -325,11 +320,7 @@ export function VoiceAgent() {
       selectedSessionId={selectedHistoricalSessionId}
       currentSessionId={sessionId}
     >
-      <ToolsList
-        clientTools={clientTools}
-        serverTools={serverTools}
-        mcpTools={mcpTools}
-      />
+      <ToolsList mcpTools={mcpTools} />
     </Sidebar>
   );
 

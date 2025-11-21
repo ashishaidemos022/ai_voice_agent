@@ -38,7 +38,7 @@ export interface ToolExecution {
   status: 'success' | 'error' | 'timeout';
   error_message?: string;
   executed_at: string;
-  execution_type: 'client' | 'server';
+  execution_type: 'mcp';
 }
 
 export interface RealtimeConfig {

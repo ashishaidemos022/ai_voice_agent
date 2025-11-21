@@ -1,11 +1,10 @@
 import { ReactNode, useState } from 'react';
-import { Separator } from '../ui/Separator';
 import { Badge } from '../ui/Badge';
 import { Mic, Wrench, History } from 'lucide-react';
 import { SessionHistory } from '../session/SessionHistory';
 
 interface SidebarProps {
-  toolsCount: { client: number; server: number; mcp: number };
+  toolsCount: number;
   isConnected: boolean;
   onSessionSelect: (sessionId: string) => void;
   selectedSessionId?: string;
@@ -21,7 +20,6 @@ export function Sidebar({
   currentSessionId,
   children
 }: SidebarProps) {
-  const totalTools = toolsCount.client + toolsCount.server + toolsCount.mcp;
   const [activeTab, setActiveTab] = useState<'tools' | 'history'>('tools');
 
   return (
@@ -57,7 +55,7 @@ export function Sidebar({
               <Wrench className="w-4 h-4" />
               <span>Tools</span>
               <Badge variant="secondary" className="text-xs">
-                {totalTools}
+                {toolsCount}
               </Badge>
             </div>
           </button>
@@ -80,19 +78,9 @@ export function Sidebar({
       {activeTab === 'tools' && (
         <>
           <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div>
-                <div className="text-lg font-semibold text-blue-600">{toolsCount.client}</div>
-                <div className="text-xs text-gray-500">Client</div>
-              </div>
-              <div>
-                <div className="text-lg font-semibold text-amber-600">{toolsCount.server}</div>
-                <div className="text-xs text-gray-500">Server</div>
-              </div>
-              <div>
-                <div className="text-lg font-semibold text-green-600">{toolsCount.mcp}</div>
-                <div className="text-xs text-gray-500">MCP</div>
-              </div>
+            <div className="text-center space-y-1">
+              <div className="text-lg font-semibold text-green-600">{toolsCount}</div>
+              <div className="text-xs text-gray-500">MCP Tools Available</div>
             </div>
           </div>
 

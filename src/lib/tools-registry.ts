@@ -10,129 +10,30 @@ export interface Tool {
     required?: string[];
   };
   execute: (params: any) => Promise<any>;
-  executionType: 'client' | 'server' | 'mcp';
+  executionType: 'mcp';
   connectionId?: string;
 }
-
-export const clientTools: Tool[] = [
-  {
-    name: 'get_current_time',
-    description: 'Get the current time and date',
-    parameters: {
-      type: 'object',
-      properties: {
-        timezone: {
-          type: 'string',
-          description: 'Timezone name (e.g., America/New_York). Defaults to local timezone.'
-        }
-      }
-    },
-    executionType: 'client',
-    execute: async (params) => {
-      const timezone = params.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const now = new Date();
-      return {
-        current_time: now.toLocaleString('en-US', { timeZone: timezone }),
-        timezone,
-        unix_timestamp: now.getTime(),
-        iso_string: now.toISOString()
-      };
-    }
-  },
-  {
-    name: 'calculate',
-    description: 'Perform basic mathematical calculations',
-    parameters: {
-      type: 'object',
-      properties: {
-        expression: {
-          type: 'string',
-          description: 'Mathematical expression to evaluate (e.g., "2 + 2", "10 * 5")'
-        }
-      },
-      required: ['expression']
-    },
-    executionType: 'client',
-    execute: async (params) => {
-      try {
-        const sanitized = params.expression.replace(/[^0-9+\-*/().]/g, '');
-        const result = Function(`'use strict'; return (${sanitized})`)();
-        return {
-          expression: params.expression,
-          result,
-          success: true
-        };
-      } catch (error) {
-        return {
-          expression: params.expression,
-          error: 'Invalid mathematical expression',
-          success: false
-        };
-      }
-    }
-  },
-  {
-    name: 'generate_uuid',
-    description: 'Generate a random UUID v4',
-    parameters: {
-      type: 'object',
-      properties: {}
-    },
-    executionType: 'client',
-    execute: async () => {
-      return {
-        uuid: crypto.randomUUID()
-      };
-    }
-  },
-  {
-    name: 'get_browser_info',
-    description: 'Get information about the user\'s browser and system',
-    parameters: {
-      type: 'object',
-      properties: {}
-    },
-    executionType: 'client',
-    execute: async () => {
-      return {
-        user_agent: navigator.userAgent,
-        language: navigator.language,
-        platform: navigator.platform,
-        online: navigator.onLine,
-        screen_resolution: `${window.screen.width}x${window.screen.height}`,
-        viewport: `${window.innerWidth}x${window.innerHeight}`
-      };
-    }
-  }
-];
-
-// Server tools have been removed to avoid confusion with MCP tools.
-export const serverTools: Tool[] = [];
 
 export let mcpTools: Tool[] = [];
 export let selectedToolNames: string[] | null = null;
 
-// Note: MCP tools come first so they take precedence if names overlap.
-export const allTools = [...mcpTools, ...clientTools, ...serverTools];
-
 export function getToolByName(name: string): Tool | undefined {
-  // Prefer MCP tools over built-ins when names collide
-  return [...mcpTools, ...clientTools, ...serverTools].find(tool => tool.name === name);
+  return mcpTools.find(tool => tool.name === name);
 }
 
 export function getToolSchemas() {
-  const allAvailableTools = [...mcpTools, ...clientTools, ...serverTools];
-  let tools = selectedToolNames === null
-    ? allAvailableTools
-    : allAvailableTools.filter(tool => selectedToolNames!.includes(tool.name));
+  const availableTools = selectedToolNames === null
+    ? mcpTools
+    : mcpTools.filter(tool => selectedToolNames!.includes(tool.name));
 
   // If a stored selection points to tools that no longer exist, fall back to all available
-  if (selectedToolNames !== null && tools.length === 0) {
-    console.warn('No matching tools for selection; defaulting to all available tools');
-    tools = allAvailableTools;
+  if (selectedToolNames !== null && availableTools.length === 0) {
+    console.warn('No matching tools for selection; defaulting to all available MCP tools');
   }
 
-  return tools.map(tool => ({
+  const toolsToReturn = selectedToolNames === null || availableTools.length > 0 ? availableTools : mcpTools;
+
+  return toolsToReturn.map(tool => ({
     type: 'function',
     name: tool.name,
     description: tool.description,
@@ -142,7 +43,7 @@ export function getToolSchemas() {
 
 export function setSelectedTools(toolNames: string[] | null) {
   selectedToolNames = toolNames;
-  console.log(`🔧 Tool selection updated: ${toolNames === null ? 'All tools' : `${toolNames.length} selected`}`);
+  console.log(`🔧 Tool selection updated: ${toolNames === null ? 'All MCP tools' : `${toolNames.length} MCP tools selected`}`);
 }
 
 export async function loadMCPTools(configId?: string): Promise<void> {
@@ -179,11 +80,9 @@ export async function loadMCPTools(configId?: string): Promise<void> {
       name: mcpTool.tool_name,
       description: mcpTool.description,
       parameters: mcpTool.parameters_schema,
-      executionType: 'mcp' as const,
+      executionType: 'mcp',
       connectionId: mcpTool.connection_id,
       execute: async (params: any) => {
-        const startTime = Date.now();
-
         try {
           const result = await mcpApiClient.executeTool({
             connection_id: mcpTool.connection_id,
@@ -191,16 +90,12 @@ export async function loadMCPTools(configId?: string): Promise<void> {
             parameters: params
           });
 
-          const executionTime = Date.now() - startTime;
-
           if (!result.success) {
             throw new Error(result.error || 'MCP tool execution failed');
           }
 
           return result.data || result.result;
         } catch (error: any) {
-          const executionTime = Date.now() - startTime;
-
           throw error;
         }
       }
@@ -291,5 +186,5 @@ export async function executeTool(
 }
 
 export function getAllTools(): Tool[] {
-  return [...mcpTools, ...clientTools, ...serverTools];
+  return mcpTools;
 }
