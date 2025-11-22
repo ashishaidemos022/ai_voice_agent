@@ -5,7 +5,12 @@ import { supabase } from '../lib/supabase';
 import { executeTool, loadMCPTools } from '../lib/tools-registry';
 import { Message, RealtimeConfig } from '../types/voice-agent';
 
-type LiveTranscripts = { user: string; assistant: string };
+type LiveTranscripts = {
+  user: Record<string, string>;
+  assistant: Record<string, string>;
+  activeUserId: string | null;
+  activeAssistantId: string | null;
+};
 
 export function useVoiceAgent() {
   const [isConnected, setIsConnected] = useState(false);
@@ -26,7 +31,12 @@ export function useVoiceAgent() {
   const realtimeClientRef = useRef<RealtimeAPIClient | null>(null);
   const audioIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const sessionIdRef = useRef<string | null>(null);
-  const transcriptsRef = useRef<LiveTranscripts>({ user: '', assistant: '' });
+  const transcriptsRef = useRef<LiveTranscripts>({
+    user: {},
+    assistant: {},
+    activeUserId: null,
+    activeAssistantId: null
+  });
   const messagesRef = useRef<Message[]>([]);
   const savedMessagesRef = useRef<Set<string>>(new Set());
   const isCleaningUpRef = useRef(false);
@@ -109,7 +119,12 @@ export function useVoiceAgent() {
   );
 
   const resetTranscripts = useCallback(() => {
-    transcriptsRef.current = { user: '', assistant: '' };
+    transcriptsRef.current = {
+      user: {},
+      assistant: {},
+      activeUserId: null,
+      activeAssistantId: null
+    };
     setLiveUserTranscript('');
     setLiveAssistantTranscript('');
   }, []);
@@ -149,38 +164,89 @@ export function useVoiceAgent() {
     });
 
     client.on('transcript.delta', (event: any) => {
+      const isUser = event.role === 'user';
+      const buffer = isUser ? transcriptsRef.current.user : transcriptsRef.current.assistant;
+      const fallbackId = isUser ? 'user-default' : 'assistant-default';
+      const itemId = event.itemId || (isUser ? transcriptsRef.current.activeUserId : transcriptsRef.current.activeAssistantId) || fallbackId;
+
+      if (isUser) {
+        transcriptsRef.current.activeUserId = itemId;
+      } else {
+        transcriptsRef.current.activeAssistantId = itemId;
+      }
+
+      buffer[itemId] = (buffer[itemId] || '') + event.delta;
+
       if (event.role === 'user') {
-        transcriptsRef.current.user += event.delta;
-        setLiveUserTranscript(transcriptsRef.current.user);
+        setLiveUserTranscript(buffer[itemId]);
         setAgentState('listening');
       } else {
-        transcriptsRef.current.assistant += event.delta;
-        setLiveAssistantTranscript(transcriptsRef.current.assistant);
+        setLiveAssistantTranscript(buffer[itemId]);
       }
     });
 
     client.on('transcript.done', async (event: any) => {
-      if (!event.transcript || !event.transcript.trim()) return;
+      const isUser = event.role === 'user';
+      const buffers = isUser ? transcriptsRef.current.user : transcriptsRef.current.assistant;
+      const activeId = isUser ? transcriptsRef.current.activeUserId : transcriptsRef.current.activeAssistantId;
+      const itemId = event.itemId || activeId || (isUser ? 'user-default' : 'assistant-default');
+      const transcriptText = event.transcript || buffers[itemId] || '';
 
-      if (event.role === 'user') {
-        await persistMessage('user', event.transcript);
-        transcriptsRef.current.user = '';
-        setLiveUserTranscript('');
+      if (!transcriptText || !transcriptText.trim()) {
+        delete buffers[itemId];
+        if (isUser && transcriptsRef.current.activeUserId === itemId) {
+          transcriptsRef.current.activeUserId = null;
+          setLiveUserTranscript('');
+        } else if (!isUser && transcriptsRef.current.activeAssistantId === itemId) {
+          transcriptsRef.current.activeAssistantId = null;
+          setLiveAssistantTranscript('');
+        }
+        return;
+      }
+
+      if (isUser) {
+        await persistMessage('user', transcriptText);
+        delete transcriptsRef.current.user[itemId];
+        if (transcriptsRef.current.activeUserId === itemId) {
+          transcriptsRef.current.activeUserId = null;
+          setLiveUserTranscript('');
+        }
       } else {
-        await persistMessage('assistant', event.transcript);
-        transcriptsRef.current.assistant = '';
-        setLiveAssistantTranscript('');
+        await persistMessage('assistant', transcriptText);
+        delete transcriptsRef.current.assistant[itemId];
+        if (transcriptsRef.current.activeAssistantId === itemId) {
+          transcriptsRef.current.activeAssistantId = null;
+          setLiveAssistantTranscript('');
+        }
       }
       setIsProcessing(false);
     });
 
     client.on('transcript.reset', (event: any) => {
       if (event.role === 'user') {
-        transcriptsRef.current.user = '';
-        setLiveUserTranscript('');
+        if (event.itemId) {
+          delete transcriptsRef.current.user[event.itemId];
+          if (transcriptsRef.current.activeUserId === event.itemId) {
+            transcriptsRef.current.activeUserId = null;
+            setLiveUserTranscript('');
+          }
+        } else {
+          transcriptsRef.current.user = {};
+          transcriptsRef.current.activeUserId = null;
+          setLiveUserTranscript('');
+        }
       } else {
-        transcriptsRef.current.assistant = '';
-        setLiveAssistantTranscript('');
+        if (event.itemId) {
+          delete transcriptsRef.current.assistant[event.itemId];
+          if (transcriptsRef.current.activeAssistantId === event.itemId) {
+            transcriptsRef.current.activeAssistantId = null;
+            setLiveAssistantTranscript('');
+          }
+        } else {
+          transcriptsRef.current.assistant = {};
+          transcriptsRef.current.activeAssistantId = null;
+          setLiveAssistantTranscript('');
+        }
       }
     });
 

@@ -10,9 +10,9 @@ export type RealtimeEvent =
   | { type: 'agent_state'; state: AgentState; reason?: string }
   | { type: 'audio.delta'; delta: string }
   | { type: 'audio.done' }
-  | { type: 'transcript.delta'; delta: string; role: 'user' | 'assistant' }
-  | { type: 'transcript.done'; transcript: string; role: 'user' | 'assistant' }
-  | { type: 'transcript.reset'; role: 'user' | 'assistant' }
+  | { type: 'transcript.delta'; delta: string; role: 'user' | 'assistant'; itemId?: string }
+  | { type: 'transcript.done'; transcript: string; role: 'user' | 'assistant'; itemId?: string }
+  | { type: 'transcript.reset'; role: 'user' | 'assistant'; itemId?: string }
   | { type: 'response.created'; id?: string }
   | { type: 'response.done'; response: any }
   | { type: 'interruption' }
@@ -139,8 +139,8 @@ export class RealtimeAPIClient {
         },
         turn_detection: this.config.turn_detection ?? {
           type: 'server_vad',
-          threshold: 0.65,
-          prefix_padding_ms: 200,
+          threshold: 0.75,
+          prefix_padding_ms: 150,
           silence_duration_ms: 700
         },
         tools,
@@ -207,7 +207,8 @@ export class RealtimeAPIClient {
         this.emit({
           type: 'transcript.delta',
           delta: message.delta,
-          role: 'user'
+          role: 'user',
+          itemId: message.item_id
         });
         break;
 
@@ -215,7 +216,8 @@ export class RealtimeAPIClient {
         this.emit({
           type: 'transcript.done',
           transcript: message.transcript,
-          role: 'user'
+          role: 'user',
+          itemId: message.item_id
         });
         break;
 
@@ -237,7 +239,8 @@ export class RealtimeAPIClient {
         this.emit({
           type: 'transcript.delta',
           delta: message.delta,
-          role: 'assistant'
+          role: 'assistant',
+          itemId: message.item_id
         });
         break;
 
@@ -245,7 +248,8 @@ export class RealtimeAPIClient {
         this.emit({
           type: 'transcript.done',
           transcript: message.transcript,
-          role: 'assistant'
+          role: 'assistant',
+          itemId: message.item_id
         });
         break;
 
@@ -436,7 +440,7 @@ export class RealtimeAPIClient {
     }, delay);
   }
 
-  private arrayBufferToBase64(buffer: ArrayBuffer): string {
+  private arrayBufferToBase64(buffer: ArrayBuffer | ArrayBufferLike): string {
     let binary = '';
     const bytes = new Uint8Array(buffer);
     for (let i = 0; i < bytes.byteLength; i++) {

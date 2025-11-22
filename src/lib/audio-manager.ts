@@ -4,7 +4,7 @@ export class AudioManager {
   private microphone: MediaStreamAudioSourceNode | null = null;
   private stream: MediaStream | null = null;
   private dataArray: Uint8Array | null = null;
-  private processor: ScriptProcessorNode | null = null;
+  private workletNode: AudioWorkletNode | null = null;
   private onAudioDataCallback: ((data: Int16Array) => void) | null = null;
   private isInitializing = false;
   private isInitialized = false;
@@ -13,6 +13,8 @@ export class AudioManager {
   private audioQueue: Array<{ buffer: AudioBuffer; resolve: () => void }> = [];
   private isPlayingAudio = false;
   private currentSource: AudioBufferSourceNode | null = null;
+  private workletReady = false;
+  private readonly targetSampleRate = 24000;
 
   async initialize(): Promise<void> {
     if (this.isInitializing && this.initializationPromise) {
@@ -53,9 +55,9 @@ export class AudioManager {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
 
       try {
-        this.audioContext = new AudioContextClass({ sampleRate: 24000 });
+        this.audioContext = new AudioContextClass({ sampleRate: this.targetSampleRate });
       } catch (sampleRateError) {
-        console.warn('Failed to create AudioContext with 24000 Hz, using default sample rate:', sampleRateError);
+        console.warn('Failed to create AudioContext with 24kHz, using default sample rate:', sampleRateError);
         this.audioContext = new AudioContextClass();
       }
 
@@ -80,9 +82,10 @@ export class AudioManager {
           navigator.mediaDevices.getUserMedia({
             audio: {
               channelCount: 1,
+              sampleRate: this.targetSampleRate,
               echoCancellation: true,
               noiseSuppression: true,
-              autoGainControl: true,
+              autoGainControl: false
             },
           }),
           new Promise<never>((_, reject) =>
@@ -156,57 +159,62 @@ export class AudioManager {
 
     this.onAudioDataCallback = onAudioData;
 
-    const bufferSize = 4096;
-    this.processor = this.audioContext.createScriptProcessor(bufferSize, 1, 1);
-
-    if (!this.processor) {
-      throw new Error('Failed to create audio processor');
+    if (!this.workletReady) {
+      try {
+        const moduleUrl = new URL('/audio-worklet-processor.js', window.location.origin);
+        await this.audioContext.audioWorklet.addModule(moduleUrl.toString());
+        this.workletReady = true;
+      } catch (err) {
+        console.error('Failed to load audio worklet module', err);
+        throw err;
+      }
     }
 
-    this.processor.onaudioprocess = (e) => {
-      const inputData = e.inputBuffer.getChannelData(0);
-      const int16Data = new Int16Array(inputData.length);
+    this.workletNode = new AudioWorkletNode(this.audioContext, 'pcm-downsampler', {
+      processorOptions: { targetSampleRate: this.targetSampleRate }
+    });
 
-      for (let i = 0; i < inputData.length; i++) {
-        const s = Math.max(-1, Math.min(1, inputData[i]));
-        int16Data[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-      }
-
+    this.workletNode.port.onmessage = (event: MessageEvent<Int16Array>) => {
       if (this.onAudioDataCallback) {
-        this.onAudioDataCallback(int16Data);
+        this.onAudioDataCallback(event.data);
       }
     };
 
-    this.microphone.connect(this.processor);
-    this.processor.connect(this.audioContext.destination);
+    this.microphone.connect(this.workletNode);
   }
 
   stopCapture(): void {
     this.onAudioDataCallback = null;
 
-    if (this.processor) {
-      this.processor.disconnect();
-      this.processor.onaudioprocess = null;
-      this.processor = null;
+    if (this.workletNode) {
+      try {
+        this.workletNode.port.onmessage = null;
+        this.workletNode.disconnect();
+      } catch (err) {
+        console.warn('Error disconnecting worklet node:', err);
+      }
+      this.workletNode = null;
     }
   }
 
   getWaveformData(): Uint8Array | null {
     if (!this.analyser || !this.dataArray) return null;
-    this.analyser.getByteTimeDomainData(this.dataArray);
-    return this.dataArray;
+    const dataArray = this.dataArray as Uint8Array<ArrayBuffer>;
+    this.analyser.getByteTimeDomainData(dataArray);
+    return dataArray;
   }
 
   getVolume(): number {
     if (!this.analyser || !this.dataArray) return 0;
-    this.analyser.getByteTimeDomainData(this.dataArray);
+    const dataArray = this.dataArray as Uint8Array<ArrayBuffer>;
+    this.analyser.getByteTimeDomainData(dataArray);
 
     let sum = 0;
-    for (let i = 0; i < this.dataArray.length; i++) {
-      const normalized = (this.dataArray[i] - 128) / 128;
+    for (let i = 0; i < dataArray.length; i++) {
+      const normalized = (dataArray[i] - 128) / 128;
       sum += normalized * normalized;
     }
-    return Math.sqrt(sum / this.dataArray.length);
+    return Math.sqrt(sum / dataArray.length);
   }
 
   async playAudioData(base64Audio: string): Promise<void> {
@@ -320,14 +328,14 @@ export class AudioManager {
       this.microphone = null;
     }
 
-    if (this.processor) {
+    if (this.workletNode) {
       try {
-        this.processor.disconnect();
-        this.processor.onaudioprocess = null;
+        this.workletNode.port.onmessage = null;
+        this.workletNode.disconnect();
       } catch (e) {
-        console.warn('Error disconnecting processor:', e);
+        console.warn('Error disconnecting worklet node:', e);
       }
-      this.processor = null;
+      this.workletNode = null;
     }
 
     if (this.audioContext && this.audioContext.state !== 'closed') {
@@ -340,6 +348,7 @@ export class AudioManager {
     this.audioContext = null;
     this.analyser = null;
     this.dataArray = null;
+    this.workletReady = false;
     this.isInitialized = false;
     this.isClosing = false;
     this.initializationPromise = null;

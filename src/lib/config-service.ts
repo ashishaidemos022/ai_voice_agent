@@ -50,9 +50,9 @@ export function realtimeConfigToPreset(config: RealtimeConfig, name: string): Pa
     turn_detection_enabled: config.turn_detection !== null,
     turn_detection_config: config.turn_detection || {
       type: 'server_vad',
-      threshold: 0.7,
-      prefix_padding_ms: 200,
-      silence_duration_ms: 800
+      threshold: 0.75,
+      prefix_padding_ms: 150,
+      silence_duration_ms: 700
     }
   };
 }

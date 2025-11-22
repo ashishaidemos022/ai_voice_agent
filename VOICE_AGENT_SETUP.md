@@ -20,17 +20,6 @@ This is a production-ready Voice AI Agent application built with:
 
 ### Built-in MCP Tools
 
-#### Client-Side Tools (Run in Browser)
-- `get_current_time` - Get current time in any timezone
-- `calculate` - Perform basic math calculations
-- `generate_uuid` - Generate random UUIDs
-- `get_browser_info` - Get browser and system information
-
-#### Server-Side Tools (Run via Edge Functions)
-- `query_database` - Query Supabase tables (va_sessions, va_messages, va_tool_executions)
-- `get_weather` - Get weather information (mock data, easily replaceable with real API)
-- `get_inspirational_quote` - Get random inspirational quotes
-
 ## Database Schema
 
 All tables use the `va_` prefix with RLS disabled:
