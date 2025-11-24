@@ -1,9 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useVoiceAgent } from '../hooks/useVoiceAgent';
 import { RealtimeConfig, Message } from '../types/voice-agent';
 import { mcpTools } from '../lib/tools-registry';
-import { getDefaultConfigPreset, configPresetToRealtimeConfig, getAllConfigPresets, AgentConfigPreset } from '../lib/config-service';
+import { configPresetToRealtimeConfig, getAllConfigPresets, AgentConfigPreset } from '../lib/config-service';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
+import { useAgentState } from '../state/agentState';
 
 import { MainLayout } from './layout/MainLayout';
 import { Sidebar } from './layout/Sidebar';
@@ -15,6 +17,7 @@ import { SettingsPanel } from './panels/SettingsPanel';
 import { MCPPanel } from './panels/MCPPanel';
 import { Card } from './ui/Card';
 import { WelcomeHero } from './welcome/WelcomeHero';
+import { StartSessionButton } from './welcome/StartSessionButton';
 
 const defaultConfig: RealtimeConfig = {
   model: 'gpt-realtime',
@@ -31,21 +34,69 @@ const defaultConfig: RealtimeConfig = {
 };
 
 export function VoiceAgent() {
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isMCPPanelOpen, setIsMCPPanelOpen] = useState(false);
+  const { vaUser, providerKeys, signOut } = useAuth();
+  const {
+    activeConfigId: persistedConfigId,
+    setActiveConfigId: persistActiveConfigId,
+    preferredModel,
+    preferredVoice,
+    setPreferredModel,
+    setPreferredVoice,
+    activePanel,
+    setActivePanel
+  } = useAgentState((state) => ({
+    activeConfigId: state.activeConfigId,
+    setActiveConfigId: state.setActiveConfigId,
+    preferredModel: state.preferredModel,
+    preferredVoice: state.preferredVoice,
+    setPreferredModel: state.setPreferredModel,
+    setPreferredVoice: state.setPreferredVoice,
+    activePanel: state.activePanel,
+    setActivePanel: state.setActivePanel
+  }));
+  const [isSettingsOpen, setIsSettingsOpen] = useState(activePanel === 'settings');
+  const [isMCPPanelOpen, setIsMCPPanelOpen] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem('va-mcp-panel-open') === 'true';
+  });
   const [isInitialized, setIsInitialized] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [isSwitchingPreset, setIsSwitchingPreset] = useState(false);
   const [toolsCount, setToolsCount] = useState(0);
-  const [currentConfig, setCurrentConfig] = useState<RealtimeConfig>(defaultConfig);
+  const [currentConfig, setCurrentConfig] = useState<RealtimeConfig>(() => ({
+    ...defaultConfig,
+    model: preferredModel || defaultConfig.model,
+    voice: preferredVoice || defaultConfig.voice
+  }));
   const [activeConfigName, setActiveConfigName] = useState<string | undefined>();
-  const [viewMode, setViewMode] = useState<'current' | 'history'>('current');
+  const [viewMode, setViewMode] = useState<'current' | 'history'>(activePanel === 'logs' ? 'history' : 'current');
   const [selectedHistoricalSessionId, setSelectedHistoricalSessionId] = useState<string | undefined>();
   const [historicalMessages, setHistoricalMessages] = useState<Message[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
-  const [pendingConfigId, setPendingConfigId] = useState<string | null>(null);
+  const [pendingConfigId, setPendingConfigId] = useState<string | null>(persistedConfigId);
   const [presets, setPresets] = useState<AgentConfigPreset[]>([]);
+  const [isWorkspaceView, setIsWorkspaceView] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem('va-workspace-view') === 'true';
+  });
+  const resumeSessionRef = useRef<{ config: RealtimeConfig; presetId: string | null } | null>(null);
+  const applyPreferencesToConfig = useCallback((baseConfig: RealtimeConfig) => {
+    const nextConfig = { ...baseConfig };
+    if (preferredModel) {
+      nextConfig.model = preferredModel;
+    }
+    if (preferredVoice) {
+      nextConfig.voice = preferredVoice;
+    }
+    return nextConfig;
+  }, [preferredModel, preferredVoice]);
+  const rememberSessionConfig = useCallback((sessionConfig: RealtimeConfig, presetId: string | null) => {
+    resumeSessionRef.current = { config: sessionConfig, presetId };
+  }, []);
+  const clearRememberedSession = useCallback(() => {
+    resumeSessionRef.current = null;
+  }, []);
 
   const {
     isConnected,
@@ -68,25 +119,42 @@ export function VoiceAgent() {
     cleanup
   } = useVoiceAgent();
 
-  const handleStart = async () => {
+  const handleStart = useCallback(async (override?: { config: RealtimeConfig; presetId: string | null }) => {
+    if (isInitializing) return;
+    const configToUse = override?.config ?? currentConfig;
+    const presetIdToUse = override?.presetId ?? pendingConfigId;
+    if (!presetIdToUse) {
+      console.warn('Attempted to start voice agent without a preset');
+      return;
+    }
+
+    console.log('[VoiceAgent] handleStart', {
+      presetId: presetIdToUse,
+      overrideProvided: !!override,
+      viewMode
+    });
     setIsInitializing(true);
     try {
-      await initialize(currentConfig, pendingConfigId);
+      await initialize(configToUse, presetIdToUse);
+      rememberSessionConfig(configToUse, presetIdToUse);
       setIsInitialized(true);
+      setIsWorkspaceView(true);
     } catch (error) {
       console.error('Initialization error:', error);
     } finally {
       setIsInitializing(false);
     }
-  };
+  }, [currentConfig, pendingConfigId, initialize, rememberSessionConfig, isInitializing]);
 
-  const handleEnd = async () => {
+  const handleEnd = useCallback(async () => {
+    console.log('[VoiceAgent] handleEnd invoked, cleaning up session');
+    clearRememberedSession();
     await cleanup();
     setIsInitialized(false);
     setViewMode('current');
     setSelectedHistoricalSessionId(undefined);
     setHistoricalMessages([]);
-  };
+  }, [cleanup, clearRememberedSession]);
 
   const verifySessionHasMessages = async (sessionId: string): Promise<number> => {
     try {
@@ -251,55 +319,90 @@ export function VoiceAgent() {
 
   useEffect(() => {
     updateToolsCount();
-    loadInitialConfig();
-    loadPresets();
   }, []);
 
-  const loadPresets = async () => {
-    try {
-      const data = await getAllConfigPresets();
-      setPresets(data);
-    } catch (error) {
-      console.error('Failed to load presets:', error);
+  useEffect(() => {
+    console.log('[VoiceAgent] hydrated persisted reactivity', {
+      persistedConfigId,
+      preferredModel,
+      preferredVoice,
+      activePanel
+    });
+  }, [persistedConfigId, preferredModel, preferredVoice, activePanel]);
+
+  useEffect(() => {
+    if (isSettingsOpen) {
+      setActivePanel('settings');
+    } else {
+      setActivePanel(viewMode === 'history' ? 'logs' : 'session');
     }
-  };
+  }, [isSettingsOpen, viewMode, setActivePanel]);
 
-  const loadInitialConfig = useCallback(async () => {
-    try {
-      const defaultPreset = await getDefaultConfigPreset();
-      if (defaultPreset) {
-        const presetConfig = configPresetToRealtimeConfig(defaultPreset);
-        setCurrentConfig(presetConfig);
-        setPendingConfigId(defaultPreset.id);
-        setActiveConfigName(defaultPreset.name);
-      }
-    } catch (error) {
-      console.error('Failed to load default config:', error);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (isMCPPanelOpen) {
+      window.localStorage.setItem('va-mcp-panel-open', 'true');
+    } else {
+      window.localStorage.removeItem('va-mcp-panel-open');
     }
-  }, []);
+  }, [isMCPPanelOpen]);
 
-  const handleMCPConnectionsChanged = () => {
-    updateToolsCount();
-  };
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (isWorkspaceView) {
+      window.localStorage.setItem('va-workspace-view', 'true');
+    } else {
+      window.localStorage.removeItem('va-workspace-view');
+    }
+  }, [isWorkspaceView]);
 
-  const handlePresetChange = async (presetId: string | null) => {
+  useEffect(() => {
+    if (!isInitialized || !config) return;
+    const presetId = activeConfigId || pendingConfigId || null;
     if (!presetId) return;
-    const preset = presets.find(p => p.id === presetId);
-    if (!preset) return;
+    rememberSessionConfig(config, presetId);
+  }, [isInitialized, config, activeConfigId, pendingConfigId, rememberSessionConfig]);
 
-    const newConfig = configPresetToRealtimeConfig(preset);
-    setPendingConfigId(presetId);
-    setActiveConfig(presetId);
+  useEffect(() => {
+    if (!isInitialized || isConnected || isInitializing) return;
+    const snapshot = resumeSessionRef.current;
+    if (!snapshot) return;
+    console.log('[VoiceAgent] scheduling auto-resume attempt', {
+      snapshotPreset: snapshot.presetId,
+      activeConfigId: activeConfigId || pendingConfigId
+    });
+    const timer = setTimeout(() => {
+      if (isConnected || isInitializing) return;
+       console.log('[VoiceAgent] auto-resume firing', {
+         snapshotPreset: snapshot.presetId
+       });
+      handleStart({ config: snapshot.config, presetId: snapshot.presetId });
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [isInitialized, isConnected, isInitializing, handleStart]);
+
+  const applyPresetToState = useCallback(async (
+    preset: AgentConfigPreset,
+    options: { restartSession?: boolean } = {}
+  ) => {
+    console.log('[VoiceAgent] applyPresetToState', {
+      presetId: preset.id,
+      restartSession: options.restartSession
+    });
+    const appliedConfig = applyPreferencesToConfig(configPresetToRealtimeConfig(preset));
+    setPendingConfigId(preset.id);
+    persistActiveConfigId(preset.id);
+    setActiveConfig(preset.id);
     setActiveConfigName(preset.name);
-    setCurrentConfig(newConfig);
+    setCurrentConfig(appliedConfig);
 
-    // If already running, end current session and restart with new config
-    if (isInitialized) {
+    if (options.restartSession && isInitialized) {
       setIsSwitchingPreset(true);
       try {
         await cleanup();
         setIsInitialized(false);
-        await initialize(newConfig, presetId);
+        await initialize(appliedConfig, preset.id);
+        rememberSessionConfig(appliedConfig, preset.id);
         setIsInitialized(true);
         setViewMode('current');
         setSelectedHistoricalSessionId(undefined);
@@ -310,6 +413,89 @@ export function VoiceAgent() {
         setIsSwitchingPreset(false);
       }
     }
+  }, [applyPreferencesToConfig, cleanup, initialize, isInitialized, persistActiveConfigId, setActiveConfig, rememberSessionConfig]);
+
+  const refreshPresets = useCallback(async () => {
+    try {
+      const data = await getAllConfigPresets();
+      setPresets(data);
+      return data;
+    } catch (error) {
+      console.error('Failed to load presets:', error);
+      return [];
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!vaUser) return;
+
+    (async () => {
+      const data = await refreshPresets();
+      if (!data.length) return;
+      const storedPreset = persistedConfigId
+        ? data.find(p => p.id === persistedConfigId)
+        : null;
+      const preferred = storedPreset
+        || data.find(p => p.id === vaUser.default_agent_id)
+        || data.find(p => p.is_default)
+        || data[0];
+      if (preferred) {
+        await applyPresetToState(preferred, { restartSession: false });
+      }
+    })();
+  }, [vaUser?.id, vaUser?.default_agent_id, refreshPresets, applyPresetToState, persistedConfigId]);
+
+  const handleMCPConnectionsChanged = () => {
+    updateToolsCount();
+  };
+
+  const handlePresetChange = async (presetId: string | null) => {
+    console.log('[VoiceAgent] handlePresetChange', { presetId });
+    if (!presetId) {
+      setPendingConfigId(null);
+      setActiveConfigName(undefined);
+      persistActiveConfigId(null);
+      return;
+    }
+    const preset = presets.find(p => p.id === presetId);
+    if (!preset) return;
+
+    await applyPresetToState(preset, { restartSession: true });
+  };
+
+  const handlePanelConfigChange = useCallback((newConfig: RealtimeConfig) => {
+    console.log('[VoiceAgent] config change from settings panel', {
+      model: newConfig.model,
+      voice: newConfig.voice
+    });
+    if (newConfig.model && newConfig.model !== preferredModel) {
+      setPreferredModel(newConfig.model);
+    }
+    if (newConfig.voice && newConfig.voice !== preferredVoice) {
+      setPreferredVoice(newConfig.voice);
+    }
+    if (isInitialized) {
+      setConfig(newConfig);
+    } else {
+      setCurrentConfig(newConfig);
+    }
+  }, [isInitialized, preferredModel, preferredVoice, setPreferredModel, setPreferredVoice, setConfig]);
+
+  const handleGoToWorkspace = () => {
+    console.log('[VoiceAgent] switching to workspace view');
+    setIsWorkspaceView(true);
+    setActivePanel('session');
+  };
+
+  const handleReturnToWelcome = () => {
+    console.log('[VoiceAgent] returning to welcome hero');
+    setIsWorkspaceView(false);
+    if (!isInitialized) {
+      setViewMode('current');
+      setSelectedHistoricalSessionId(undefined);
+      setHistoricalMessages([]);
+    }
+    setActivePanel('session');
   };
 
   const sidebar = (
@@ -333,113 +519,162 @@ export function VoiceAgent() {
       onEndSession={handleEnd}
       viewMode={viewMode}
       onBackToCurrent={handleBackToCurrent}
+      onSignOut={signOut}
+      userEmail={vaUser?.email}
     />
   );
+  const derivedPresetId = isInitialized ? activeConfigId : (pendingConfigId || persistedConfigId);
+  const derivedProviderKeyId =
+    presets.find(p => p.id === derivedPresetId)?.provider_key_id ||
+    providerKeys[0]?.id ||
+    null;
+  const selectedPresetId = pendingConfigId || activeConfigId || persistedConfigId || null;
+  const showWorkspacePreview = isWorkspaceView && !isInitialized;
 
   return (
     <>
-      {!isInitialized ? (
-        <WelcomeHero
-          onStart={handleStart}
-          isInitializing={isInitializing}
-          activeConfigName={activeConfigName}
-          error={error}
-          presets={presets.map(p => ({ id: p.id, name: p.name }))}
-          selectedPresetId={pendingConfigId || activeConfigId || null}
-          onPresetSelect={(id) => handlePresetChange(id)}
-        />
-      ) : (
-        <MainLayout sidebar={sidebar} topBar={topBar}>
-          <div className="flex flex-col p-6 gap-6 h-full overflow-hidden">
-            <>
-              <div className="flex-1 grid grid-cols-2 gap-6 min-h-0 overflow-hidden">
-                <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
-                  <div className="flex-1 min-h-0 overflow-hidden">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-xs text-gray-500">
-                        Active preset: <span className="font-medium text-gray-800">{activeConfigName || 'Custom'}</span>
-                        {isSwitchingPreset && <span className="ml-2 text-amber-600">Switching…</span>}
+      {!isInitialized && !isWorkspaceView ? (
+          <WelcomeHero
+            onStart={handleStart}
+            isInitializing={isInitializing}
+            activeConfigName={activeConfigName}
+            error={error}
+            presets={presets.map(p => ({ id: p.id, name: p.name }))}
+            selectedPresetId={pendingConfigId || activeConfigId || null}
+            onPresetSelect={(id) => handlePresetChange(id)}
+            onGoToWorkspace={handleGoToWorkspace}
+          />
+        ) : (
+          <>
+            <MainLayout sidebar={sidebar} topBar={topBar}>
+              <div className="flex flex-col p-6 gap-6 h-full overflow-hidden">
+                <div className="flex-1 grid grid-cols-2 gap-6 min-h-0 overflow-hidden">
+                  <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
+                    <div className="flex-1 min-h-0 overflow-hidden">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs text-gray-500">
+                          Active preset: <span className="font-medium text-gray-800">{activeConfigName || 'Custom'}</span>
+                          {isSwitchingPreset && <span className="ml-2 text-amber-600">Switching…</span>}
+                        </div>
+                        {sessionId && (
+                          <span className="text-[11px] text-gray-400">Session: {sessionId}</span>
+                        )}
                       </div>
-                      {sessionId && (
-                        <span className="text-[11px] text-gray-400">Session: {sessionId}</span>
+                      {showWorkspacePreview ? (
+                        <Card className="p-6 space-y-5">
+                          <div>
+                            <p className="text-lg font-semibold text-slate-700">Workspace view</p>
+                            <p className="text-sm text-slate-500">
+                              You’re logged in and ready to start the agent whenever you pick a preset.
+                            </p>
+                          </div>
+                          <div>
+                            <label className="text-xs text-slate-500 block mb-1">Choose a preset</label>
+                            <select
+                              value={selectedPresetId || ''}
+                              onChange={(e) => handlePresetChange(e.target.value)}
+                              className="w-full rounded-xl bg-slate-900 border border-slate-700 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300"
+                            >
+                              <option value="">Select a preset</option>
+                              {presets.map(preset => (
+                                <option key={preset.id} value={preset.id}>{preset.name}</option>
+                              ))}
+                            </select>
+                            <p className="mt-2 text-xs text-slate-400">
+                              Current: <span className="font-semibold text-cyan-200">{activeConfigName || 'None selected'}</span>
+                            </p>
+                          </div>
+                          <StartSessionButton
+                            onClick={handleStart}
+                            disabled={isInitializing || !selectedPresetId}
+                            loading={isInitializing}
+                          >
+                            {isInitializing ? 'Requesting Permissions...' : selectedPresetId ? 'Start Voice Agent' : 'Select a Preset to Continue'}
+                          </StartSessionButton>
+                          <button
+                            type="button"
+                            onClick={handleReturnToWelcome}
+                            className="text-xs text-cyan-300 underline underline-offset-2"
+                          >
+                            Return to welcome screen
+                          </button>
+                        </Card>
+                      ) : (
+                        <ConversationThread
+                          key={viewMode === 'history' ? `history-${selectedHistoricalSessionId}` : 'current'}
+                          messages={viewMode === 'current' ? messages : historicalMessages}
+                          isProcessing={isProcessing}
+                          isHistorical={viewMode === 'history'}
+                          isLoadingHistory={isLoadingHistory}
+                          historyError={historyError}
+                          liveAssistantTranscript={liveAssistantTranscript}
+                          liveUserTranscript={liveUserTranscript}
+                          agentState={agentState}
+                        />
                       )}
                     </div>
-                    <ConversationThread
-                      key={viewMode === 'history' ? `history-${selectedHistoricalSessionId}` : 'current'}
-                      messages={viewMode === 'current' ? messages : historicalMessages}
-                      isProcessing={isProcessing}
-                      isHistorical={viewMode === 'history'}
-                      isLoadingHistory={isLoadingHistory}
-                      historyError={historyError}
-                      liveAssistantTranscript={liveAssistantTranscript}
-                      liveUserTranscript={liveUserTranscript}
-                      agentState={agentState}
-                    />
+                  </div>
+
+                  <div className="flex flex-col gap-4">
+                    {viewMode === 'current' ? (
+                      <>
+                        <VoiceInteractionArea
+                          agentState={agentState}
+                          isRecording={isRecording}
+                          isConnected={isConnected}
+                          liveUserTranscript={liveUserTranscript}
+                          liveAssistantTranscript={liveAssistantTranscript}
+                          onToggle={toggleRecording}
+                          waveformData={waveformData}
+                          volume={volume}
+                        />
+
+                        {config && config.turn_detection && (
+                          <p className="text-center text-sm text-gray-400">
+                            Speak naturally - the AI will respond automatically
+                          </p>
+                        )}
+
+                      </>
+                    ) : (
+                      <Card className="p-6 flex items-center justify-center h-full">
+                        <div className="text-center">
+                          <p className="text-gray-600 mb-2">Viewing session history</p>
+                          <p className="text-sm text-gray-500">
+                            Click "Back to Current Session" to return
+                          </p>
+                        </div>
+                      </Card>
+                    )}
                   </div>
                 </div>
-
-                <div className="flex flex-col gap-4">
-                  {viewMode === 'current' ? (
-                    <>
-                      <VoiceInteractionArea
-                        agentState={agentState}
-                        isRecording={isRecording}
-                        isConnected={isConnected}
-                        liveUserTranscript={liveUserTranscript}
-                      liveAssistantTranscript={liveAssistantTranscript}
-                      onToggle={toggleRecording}
-                      waveformData={waveformData}
-                      volume={volume}
-                    />
-
-                      {config && config.turn_detection && (
-                        <p className="text-center text-sm text-gray-400">
-                          Speak naturally - the AI will respond automatically
-                        </p>
-                      )}
-
-                    </>
-                  ) : (
-                    <Card className="p-6 flex items-center justify-center h-full">
-                      <div className="text-center">
-                        <p className="text-gray-600 mb-2">Viewing session history</p>
-                        <p className="text-sm text-gray-500">
-                          Click "Back to Current Session" to return
-                        </p>
-                      </div>
-                    </Card>
-                  )}
-                </div>
               </div>
-            </>
-          </div>
-        </MainLayout>
-      )}
-
+            </MainLayout>
       <SettingsPanel
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         config={isInitialized && config ? config : currentConfig}
-        onConfigChange={(newConfig) => {
-          if (isInitialized) {
-            setConfig(newConfig);
-          } else {
-            setCurrentConfig(newConfig);
-          }
+        onConfigChange={handlePanelConfigChange}
+              activeConfigId={isInitialized ? activeConfigId : pendingConfigId}
+              onActiveConfigChange={(configId) => {
+                if (configId) {
+                  handlePresetChange(configId);
+                }
+              }}
+              userId={vaUser?.id || ''}
+              providerKeyId={derivedProviderKeyId}
+        onPresetsRefresh={async () => {
+          await refreshPresets();
         }}
-        activeConfigId={isInitialized ? activeConfigId : pendingConfigId}
-        onActiveConfigChange={(configId) => {
-          if (configId) {
-            handlePresetChange(configId);
-          }
-        }}
-      />
+            />
 
-      <MCPPanel
-        isOpen={isMCPPanelOpen}
-        onClose={() => setIsMCPPanelOpen(false)}
-        onConnectionsChanged={handleMCPConnectionsChanged}
-      />
+            <MCPPanel
+              isOpen={isMCPPanelOpen}
+              onClose={() => setIsMCPPanelOpen(false)}
+              onConnectionsChanged={handleMCPConnectionsChanged}
+            />
+          </>
+        )}
     </>
   );
 }

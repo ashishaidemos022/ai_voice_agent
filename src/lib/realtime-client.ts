@@ -93,7 +93,7 @@ export class RealtimeAPIClient {
           this.emit({ type: 'disconnected', reason: event.reason || `code:${event.code}` });
           this.setAgentState('idle', 'socket-closed');
 
-          const shouldRetry = !this.intentionalClose && this.reconnectAttempts < this.maxReconnectAttempts && (!event.wasClean || event.code === 1005);
+          const shouldRetry = !this.intentionalClose && this.reconnectAttempts < this.maxReconnectAttempts;
           if (shouldRetry) {
             this.attemptReconnect();
           }
@@ -117,6 +117,20 @@ export class RealtimeAPIClient {
         reject(error);
       }
     });
+  }
+
+  async reconnect(): Promise<void> {
+    console.log('[RealtimeAPIClient] reconnect requested', {
+      hasSocket: !!this.ws,
+      readyState: this.ws?.readyState
+    });
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+    this.intentionalClose = false;
+    this.sessionUpdateSent = false;
+    this.pendingClear = true;
+    return this.connect();
   }
 
   sendSessionUpdate(): void {
@@ -431,9 +445,10 @@ export class RealtimeAPIClient {
 
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
-    console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+    console.log(`[RealtimeAPIClient] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
     setTimeout(() => {
+      console.log('[RealtimeAPIClient] reconnect timer firing');
       this.connect().catch(error => {
         console.error('Reconnection failed:', error);
       });

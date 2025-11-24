@@ -148,6 +148,10 @@ export class AudioManager {
     return this.isInitializing;
   }
 
+  isReady(): boolean {
+    return this.isInitialized && !this.isClosing;
+  }
+
   async startCapture(onAudioData: (data: Int16Array) => void): Promise<void> {
     if (!this.audioContext || !this.stream) {
       throw new Error('AudioManager not initialized. Call initialize() first.');
@@ -184,6 +188,7 @@ export class AudioManager {
   }
 
   stopCapture(): void {
+    console.log('[AudioManager] stopCapture invoked');
     this.onAudioDataCallback = null;
 
     if (this.workletNode) {
@@ -304,12 +309,12 @@ export class AudioManager {
 
   private performCleanup(): void {
     if (this.isClosing) {
-      console.log('Cleanup already in progress, skipping...');
+      console.log('[AudioManager] Cleanup already in progress, skipping...');
       return;
     }
 
     this.isClosing = true;
-    console.log('Cleaning up AudioManager...');
+    console.log('[AudioManager] Performing cleanup');
 
     this.audioQueue = [];
     this.isPlayingAudio = false;
@@ -356,6 +361,11 @@ export class AudioManager {
   }
 
   close(force = false): void {
+    console.log('[AudioManager] close called', {
+      force,
+      isInitializing: this.isInitializing,
+      isClosing: this.isClosing
+    });
     if (this.isInitializing && !force) {
       console.warn('⚠️ Prevented cleanup during initialization');
       return;
@@ -376,4 +386,10 @@ export class AudioManager {
       }
     }
   }
+}
+
+const audioManagerSingleton = new AudioManager();
+
+export function getAudioManager(): AudioManager {
+  return audioManagerSingleton;
 }

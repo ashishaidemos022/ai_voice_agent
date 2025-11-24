@@ -87,7 +87,8 @@ export async function loadMCPTools(configId?: string): Promise<void> {
           const result = await mcpApiClient.executeTool({
             connection_id: mcpTool.connection_id,
             tool_name: mcpTool.tool_name,
-            parameters: params
+            parameters: params,
+            user_id: mcpTool.user_id
           });
 
           if (!result.success) {

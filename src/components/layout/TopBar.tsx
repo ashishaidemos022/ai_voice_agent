@@ -1,4 +1,4 @@
-import { Settings, Plug, Power, ArrowLeft } from 'lucide-react';
+import { Settings, Plug, Power, ArrowLeft, LogOut } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 
@@ -11,6 +11,8 @@ interface TopBarProps {
   onEndSession: () => void;
   viewMode?: 'current' | 'history';
   onBackToCurrent?: () => void;
+  onSignOut?: () => void;
+  userEmail?: string;
 }
 
 export function TopBar({
@@ -22,6 +24,8 @@ export function TopBar({
   onEndSession,
   viewMode = 'current',
   onBackToCurrent,
+  onSignOut,
+  userEmail
 }: TopBarProps) {
   return (
     <header className="h-16 border-b border-gray-200 bg-white/80 backdrop-blur-sm sticky top-0 z-10">
@@ -52,6 +56,12 @@ export function TopBar({
         </div>
 
         <div className="flex items-center gap-2">
+          {userEmail && (
+            <div className="hidden md:flex flex-col items-end mr-2 text-right">
+              <span className="text-[11px] uppercase tracking-wide text-gray-400">Signed in</span>
+              <span className="text-sm text-gray-700 font-medium">{userEmail}</span>
+            </div>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -79,6 +89,17 @@ export function TopBar({
             >
               <Power className="w-4 h-4" />
               End Session
+            </Button>
+          )}
+
+          {onSignOut && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onSignOut}
+            >
+              <LogOut className="w-4 h-4 mr-1" />
+              Sign Out
             </Button>
           )}
         </div>

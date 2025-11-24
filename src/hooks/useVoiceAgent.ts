@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { AudioManager } from '../lib/audio-manager';
+import { AudioManager, getAudioManager } from '../lib/audio-manager';
 import { AgentState, RealtimeAPIClient } from '../lib/realtime-client';
 import { supabase } from '../lib/supabase';
 import { executeTool, loadMCPTools } from '../lib/tools-registry';
@@ -41,11 +41,17 @@ export function useVoiceAgent() {
   const savedMessagesRef = useRef<Set<string>>(new Set());
   const isCleaningUpRef = useRef(false);
   const micStartedRef = useRef(false);
+  const shouldPersistSession = useRef(true);
 
   const createSession = useCallback(async (sessionConfig: RealtimeConfig, configId: string | null) => {
+    if (!configId) {
+      throw new Error('An agent configuration must be selected before starting a session.');
+    }
+
     const { data, error: dbError } = await supabase
       .from('va_sessions')
       .insert({
+        agent_id: configId,
         session_metadata: { config: sessionConfig, configId },
         status: 'active'
       })
@@ -135,17 +141,20 @@ export function useVoiceAgent() {
     if (!client) return;
 
     client.on('connected', () => {
+      console.log('[useVoiceAgent] realtime event: connected');
       setIsConnected(true);
       setAgentState('idle');
     });
 
-    client.on('disconnected', () => {
+    client.on('disconnected', (event) => {
+      console.warn('[useVoiceAgent] realtime event: disconnected', event);
       setIsConnected(false);
       setAgentState('idle');
       setIsRecording(false);
     });
 
     client.on('agent_state', (event) => {
+      console.log('[useVoiceAgent] agent_state update', event);
       setAgentState(event.state);
       if (event.state === 'listening' && audioManager) {
         audioManager.stopPlayback();
@@ -153,17 +162,22 @@ export function useVoiceAgent() {
     });
 
     client.on('error', (event: any) => {
-      console.error('Realtime API error:', event.error);
+      console.error('[useVoiceAgent] Realtime API error:', event.error);
       setError(event.error);
     });
 
     client.on('audio.delta', async (event: any) => {
+      console.debug('[useVoiceAgent] audio.delta received');
       if (audioManager) {
         await audioManager.playAudioData(event.delta);
       }
     });
 
     client.on('transcript.delta', (event: any) => {
+      console.debug('[useVoiceAgent] transcript.delta', {
+        role: event.role,
+        itemId: event.itemId
+      });
       const isUser = event.role === 'user';
       const buffer = isUser ? transcriptsRef.current.user : transcriptsRef.current.assistant;
       const fallbackId = isUser ? 'user-default' : 'assistant-default';
@@ -186,6 +200,10 @@ export function useVoiceAgent() {
     });
 
     client.on('transcript.done', async (event: any) => {
+      console.debug('[useVoiceAgent] transcript.done', {
+        role: event.role,
+        itemId: event.itemId
+      });
       const isUser = event.role === 'user';
       const buffers = isUser ? transcriptsRef.current.user : transcriptsRef.current.assistant;
       const activeId = isUser ? transcriptsRef.current.activeUserId : transcriptsRef.current.activeAssistantId;
@@ -352,8 +370,15 @@ export function useVoiceAgent() {
 
   const initialize = useCallback(
     async (initConfig: RealtimeConfig, configId: string | null = null) => {
+      console.log('[useVoiceAgent] initialize called', {
+        configId,
+        hasExistingSession: !!sessionIdRef.current
+      });
       try {
         setError(null);
+        if (!configId) {
+          throw new Error('Select an agent preset before starting the voice agent.');
+        }
         setConfig(initConfig);
         setActiveConfigId(configId);
         resetTranscripts();
@@ -361,31 +386,39 @@ export function useVoiceAgent() {
         messagesRef.current = [];
         setMessages([]);
 
-        await loadMCPTools(configId || undefined);
+        await loadMCPTools(configId);
 
         const sid = await createSession(initConfig, configId);
         if (!sid) throw new Error('Failed to create session');
 
         sessionIdRef.current = sid;
         setSessionId(sid);
+        console.log('[useVoiceAgent] session row created', { sessionId: sid });
 
+        if (!audioManagerRef.current) {
+          audioManagerRef.current = getAudioManager();
+        }
         if (audioManagerRef.current) {
-          console.warn('AudioManager already exists — reusing existing instance');
-        } else {
-          audioManagerRef.current = new AudioManager();
-          await audioManagerRef.current.initialize();
+          if (audioManagerRef.current.isReady()) {
+            console.warn('[useVoiceAgent] AudioManager already ready - reusing singleton');
+          } else {
+            console.log('[useVoiceAgent] Initializing AudioManager singleton');
+            await audioManagerRef.current.initialize();
+          }
         }
 
         if (realtimeClientRef.current) {
+          console.log('[useVoiceAgent] disposing previous realtime client instance');
           realtimeClientRef.current.disconnect();
         }
         realtimeClientRef.current = new RealtimeAPIClient(initConfig);
 
         attachRealtimeHandlers();
         await realtimeClientRef.current.connect();
+        console.log('[useVoiceAgent] realtime socket connected');
         setAgentState('idle');
       } catch (err: any) {
-        console.error('Failed to initialize:', err);
+        console.error('[useVoiceAgent] Failed to initialize agent:', err);
 
         if (audioManagerRef.current && !audioManagerRef.current.isCurrentlyInitializing()) {
           audioManagerRef.current.close(true);
@@ -406,12 +439,17 @@ export function useVoiceAgent() {
   const cleanup = useCallback(async () => {
     if (isCleaningUpRef.current) return;
     isCleaningUpRef.current = true;
+    console.log('[useVoiceAgent] cleanup start', {
+      sessionId: sessionIdRef.current,
+      realtimeConnected: realtimeClientRef.current?.isConnected() ?? false
+    });
 
     stopRecording();
 
     if (realtimeClientRef.current) {
       try {
         realtimeClientRef.current.disconnect();
+        console.log('[useVoiceAgent] realtime socket closed during cleanup');
       } catch (cleanupErr) {
         console.warn('Error during realtime client disconnect:', cleanupErr);
       }
@@ -440,6 +478,7 @@ export function useVoiceAgent() {
             updated_at: new Date().toISOString()
           })
           .eq('id', currentSessionId);
+        console.log('[useVoiceAgent] session marked ended', { sessionId: currentSessionId });
       } catch (err) {
         console.warn('Error updating session status:', err);
       }
@@ -455,21 +494,56 @@ export function useVoiceAgent() {
     setIsConnected(false);
     micStartedRef.current = false;
     isCleaningUpRef.current = false;
+    shouldPersistSession.current = true;
   }, [resetTranscripts, stopRecording]);
-
-  const skipInitialCleanupRef = useRef(true);
 
   useEffect(() => {
     return () => {
-      if (skipInitialCleanupRef.current) {
-        skipInitialCleanupRef.current = false;
-        return;
-      }
-      if (audioManagerRef.current || isConnected) {
+      console.log('[useVoiceAgent] unmount effect fired', { shouldPersist: shouldPersistSession.current });
+      if (!shouldPersistSession.current) {
         cleanup();
       }
     };
   }, [cleanup]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleBeforeUnload = () => {
+      shouldPersistSession.current = false;
+      console.log('[useVoiceAgent] beforeunload triggered cleanup');
+      cleanup();
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [cleanup]);
+
+  useEffect(() => {
+    if (sessionIdRef.current && realtimeClientRef.current) {
+      if (!realtimeClientRef.current.isConnected()) {
+        console.log('[useVoiceAgent] attempting socket reconnect on remount', { sessionId: sessionIdRef.current });
+        realtimeClientRef.current.reconnect().catch((err) => {
+          console.warn('Failed to reconnect realtime client on mount', err);
+        });
+      } else {
+        console.log('[useVoiceAgent] realtime client already connected on remount');
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const handleVisibility = () => {
+      console.log('[useVoiceAgent] visibilitychange', document.visibilityState);
+      if (document.visibilityState === 'visible' && sessionIdRef.current && realtimeClientRef.current && !realtimeClientRef.current.isConnected()) {
+        console.log('[useVoiceAgent] visibilitychange triggered reconnect', { sessionId: sessionIdRef.current });
+        realtimeClientRef.current.reconnect().catch((err) => {
+          console.warn('Failed to reconnect realtime client after visibility change', err);
+        });
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
 
   const updateConfig = useCallback((newConfig: RealtimeConfig) => {
     setConfig(newConfig);

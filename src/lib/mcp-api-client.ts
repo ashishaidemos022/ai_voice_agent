@@ -4,6 +4,7 @@ export interface MCPConnectionCreateRequest {
   name: string;
   server_url: string;
   api_key: string;
+  user_id: string;
 }
 
 export interface MCPConnectionTestRequest {
@@ -12,12 +13,14 @@ export interface MCPConnectionTestRequest {
 
 export interface MCPListToolsRequest {
   connection_id: string;
+  user_id: string;
 }
 
 export interface MCPExecuteToolRequest {
   connection_id: string;
   tool_name: string;
   parameters: Record<string, any>;
+  user_id: string;
 }
 
 export interface MCPApiResponse<T = any> {

@@ -5,6 +5,7 @@ export interface MCPConnection {
   name: string;
   server_url: string;
   api_key: string;
+  user_id: string;
   is_enabled: boolean;
   status: 'active' | 'error' | 'disconnected';
   last_health_check?: string;
@@ -59,7 +60,10 @@ export class MCPClient {
           return await mcpApiClient.testConnection({ connection_id: this.connection.id });
 
         case 'list_tools':
-          return await mcpApiClient.listTools({ connection_id: this.connection.id });
+          return await mcpApiClient.listTools({
+            connection_id: this.connection.id,
+            user_id: this.connection.user_id
+          });
 
         case 'execute':
           if (!additionalData?.tool_name) {
@@ -72,7 +76,8 @@ export class MCPClient {
           return await mcpApiClient.executeTool({
             connection_id: this.connection.id,
             tool_name: additionalData.tool_name,
-            parameters: additionalData.parameters || {}
+            parameters: additionalData.parameters || {},
+            user_id: this.connection.user_id
           });
 
         default:

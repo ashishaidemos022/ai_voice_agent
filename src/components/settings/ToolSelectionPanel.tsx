@@ -5,6 +5,7 @@ import { getConfigTools, updateConfigTools, SelectedTool } from '../../lib/confi
 import { Button } from '../ui/Button';
 import { Card, CardContent } from '../ui/Card';
 import { Badge } from '../ui/Badge';
+import { useAgentState } from '../../state/agentState';
 
 interface ToolSelectionPanelProps {
   configId: string | null;
@@ -21,7 +22,11 @@ interface MCPToolInfo {
 }
 
 export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPanelProps) {
-  const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set());
+  const persistedSelection = useAgentState((state) =>
+    configId ? state.toolSelections[configId] ?? [] : []
+  );
+  const setToolsForConfig = useAgentState((state) => state.setToolsForConfig);
+  const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set(persistedSelection));
   const [mcpTools, setMcpTools] = useState<MCPToolInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -56,6 +61,10 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
   };
 
   useEffect(() => {
+    setSelectedTools(new Set(persistedSelection));
+  }, [persistedSelection, configId]);
+
+  useEffect(() => {
     let isMounted = true;
 
     const loadData = async () => {
@@ -77,12 +86,19 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
 
         setMcpTools(availableMcpTools);
 
+        const storeState = useAgentState.getState();
+        const storedSelection = storeState.toolSelections[configId] ?? [];
+
         const savedToolNames = toolsFromConfig.map(t => t.tool_name);
-        const nextSelection = toolsFromConfig.length === 0
+        const defaultSelection = toolsFromConfig.length === 0
           ? availableMcpTools.map(t => t.tool_name)
           : savedToolNames;
+        const nextSelection = storedSelection.length ? storedSelection : defaultSelection;
 
         setSelectedTools(new Set(nextSelection));
+        if (!storedSelection.length) {
+          setToolsForConfig(configId, nextSelection);
+        }
         setHasChanges(false);
       } catch (error) {
         console.error('Failed to load MCP tools or selection:', error);
@@ -103,6 +119,13 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
     };
   }, [configId]);
 
+  const syncSelection = (nextSet: Set<string>) => {
+    setSelectedTools(nextSet);
+    if (configId) {
+      setToolsForConfig(configId, Array.from(nextSet));
+    }
+  };
+
   const handleToggleTool = (toolName: string) => {
     const newSelected = new Set(selectedTools);
     if (newSelected.has(toolName)) {
@@ -110,17 +133,17 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
     } else {
       newSelected.add(toolName);
     }
-    setSelectedTools(newSelected);
+    syncSelection(newSelected);
     setHasChanges(true);
   };
 
   const handleSelectAll = () => {
-    setSelectedTools(new Set(mcpTools.map(t => t.tool_name)));
+    syncSelection(new Set(mcpTools.map(t => t.tool_name)));
     setHasChanges(true);
   };
 
   const handleDeselectAll = () => {
-    setSelectedTools(new Set());
+    syncSelection(new Set());
     setHasChanges(true);
   };
 

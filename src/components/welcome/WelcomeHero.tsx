@@ -11,6 +11,7 @@ interface WelcomeHeroProps {
   presets?: { id: string; name: string }[];
   selectedPresetId?: string | null;
   onPresetSelect?: (id: string) => void;
+  onGoToWorkspace?: () => void;
 }
 
 export function WelcomeHero({
@@ -20,7 +21,8 @@ export function WelcomeHero({
   error,
   presets = [],
   selectedPresetId,
-  onPresetSelect
+  onPresetSelect,
+  onGoToWorkspace
 }: WelcomeHeroProps) {
   return (
     <div className="fixed inset-0 bg-gradient-radial from-[#0D1117] via-[#111827] to-[#1e1b4b] flex items-center justify-center overflow-hidden">
@@ -90,12 +92,32 @@ export function WelcomeHero({
         >
           <StartSessionButton
             onClick={onStart}
-            disabled={isInitializing}
+            disabled={isInitializing || !selectedPresetId}
             loading={isInitializing}
           >
-            {isInitializing ? 'Requesting Permissions...' : 'Start Voice Agent'}
+            {isInitializing ? 'Requesting Permissions...' : selectedPresetId ? 'Start Voice Agent' : 'Select a Preset to Continue'}
           </StartSessionButton>
         </motion.div>
+
+        {onGoToWorkspace && (
+          <motion.div
+            className="mt-4 text-center flex flex-col items-center gap-2"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.55, ease: "easeOut" }}
+          >
+            <p className="text-sm text-slate-300">
+              Want to land in the workspace first?
+            </p>
+            <button
+              type="button"
+              onClick={onGoToWorkspace}
+              className="text-sm font-medium text-cyan-300 underline underline-offset-4"
+            >
+              Go to workspace directly
+            </button>
+          </motion.div>
+        )}
 
         {error && (
           <motion.div

@@ -3,6 +3,7 @@ import { Plus, Trash2, Power, Check, AlertCircle, Loader2, RefreshCw, ChevronDow
 import { supabase } from '../../lib/supabase';
 import { MCPClient, MCPConnection, MCPTool } from '../../lib/mcp-client';
 import { mcpApiClient } from '../../lib/mcp-api-client';
+import { useAuth } from '../../context/AuthContext';
 import { RightPanel } from '../layout/RightPanel';
 import { Button } from '../ui/Button';
 import { Card, CardHeader, CardContent } from '../ui/Card';
@@ -32,6 +33,7 @@ const categoryIcons: Record<string, any> = {
 };
 
 export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProps) {
+  const { vaUser } = useAuth();
   const [connections, setConnections] = useState<ConnectionWithTools[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -123,13 +125,22 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
       return;
     }
 
+    if (!vaUser?.id) {
+      setTestStatus({
+        type: 'error',
+        message: 'User profile not loaded yet. Please try again.'
+      });
+      return;
+    }
+
     try {
       setTestStatus({ type: 'testing', message: 'Creating temporary connection...' });
 
       const createResult = await mcpApiClient.createConnection({
         name: `${formData.name} (Test)`,
         server_url: formData.server_url,
-        api_key: formData.api_key
+        api_key: formData.api_key,
+        user_id: vaUser.id
       });
 
       if (!createResult.success || !createResult.data?.id) {
@@ -187,11 +198,17 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
       return;
     }
 
+    if (!vaUser?.id) {
+      setFormError('User profile not loaded yet. Please try again.');
+      return;
+    }
+
     try {
       const createResult = await mcpApiClient.createConnection({
         name: formData.name,
         server_url: formData.server_url,
-        api_key: formData.api_key
+        api_key: formData.api_key,
+        user_id: vaUser.id
       });
 
       if (!createResult.success || !createResult.data?.id) {

@@ -24,6 +24,9 @@ interface SettingsPanelProps {
   onConfigChange: (config: RealtimeConfig) => void;
   activeConfigId: string | null;
   onActiveConfigChange: (configId: string | null) => void;
+  userId: string;
+  providerKeyId: string | null;
+  onPresetsRefresh?: () => Promise<void> | void;
 }
 
 const DEFAULT_INSTRUCTIONS = 'You are a helpful AI voice assistant. You can help users with various tasks, answer questions, and execute tools when needed. Be conversational and friendly.';
@@ -42,7 +45,10 @@ export function SettingsPanel({
   config,
   onConfigChange,
   activeConfigId,
-  onActiveConfigChange
+  onActiveConfigChange,
+  userId,
+  providerKeyId,
+  onPresetsRefresh
 }: SettingsPanelProps) {
   const [presets, setPresets] = useState<AgentConfigPreset[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -97,13 +103,20 @@ export function SettingsPanel({
       setSaveError('Please enter a preset name');
       return;
     }
+    if (!providerKeyId) {
+      setSaveError('Add an OpenAI API key before saving presets.');
+      return;
+    }
 
     setIsLoading(true);
     setSaveError(null);
     try {
       const presetData = realtimeConfigToPreset(config, newPresetName.trim());
-      const savedPreset = await saveConfigPreset(presetData);
+      const savedPreset = await saveConfigPreset(presetData, userId, providerKeyId);
       await loadPresets();
+      if (onPresetsRefresh) {
+        await onPresetsRefresh();
+      }
       onActiveConfigChange(savedPreset.id);
       setShowSaveDialog(false);
       setNewPresetName('');
@@ -124,6 +137,9 @@ export function SettingsPanel({
       const updates = realtimeConfigToPreset(config, presets.find(p => p.id === activeConfigId)?.name || 'Unnamed');
       await updateConfigPreset(activeConfigId, updates);
       await loadPresets();
+      if (onPresetsRefresh) {
+        await onPresetsRefresh();
+      }
       setHasUnsavedChanges(false);
     } catch (error) {
       console.error('Failed to update preset:', error);
@@ -142,6 +158,9 @@ export function SettingsPanel({
         onActiveConfigChange(null);
       }
       await loadPresets();
+      if (onPresetsRefresh) {
+        await onPresetsRefresh();
+      }
     } catch (error) {
       console.error('Failed to delete preset:', error);
     } finally {

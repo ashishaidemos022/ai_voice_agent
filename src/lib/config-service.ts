@@ -10,7 +10,7 @@ export interface SelectedTool {
 
 export interface AgentConfigPreset {
   id: string;
-  user_id: string | null;
+  user_id: string;
   name: string;
   instructions: string;
   voice: string;
@@ -20,9 +20,21 @@ export interface AgentConfigPreset {
   turn_detection_enabled: boolean;
   turn_detection_config: any;
   is_default: boolean;
+  provider_key_id: string | null;
   selected_tools?: SelectedTool[];
   created_at: string;
   updated_at: string;
+}
+
+export interface AgentTemplate {
+  id: string;
+  name: string;
+  description: string | null;
+  instructions: string;
+  voice: string;
+  temperature: number;
+  model: string;
+  turn_detection_config: any;
 }
 
 export function configPresetToRealtimeConfig(preset: AgentConfigPreset): RealtimeConfig {
@@ -101,11 +113,17 @@ export async function getConfigPresetById(id: string): Promise<AgentConfigPreset
   return data;
 }
 
-export async function saveConfigPreset(preset: Partial<AgentConfigPreset>): Promise<AgentConfigPreset> {
+export async function saveConfigPreset(
+  preset: Partial<AgentConfigPreset>,
+  userId: string,
+  providerKeyId?: string
+): Promise<AgentConfigPreset> {
   const { data, error } = await supabase
     .from('va_agent_configs')
     .insert({
       ...preset,
+      user_id: userId,
+      provider_key_id: providerKeyId ?? preset.provider_key_id ?? null,
       updated_at: new Date().toISOString()
     })
     .select()
@@ -119,7 +137,10 @@ export async function saveConfigPreset(preset: Partial<AgentConfigPreset>): Prom
   return data;
 }
 
-export async function updateConfigPreset(id: string, updates: Partial<AgentConfigPreset>): Promise<AgentConfigPreset> {
+export async function updateConfigPreset(
+  id: string,
+  updates: Partial<AgentConfigPreset>
+): Promise<AgentConfigPreset> {
   const { data, error } = await supabase
     .from('va_agent_configs')
     .update({
@@ -150,21 +171,84 @@ export async function deleteConfigPreset(id: string): Promise<void> {
   }
 }
 
-export async function setDefaultConfigPreset(id: string): Promise<void> {
+export async function setDefaultConfigPreset(id: string, userId: string): Promise<void> {
   await supabase
     .from('va_agent_configs')
     .update({ is_default: false })
+    .eq('user_id', userId)
     .neq('id', id);
 
   const { error } = await supabase
     .from('va_agent_configs')
     .update({ is_default: true })
-    .eq('id', id);
+    .eq('id', id)
+    .eq('user_id', userId);
 
   if (error) {
     console.error('Failed to set default config preset:', error);
     throw error;
   }
+}
+
+export async function getAgentTemplates(): Promise<AgentTemplate[]> {
+  const { data, error } = await supabase
+    .from('va_agent_presets')
+    .select('*')
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.error('Failed to load presets:', error);
+    throw error;
+  }
+
+  return (data || []) as AgentTemplate[];
+}
+
+export async function cloneTemplateToAgent(
+  templateId: string,
+  userId: string,
+  providerKeyId: string,
+  overrides?: Partial<AgentConfigPreset>
+): Promise<AgentConfigPreset> {
+  const { data: template, error: templateError } = await supabase
+    .from('va_agent_presets')
+    .select('*')
+    .eq('id', templateId)
+    .maybeSingle();
+
+  if (templateError) {
+    throw templateError;
+  }
+  if (!template) {
+    throw new Error('Preset not found');
+  }
+
+  const payload = {
+    user_id: userId,
+    provider_key_id: providerKeyId,
+    name: overrides?.name || template.name,
+    instructions: overrides?.instructions || template.instructions,
+    voice: overrides?.voice || template.voice,
+    temperature: overrides?.temperature ?? template.temperature,
+    model: overrides?.model || template.model,
+    max_response_output_tokens: overrides?.max_response_output_tokens ?? 4096,
+    turn_detection_enabled: overrides?.turn_detection_enabled ?? true,
+    turn_detection_config: overrides?.turn_detection_config || template.turn_detection_config,
+    is_default: overrides?.is_default ?? false
+  };
+
+  const { data, error } = await supabase
+    .from('va_agent_configs')
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Failed to clone template:', error);
+    throw error;
+  }
+
+  return data;
 }
 
 export async function getConfigTools(configId: string): Promise<SelectedTool[]> {

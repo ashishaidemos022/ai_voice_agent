@@ -22,19 +22,15 @@ This is a production-ready Voice AI Agent application built with:
 
 ## Database Schema
 
-All tables use the `va_` prefix with RLS disabled:
+All application tables use the `va_` prefix and now enforce **Row Level Security** keyed off each Supabase auth user → `va_users` record. High-level tables:
 
-### va_sessions
-Stores voice conversation sessions
-- Tracks session metadata, status, duration, message/tool counts
+- **va_users / va_provider_keys** – profile metadata and encrypted OpenAI keys per customer. Keys can be rotated + aliased; only metadata is exposed via RLS.
+- **va_agent_presets** – globally readable onboarding presets that are cloned into `va_agent_configs`.
+- **va_agent_configs / va_agent_config_tools** – per-user agent definitions, plus the tool selections (client/server/MCP) for each agent. Configs reference optional `provider_key_id`.
+- **va_mcp_connections / va_mcp_tools / va_mcp_connection_health** – user-scoped MCP endpoints, discovered tools, and health checks (with last sync timestamps).
+- **va_sessions / va_messages / va_tool_executions** – live conversation history for each agent; triggers backfill `user_id` automatically from parent relationships to guarantee ownership isolation.
 
-### va_messages
-Stores all conversation messages
-- Includes role (user/assistant/system), content, audio metadata, tool calls
-
-### va_tool_executions
-Logs every tool execution with full details
-- Tracks tool name, inputs, outputs, execution time, status, type (client/server)
+See `supabase/migrations/*2012*.sql` for the full DDL + triggers and `supabase/current_tables_nov22.json` for the flattened schema dump.
 
 ## Configuration
 
@@ -54,6 +50,13 @@ VITE_OPENAI_API_KEY=<your-openai-api-key>
 - **Model**: Uses gpt-realtime
 
 ## Usage
+
+### User Portal & Onboarding
+- Sign in with Supabase Auth (email/password or Google). Sessions persist across reloads; use the top-right menu to sign out.
+- New users land in a guided flow: first add an OpenAI API key (stored encrypted/base64 in `va_provider_keys`), then clone a preset from `va_agent_presets` to create their default `va_agent_configs` row.
+- The main dashboard will not unlock until a provider key exists and the user has at least one agent config (with the first one automatically marked default and connected to the saved key).
+- Each screen is scoped to the signed-in user via RLS; attempting to start a session without selecting an agent presents an inline error.
+- The Settings panel surfaces only the user’s configs (bound to a provider key) and notifies the parent view so preset dropdowns and the welcome hero stay in sync.
 
 ### Starting the Application
 

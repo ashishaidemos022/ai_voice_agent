@@ -1,7 +1,12 @@
-import { VoiceAgent } from './components/VoiceAgent';
+import { AuthProvider } from './context/AuthContext';
+import { PortalRouter } from './components/PortalRouter';
 
 function App() {
-  return <VoiceAgent />;
+  return (
+    <AuthProvider>
+      <PortalRouter />
+    </AuthProvider>
+  );
 }
 
 export default App;

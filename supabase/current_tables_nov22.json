@@ -1,0 +1,983 @@
+[
+  {
+    "table_name": "va_users",
+    "column_name": "id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "gen_random_uuid()"
+  },
+  {
+    "table_name": "va_users",
+    "column_name": "auth_user_id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_users",
+    "column_name": "email",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_users",
+    "column_name": "display_name",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "va_users",
+    "column_name": "onboarding_state",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "'pending'::text"
+  },
+  {
+    "table_name": "va_users",
+    "column_name": "default_agent_id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "va_users",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "va_users",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "va_provider_keys",
+    "column_name": "id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "gen_random_uuid()"
+  },
+  {
+    "table_name": "va_provider_keys",
+    "column_name": "user_id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_provider_keys",
+    "column_name": "provider",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_provider_keys",
+    "column_name": "key_alias",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_provider_keys",
+    "column_name": "encrypted_key",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_provider_keys",
+    "column_name": "last_four",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "va_provider_keys",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "va_provider_keys",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "va_agent_presets",
+    "column_name": "id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "gen_random_uuid()"
+  },
+  {
+    "table_name": "va_agent_presets",
+    "column_name": "name",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_agent_presets",
+    "column_name": "description",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "va_agent_presets",
+    "column_name": "instructions",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_agent_presets",
+    "column_name": "model",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "'gpt-4o-realtime-preview-2024-12-17'::text"
+  },
+  {
+    "table_name": "va_agent_presets",
+    "column_name": "temperature",
+    "data_type": "numeric",
+    "udt_name": "numeric",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "0.8"
+  },
+  {
+    "table_name": "va_agent_presets",
+    "column_name": "voice",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "'alloy'::text"
+  },
+  {
+    "table_name": "va_agent_presets",
+    "column_name": "turn_detection_config",
+    "data_type": "jsonb",
+    "udt_name": "jsonb",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "jsonb_build_object('type', 'server_vad', 'threshold', 0.5, 'prefix_padding_ms', 300, 'silence_duration_ms', 500)"
+  },
+  {
+    "table_name": "va_agent_presets",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "va_agent_configs",
+    "column_name": "id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "gen_random_uuid()"
+  },
+  {
+    "table_name": "va_agent_configs",
+    "column_name": "user_id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_agent_configs",
+    "column_name": "name",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_agent_configs",
+    "column_name": "instructions",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_agent_configs",
+    "column_name": "voice",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "'alloy'::text"
+  },
+  {
+    "table_name": "va_agent_configs",
+    "column_name": "temperature",
+    "data_type": "numeric",
+    "udt_name": "numeric",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "0.8"
+  },
+  {
+    "table_name": "va_agent_configs",
+    "column_name": "model",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "'gpt-4o-realtime-preview-2024-12-17'::text"
+  },
+  {
+    "table_name": "va_agent_configs",
+    "column_name": "max_response_output_tokens",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "4096"
+  },
+  {
+    "table_name": "va_agent_configs",
+    "column_name": "turn_detection_enabled",
+    "data_type": "boolean",
+    "udt_name": "bool",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "true"
+  },
+  {
+    "table_name": "va_agent_configs",
+    "column_name": "turn_detection_config",
+    "data_type": "jsonb",
+    "udt_name": "jsonb",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "'{\"type\": \"server_vad\", \"threshold\": 0.5, \"prefix_padding_ms\": 300, \"silence_duration_ms\": 500}'::jsonb"
+  },
+  {
+    "table_name": "va_agent_configs",
+    "column_name": "is_default",
+    "data_type": "boolean",
+    "udt_name": "bool",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "false"
+  },
+  {
+    "table_name": "va_agent_configs",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "va_agent_configs",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "va_agent_configs",
+    "column_name": "provider_key_id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "va_agent_config_tools",
+    "column_name": "id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "gen_random_uuid()"
+  },
+  {
+    "table_name": "va_agent_config_tools",
+    "column_name": "config_id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_agent_config_tools",
+    "column_name": "tool_id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "va_agent_config_tools",
+    "column_name": "tool_name",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_agent_config_tools",
+    "column_name": "tool_source",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_agent_config_tools",
+    "column_name": "connection_id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "va_agent_config_tools",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "va_agent_config_tools",
+    "column_name": "user_id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_mcp_connections",
+    "column_name": "id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "gen_random_uuid()"
+  },
+  {
+    "table_name": "va_mcp_connections",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "va_mcp_connections",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "va_mcp_connections",
+    "column_name": "name",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_mcp_connections",
+    "column_name": "server_url",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_mcp_connections",
+    "column_name": "api_key",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_mcp_connections",
+    "column_name": "is_enabled",
+    "data_type": "boolean",
+    "udt_name": "bool",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "true"
+  },
+  {
+    "table_name": "va_mcp_connections",
+    "column_name": "status",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "'disconnected'::text"
+  },
+  {
+    "table_name": "va_mcp_connections",
+    "column_name": "last_health_check",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "va_mcp_connections",
+    "column_name": "metadata",
+    "data_type": "jsonb",
+    "udt_name": "jsonb",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "va_mcp_connections",
+    "column_name": "error_message",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "va_mcp_connections",
+    "column_name": "user_id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_mcp_connections",
+    "column_name": "last_tool_sync_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "va_mcp_connection_health",
+    "column_name": "id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "gen_random_uuid()"
+  },
+  {
+    "table_name": "va_mcp_connection_health",
+    "column_name": "connection_id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_mcp_connection_health",
+    "column_name": "checked_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "va_mcp_connection_health",
+    "column_name": "status",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_mcp_connection_health",
+    "column_name": "latency_ms",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "va_mcp_connection_health",
+    "column_name": "error_message",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "va_mcp_connection_health",
+    "column_name": "metadata",
+    "data_type": "jsonb",
+    "udt_name": "jsonb",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "va_mcp_connection_health",
+    "column_name": "user_id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_mcp_tools",
+    "column_name": "id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "gen_random_uuid()"
+  },
+  {
+    "table_name": "va_mcp_tools",
+    "column_name": "connection_id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_mcp_tools",
+    "column_name": "tool_name",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_mcp_tools",
+    "column_name": "description",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "''::text"
+  },
+  {
+    "table_name": "va_mcp_tools",
+    "column_name": "parameters_schema",
+    "data_type": "jsonb",
+    "udt_name": "jsonb",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "va_mcp_tools",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "va_mcp_tools",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "va_mcp_tools",
+    "column_name": "is_enabled",
+    "data_type": "boolean",
+    "udt_name": "bool",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "true"
+  },
+  {
+    "table_name": "va_mcp_tools",
+    "column_name": "category",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "va_mcp_tools",
+    "column_name": "icon",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "va_mcp_tools",
+    "column_name": "user_id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_messages",
+    "column_name": "id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "gen_random_uuid()"
+  },
+  {
+    "table_name": "va_messages",
+    "column_name": "session_id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_messages",
+    "column_name": "role",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_messages",
+    "column_name": "content",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "''::text"
+  },
+  {
+    "table_name": "va_messages",
+    "column_name": "audio_metadata",
+    "data_type": "jsonb",
+    "udt_name": "jsonb",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "va_messages",
+    "column_name": "timestamp",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "va_messages",
+    "column_name": "tool_calls",
+    "data_type": "jsonb",
+    "udt_name": "jsonb",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "'[]'::jsonb"
+  },
+  {
+    "table_name": "va_messages",
+    "column_name": "user_id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_sessions",
+    "column_name": "id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "gen_random_uuid()"
+  },
+  {
+    "table_name": "va_sessions",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "va_sessions",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "va_sessions",
+    "column_name": "session_metadata",
+    "data_type": "jsonb",
+    "udt_name": "jsonb",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "va_sessions",
+    "column_name": "status",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "'active'::text"
+  },
+  {
+    "table_name": "va_sessions",
+    "column_name": "duration_seconds",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "0"
+  },
+  {
+    "table_name": "va_sessions",
+    "column_name": "message_count",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "0"
+  },
+  {
+    "table_name": "va_sessions",
+    "column_name": "tool_execution_count",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "0"
+  },
+  {
+    "table_name": "va_sessions",
+    "column_name": "user_id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_sessions",
+    "column_name": "agent_id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_tool_executions",
+    "column_name": "id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": "gen_random_uuid()"
+  },
+  {
+    "table_name": "va_tool_executions",
+    "column_name": "message_id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "va_tool_executions",
+    "column_name": "session_id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_tool_executions",
+    "column_name": "tool_name",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "va_tool_executions",
+    "column_name": "input_params",
+    "data_type": "jsonb",
+    "udt_name": "jsonb",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "va_tool_executions",
+    "column_name": "output_result",
+    "data_type": "jsonb",
+    "udt_name": "jsonb",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "va_tool_executions",
+    "column_name": "execution_time_ms",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "0"
+  },
+  {
+    "table_name": "va_tool_executions",
+    "column_name": "status",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "'success'::text"
+  },
+  {
+    "table_name": "va_tool_executions",
+    "column_name": "error_message",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "va_tool_executions",
+    "column_name": "executed_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "va_tool_executions",
+    "column_name": "execution_type",
+    "data_type": "text",
+    "udt_name": "text",
+    "character_maximum_length": null,
+    "is_nullable": "YES",
+    "column_default": "'client'::text"
+  },
+  {
+    "table_name": "va_tool_executions",
+    "column_name": "user_id",
+    "data_type": "uuid",
+    "udt_name": "uuid",
+    "character_maximum_length": null,
+    "is_nullable": "NO",
+    "column_default": null
+  }
+]
