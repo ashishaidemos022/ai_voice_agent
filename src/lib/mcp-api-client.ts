@@ -47,9 +47,33 @@ export interface MCPToolDefinition {
 
 export class MCPApiClient {
   private baseUrl: string;
+  private sessionCache: Map<string, string> = new Map();
+  private fallbackSessionId: string | null = null;
 
   constructor(baseUrl?: string) {
     this.baseUrl = baseUrl || MCP_API_BASE_URL;
+  }
+
+  private getSessionId(connectionId?: string) {
+    if (connectionId) {
+      if (!this.sessionCache.has(connectionId)) {
+        this.sessionCache.set(connectionId, connectionId);
+      }
+      return this.sessionCache.get(connectionId)!;
+    }
+    if (!this.fallbackSessionId) {
+      this.fallbackSessionId = crypto.randomUUID();
+    }
+    return this.fallbackSessionId;
+  }
+
+  private buildHeaders(connectionId?: string) {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+    const sessionId = this.getSessionId(connectionId);
+    headers['Mcp-Session-Id'] = sessionId;
+    return headers;
   }
 
   async createConnection(data: MCPConnectionCreateRequest): Promise<MCPApiResponse> {
@@ -82,9 +106,7 @@ export class MCPApiClient {
     try {
       const response = await fetch(`${this.baseUrl}/api/mcp/test`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: this.buildHeaders(data.connection_id),
         body: JSON.stringify(data),
       });
 
@@ -108,9 +130,7 @@ export class MCPApiClient {
     try {
       const response = await fetch(`${this.baseUrl}/api/mcp/tools`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: this.buildHeaders(data.connection_id),
         body: JSON.stringify(data),
       });
 
@@ -134,9 +154,7 @@ export class MCPApiClient {
     try {
       const response = await fetch(`${this.baseUrl}/api/mcp/execute`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: this.buildHeaders(data.connection_id),
         body: JSON.stringify(data),
       });
 
