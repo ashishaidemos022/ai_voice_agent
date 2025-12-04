@@ -1,4 +1,5 @@
 import { mcpApiClient, MCPApiResponse } from './mcp-api-client';
+import { normalizeMCPArguments, JSONSchema, resolveSchemaDefinition } from './mcp-normalizer';
 
 export interface MCPConnection {
   id: string;
@@ -7,7 +8,7 @@ export interface MCPConnection {
   api_key: string;
   user_id: string;
   is_enabled: boolean;
-  status: 'active' | 'error' | 'disconnected';
+  status: 'active' | 'error' | 'disconnected' | 'pending' | 'connected' | 'syncing';
   last_health_check?: string;
   metadata: Record<string, any>;
   error_message?: string;
@@ -19,11 +20,7 @@ export interface MCPTool {
   connection_id: string;
   tool_name: string;
   description: string;
-  parameters_schema: {
-    type: 'object';
-    properties: Record<string, any>;
-    required?: string[];
-  };
+  parameters_schema: JSONSchema;
   is_enabled: boolean;
   category?: string;
   icon?: string;
@@ -35,6 +32,7 @@ export interface MCPTool {
 export interface MCPToolExecutionRequest {
   tool_name: string;
   parameters: Record<string, any>;
+  parameters_schema?: JSONSchema;
   session_context?: Record<string, any>;
 }
 
@@ -155,7 +153,7 @@ export class MCPClient {
       connection_id: this.connection.id,
       tool_name: tool.name,
       description: tool.description || '',
-      parameters_schema: tool.parameters || { type: 'object', properties: {} },
+      parameters_schema: resolveSchemaDefinition(tool.parameters),
       is_enabled: true,
       category: this.inferToolCategory(tool.name, tool.description),
       icon: this.inferToolIcon(tool.name, tool.description)
@@ -196,9 +194,25 @@ export class MCPClient {
   }
 
   async executeTool(request: MCPToolExecutionRequest): Promise<MCPToolExecutionResponse> {
+    const schema = resolveSchemaDefinition(request.parameters_schema);
+    console.log('[MCPClient] Executing tool', {
+      connectionId: this.connection.id,
+      toolName: request.tool_name,
+      rawParameters: request.parameters
+    });
+    const normalizedParameters = normalizeMCPArguments(
+      request.tool_name,
+      schema,
+      request.parameters
+    );
+    console.log('[MCPClient] Normalized parameters', {
+      toolName: request.tool_name,
+      normalizedParameters
+    });
+
     const response = await this.callApi('execute', {
       tool_name: request.tool_name,
-      parameters: request.parameters
+      parameters: normalizedParameters
     });
 
     return {

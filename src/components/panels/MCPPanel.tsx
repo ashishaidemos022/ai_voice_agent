@@ -48,13 +48,29 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
   });
 
   const [formError, setFormError] = useState<string | null>(null);
-  const [testStatus, setTestStatus] = useState<{ type: 'success' | 'error' | 'testing'; message: string } | null>(null);
+  const [testStatus, setTestStatus] = useState<{ type: 'success' | 'error' | 'testing' | 'warning'; message: string } | null>(null);
 
   useEffect(() => {
     if (isOpen) {
       loadConnections();
     }
   }, [isOpen]);
+
+  const fetchConnectionWithRetry = async (connectionId: string, attempts = 3): Promise<MCPConnection> => {
+    let lastError: any;
+    for (let i = 0; i < attempts; i++) {
+      const { data, error } = await supabase
+        .from('va_mcp_connections')
+        .select('*')
+        .eq('id', connectionId)
+        .single();
+
+      if (data && !error) return data as MCPConnection;
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+    throw lastError || new Error('Connection not found');
+  };
 
   const loadConnections = async () => {
     setIsLoading(true);
@@ -87,6 +103,26 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const getStatusVariant = (status?: string) => {
+    switch (status) {
+      case 'active':
+      case 'connected':
+        return 'success' as const;
+      case 'pending':
+      case 'syncing':
+        return 'warning' as const;
+      case 'error':
+        return 'error' as const;
+      default:
+        return 'secondary' as const;
+    }
+  };
+
+  const getStatusLabel = (status?: string) => {
+    if (!status) return 'unknown';
+    return status.charAt(0).toUpperCase() + status.slice(1);
   };
 
   const loadConnectionTools = async (connectionId: string) => {
@@ -187,6 +223,7 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
 
   const handleAddConnection = async () => {
     setFormError(null);
+    setTestStatus(null);
 
     if (!formData.name.trim() || !formData.server_url.trim() || !formData.api_key.trim()) {
       setFormError('All fields are required');
@@ -204,6 +241,7 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
     }
 
     try {
+      setTestStatus({ type: 'testing', message: 'Creating connection...' });
       const createResult = await mcpApiClient.createConnection({
         name: formData.name,
         server_url: formData.server_url,
@@ -212,10 +250,22 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
       });
 
       if (!createResult.success || !createResult.data?.id) {
-        throw new Error(createResult.error || 'Failed to create connection');
+        const message = createResult.error || 'Failed to create connection';
+        setTestStatus({ type: 'error', message });
+        setFormError(message);
+        return;
       }
 
-      await testAndSyncConnection(createResult.data.id);
+      setTestStatus({ type: 'testing', message: 'Connection created. Syncing tools...' });
+      const syncOk = await testAndSyncConnection(createResult.data.id);
+      if (syncOk) {
+        setTestStatus({ type: 'success', message: 'Connection verified and tools synced.' });
+      } else {
+        setTestStatus({
+          type: 'warning' as any,
+          message: 'Connection created. Initial sync may still be running.'
+        });
+      }
 
       setFormData({ name: '', server_url: '', api_key: '' });
       setShowAddForm(false);
@@ -223,21 +273,18 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
       await loadConnections();
       onConnectionsChanged?.();
     } catch (error: any) {
+      console.error('Failed to add connection:', error);
       setFormError(error.message || 'Failed to add connection');
+      setTestStatus({ type: 'error', message: error.message || 'Failed to add connection' });
     }
   };
 
   const testAndSyncConnection = async (connectionId: string) => {
     setSyncingConnectionId(connectionId);
+    let success = false;
 
     try {
-      const { data: connectionData } = await supabase
-        .from('va_mcp_connections')
-        .select('*')
-        .eq('id', connectionId)
-        .single();
-
-      if (!connectionData) throw new Error('Connection not found');
+      const connectionData = await fetchConnectionWithRetry(connectionId);
 
       const client = new MCPClient(connectionData);
       const testResult = await client.testConnection();
@@ -270,6 +317,7 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
         if (toolsToInsert.length > 0) {
           await supabase.from('va_mcp_tools').insert(toolsToInsert);
         }
+        success = true;
       } else {
         await supabase
           .from('va_mcp_connections')
@@ -290,6 +338,7 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
     } finally {
       setSyncingConnectionId(null);
     }
+    return success;
   };
 
   const handleSyncTools = async (connectionId: string) => {
@@ -413,13 +462,18 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
 
               {testStatus && (
                 <div className={`px-4 py-3 rounded-lg text-sm flex items-center gap-2 ${
-                  testStatus.type === 'success' ? 'bg-green-50 border border-green-200 text-green-700' :
-                  testStatus.type === 'error' ? 'bg-red-50 border border-red-200 text-red-700' :
-                  'bg-blue-50 border border-blue-200 text-blue-700'
+                  testStatus.type === 'success'
+                    ? 'bg-green-50 border border-green-200 text-green-700'
+                    : testStatus.type === 'error'
+                      ? 'bg-red-50 border border-red-200 text-red-700'
+                      : testStatus.type === 'warning'
+                        ? 'bg-amber-50 border border-amber-200 text-amber-700'
+                        : 'bg-blue-50 border border-blue-200 text-blue-700'
                 }`}>
                   {testStatus.type === 'testing' && <Loader2 className="w-4 h-4 animate-spin" />}
                   {testStatus.type === 'success' && <Check className="w-4 h-4" />}
                   {testStatus.type === 'error' && <AlertCircle className="w-4 h-4" />}
+                  {testStatus.type === 'warning' && <AlertCircle className="w-4 h-4" />}
                   {testStatus.message}
                 </div>
               )}
@@ -516,11 +570,8 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
                           )}
                         </button>
                         <h3 className="text-base font-semibold text-gray-900">{connection.name}</h3>
-                        <Badge variant={
-                          connection.status === 'active' ? 'success' :
-                          connection.status === 'error' ? 'error' : 'secondary'
-                        }>
-                          {connection.status}
+                        <Badge variant={getStatusVariant(connection.status)}>
+                          {getStatusLabel(connection.status)}
                         </Badge>
                         {!connection.is_enabled && (
                           <Badge variant="warning">Disabled</Badge>
@@ -529,7 +580,7 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
 
                       <p className="text-xs text-gray-600 mb-2 ml-9 font-mono">{connection.server_url}</p>
 
-                      {connection.error_message && (
+                      {connection.status === 'error' && connection.error_message && (
                         <div className="px-3 py-2 bg-red-50 border border-red-200 rounded text-xs text-red-700 mb-2 ml-9">
                           {connection.error_message}
                         </div>

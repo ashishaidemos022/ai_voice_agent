@@ -53,10 +53,11 @@ async function fetchVaUserProfile(): Promise<VaUserProfile | null> {
   return data as VaUserProfile | null;
 }
 
-async function fetchProviderKeys(): Promise<ProviderKey[]> {
+async function fetchProviderKeys(vaUserId: string): Promise<ProviderKey[]> {
   const { data, error } = await supabase
     .from('va_provider_keys')
     .select('id, user_id, provider, key_alias, last_four, created_at, updated_at')
+    .eq('user_id', vaUserId)
     .order('created_at', { ascending: true });
 
   if (error) {
@@ -82,12 +83,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      const [profile, keys] = await Promise.all([
-        fetchVaUserProfile(),
-        fetchProviderKeys()
-      ]);
+      const profile = await fetchVaUserProfile();
       setVaUser(profile);
-      setProviderKeys(keys);
+
+      if (profile?.id) {
+        const keys = await fetchProviderKeys(profile.id);
+        setProviderKeys(keys);
+      } else {
+        setProviderKeys([]);
+      }
     } catch (error) {
       console.error('Failed to refresh profile:', error);
     }

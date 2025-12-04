@@ -1,4 +1,4 @@
-import { Settings, Plug, Power, ArrowLeft, LogOut } from 'lucide-react';
+import { Settings, Plug, Power, ArrowLeft, LogOut, Webhook } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 
@@ -8,6 +8,7 @@ interface TopBarProps {
   sessionDuration?: string;
   onSettingsClick: () => void;
   onMCPClick: () => void;
+  onIntegrationsClick?: () => void;
   onEndSession: () => void;
   viewMode?: 'current' | 'history';
   onBackToCurrent?: () => void;
@@ -21,6 +22,7 @@ export function TopBar({
   sessionDuration,
   onSettingsClick,
   onMCPClick,
+  onIntegrationsClick,
   onEndSession,
   viewMode = 'current',
   onBackToCurrent,
@@ -69,6 +71,15 @@ export function TopBar({
             title="Manage MCP Connections"
           >
             <Plug className="w-4 h-4" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onIntegrationsClick}
+            title="Configure n8n webhooks"
+          >
+            <Webhook className="w-4 h-4" />
           </Button>
 
           <Button

@@ -88,6 +88,14 @@ The AI can automatically call tools during conversation. Try:
 
 Tool executions appear as badges in the transcript and are logged to the database.
 
+The#### Triggering n8n Automations
+
+- Open the new **n8n Webhooks** panel from the top bar (webhook icon) and register an HTTPS webhook URL from your n8n instance. Each webhook is stored server-side in `va_n8n_integrations` so browsers never see the secret.
+- Optional headers and an HMAC secret can be supplied; responses are proxied through the Supabase Edge Function `n8n-webhook-proxy`, which automatically signs payloads with `x-va-signature: sha256=<hash>`, forwards session context, and handles all CORS preflight logic.
+- Once an integration is saved, the agent exposes a deterministic tool such as `trigger_n8n_<slug>` with a schema (`summary`, `severity`, `payload`, `metadata`). The OpenAI Realtime model can call this tool like any other MCP function to kick off your n8n workflow.
+- Use the **Send test** button in the panel to confirm connectivity—n8n should receive a JSON payload describing the agent session and test message.
+- Because all traffic flows through the Edge Function, you can safely keep the n8n endpoint private, enforce HTTPS, and validate the HMAC signature inside n8n before trusting the request body.
+
 ## Architecture
 
 ### Frontend Structure

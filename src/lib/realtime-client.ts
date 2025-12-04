@@ -288,6 +288,10 @@ export class RealtimeAPIClient {
         break;
 
       case 'response.function_call_arguments.done':
+        console.log('🛠️ Function call args done:', {
+          name: message.name,
+          arguments: message.arguments
+        });
         this.emit({
           type: 'function_call',
           call: {

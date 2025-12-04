@@ -5,17 +5,19 @@ import { cn } from '../../lib/utils';
 interface ToolCardProps {
   name: string;
   description?: string;
-  category?: 'mcp';
+  category?: 'mcp' | 'n8n';
   icon?: LucideIcon;
 }
 
 export function ToolCard({ name, description, category = 'mcp', icon: Icon }: ToolCardProps) {
-  const categoryStyles = {
+  const categoryStyles: Record<string, string> = {
     mcp: 'border-l-4 border-l-green-500 hover:border-l-green-600',
+    n8n: 'border-l-4 border-l-orange-500 hover:border-l-orange-600'
   };
 
-  const categoryColors = {
+  const categoryColors: Record<string, string> = {
     mcp: 'text-green-600',
+    n8n: 'text-orange-500'
   };
 
   return (
@@ -23,12 +25,12 @@ export function ToolCard({ name, description, category = 'mcp', icon: Icon }: To
       whileHover={{ y: -2 }}
       className={cn(
         'bg-white rounded-lg border border-gray-200 p-3 transition-all cursor-default shadow-sm hover:shadow',
-        categoryStyles[category]
+        categoryStyles[category] || categoryStyles.mcp
       )}
     >
       <div className="flex items-start gap-3">
         {Icon && (
-          <div className={cn('mt-0.5', categoryColors[category])}>
+          <div className={cn('mt-0.5', categoryColors[category] || categoryColors.mcp)}>
             <Icon className="w-4 h-4" />
           </div>
         )}

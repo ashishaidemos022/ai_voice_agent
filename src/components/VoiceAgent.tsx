@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useVoiceAgent } from '../hooks/useVoiceAgent';
 import { RealtimeConfig, Message } from '../types/voice-agent';
-import { mcpTools } from '../lib/tools-registry';
+import { loadMCPTools, mcpTools } from '../lib/tools-registry';
 import { configPresetToRealtimeConfig, getAllConfigPresets, AgentConfigPreset } from '../lib/config-service';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -15,6 +15,7 @@ import { ConversationThread } from './conversation/ConversationThread';
 import { ToolsList } from './tools/ToolsList';
 import { SettingsPanel } from './panels/SettingsPanel';
 import { MCPPanel } from './panels/MCPPanel';
+import { N8NPanel } from './panels/N8NPanel';
 import { Card } from './ui/Card';
 import { WelcomeHero } from './welcome/WelcomeHero';
 import { StartSessionButton } from './welcome/StartSessionButton';
@@ -59,6 +60,7 @@ export function VoiceAgent() {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem('va-mcp-panel-open') === 'true';
   });
+  const [isN8NPanelOpen, setIsN8NPanelOpen] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [isSwitchingPreset, setIsSwitchingPreset] = useState(false);
@@ -317,9 +319,17 @@ export function VoiceAgent() {
     setToolsCount(mcpTools.length);
   };
 
-  useEffect(() => {
+  const refreshTools = useCallback(async () => {
+    const targetConfigId = isInitialized
+      ? activeConfigId
+      : (pendingConfigId || persistedConfigId);
+    await loadMCPTools(targetConfigId || undefined);
     updateToolsCount();
-  }, []);
+  }, [isInitialized, activeConfigId, pendingConfigId, persistedConfigId]);
+
+  useEffect(() => {
+    refreshTools();
+  }, [refreshTools]);
 
   useEffect(() => {
     console.log('[VoiceAgent] hydrated persisted reactivity', {
@@ -446,7 +456,11 @@ export function VoiceAgent() {
   }, [vaUser?.id, vaUser?.default_agent_id, refreshPresets, applyPresetToState, persistedConfigId]);
 
   const handleMCPConnectionsChanged = () => {
-    updateToolsCount();
+    refreshTools();
+  };
+
+  const handleN8NIntegrationsChanged = () => {
+    refreshTools();
   };
 
   const handlePresetChange = async (presetId: string | null) => {
@@ -516,6 +530,7 @@ export function VoiceAgent() {
       activeConfigName={activeConfigName}
       onSettingsClick={() => setIsSettingsOpen(true)}
       onMCPClick={() => setIsMCPPanelOpen(true)}
+      onIntegrationsClick={() => setIsN8NPanelOpen(true)}
       onEndSession={handleEnd}
       viewMode={viewMode}
       onBackToCurrent={handleBackToCurrent}
@@ -672,6 +687,12 @@ export function VoiceAgent() {
               isOpen={isMCPPanelOpen}
               onClose={() => setIsMCPPanelOpen(false)}
               onConnectionsChanged={handleMCPConnectionsChanged}
+            />
+            <N8NPanel
+              isOpen={isN8NPanelOpen}
+              onClose={() => setIsN8NPanelOpen(false)}
+              configId={derivedPresetId || null}
+              onIntegrationsChanged={handleN8NIntegrationsChanged}
             />
           </>
         )}

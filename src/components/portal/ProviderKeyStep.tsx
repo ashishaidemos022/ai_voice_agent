@@ -9,6 +9,7 @@ export function ProviderKeyStep() {
   const [apiKey, setApiKey] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   if (!vaUser) return null;
 
@@ -21,19 +22,39 @@ export function ProviderKeyStep() {
 
     setIsSaving(true);
     setError(null);
+    setSuccessMessage(null);
 
     try {
       const masked = apiKey.trim();
       const encoded = btoa(masked);
       const lastFour = masked.slice(-4);
 
-      await supabase.from('va_provider_keys').insert({
+      const payload = {
         user_id: vaUser.id,
         provider: 'openai',
         key_alias: keyAlias || 'Primary',
         encrypted_key: encoded,
         last_four: lastFour
-      });
+      };
+
+      const { error: insertError } = await supabase.from('va_provider_keys').insert(payload);
+
+      if (insertError) {
+        // Handle duplicate key (e.g., existing key for this user) by updating in place
+        if (insertError.code === '23505' || insertError.status === 409) {
+          const { error: updateError } = await supabase
+            .from('va_provider_keys')
+            .update(payload)
+            .eq('user_id', vaUser.id)
+            .eq('provider', 'openai');
+
+          if (updateError) {
+            throw updateError;
+          }
+        } else {
+          throw insertError;
+        }
+      }
 
       await supabase
         .from('va_users')
@@ -42,9 +63,14 @@ export function ProviderKeyStep() {
 
       await refreshProfile();
       setApiKey('');
+      setSuccessMessage('Key saved. Continue to create your agent.');
     } catch (err: any) {
       console.error('Failed to save provider key', err);
-      setError(err.message || 'Failed to save key');
+      if (err?.code === '23505' || err?.status === 409) {
+        setError('A key for this account already exists. You can overwrite it by saving again.');
+      } else {
+        setError(err.message || 'Failed to save key');
+      }
     } finally {
       setIsSaving(false);
     }
@@ -95,6 +121,9 @@ export function ProviderKeyStep() {
 
           {error && (
             <p className="text-sm text-red-400">{error}</p>
+          )}
+          {successMessage && (
+            <p className="text-sm text-green-400">{successMessage}</p>
           )}
 
           <button

@@ -9,17 +9,31 @@ export function AuthScreen() {
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
+
+  const switchMode = (nextMode: 'signin' | 'signup') => {
+    setMode(nextMode);
+    setError(null);
+    if (nextMode === 'signup') {
+      setInfoMessage(null);
+    }
+  };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setIsSubmitting(true);
     setError(null);
+    if (mode === 'signin') {
+      setInfoMessage(null);
+    }
 
     try {
       if (mode === 'signin') {
         await signInWithPassword(email, password);
       } else {
         await signUpWithPassword(email, password);
+        setInfoMessage(`Verification email sent to ${email}. Please check your inbox to activate your account.`);
+        setMode('signin');
       }
     } catch (err: any) {
       setError(err.message || 'Authentication failed');
@@ -51,7 +65,7 @@ export function AuthScreen() {
             className={`flex-1 py-2 rounded-md text-sm font-medium ${
               mode === 'signin' ? 'bg-slate-700 text-white' : 'text-slate-400'
             }`}
-            onClick={() => setMode('signin')}
+            onClick={() => switchMode('signin')}
             disabled={isSubmitting}
           >
             Sign In
@@ -60,7 +74,7 @@ export function AuthScreen() {
             className={`flex-1 py-2 rounded-md text-sm font-medium ${
               mode === 'signup' ? 'bg-slate-700 text-white' : 'text-slate-400'
             }`}
-            onClick={() => setMode('signup')}
+            onClick={() => switchMode('signup')}
             disabled={isSubmitting}
           >
             Create Account
@@ -96,6 +110,10 @@ export function AuthScreen() {
 
           {error && (
             <p className="text-sm text-red-400">{error}</p>
+          )}
+
+          {infoMessage && (
+            <p className="text-sm text-green-400">{infoMessage}</p>
           )}
 
           <button
