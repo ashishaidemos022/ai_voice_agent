@@ -1,4 +1,7 @@
+import { supabase } from './supabase';
+
 const MCP_API_BASE_URL = import.meta.env.VITE_MCP_API_BASE_URL || 'https://voiceaiagent.vercel.app';
+const MCP_REFERRER = import.meta.env.VITE_MCP_REFERRER || 'https://ai-voice-agent-sage.vercel.app/';
 
 export interface MCPConnectionCreateRequest {
   name: string;
@@ -69,20 +72,37 @@ export class MCPApiClient {
 
   private buildHeaders(connectionId?: string) {
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      Referer: MCP_REFERRER,
+      'Referrer-Policy': 'strict-origin-when-cross-origin'
     };
     const sessionId = this.getSessionId(connectionId);
     headers['Mcp-Session-Id'] = sessionId;
     return headers;
   }
 
+  private async getAuthHeaders(connectionId?: string) {
+    const headers = this.buildHeaders(connectionId);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+    } catch (error) {
+      console.warn('Failed to load Supabase session for MCP request', error);
+    }
+    return headers;
+  }
+
   async createConnection(data: MCPConnectionCreateRequest): Promise<MCPApiResponse> {
     try {
+      const headers = await this.getAuthHeaders();
       const response = await fetch(`${this.baseUrl}/api/mcp/connections`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
+        referrer: MCP_REFERRER,
+        referrerPolicy: 'strict-origin-when-cross-origin',
         body: JSON.stringify(data),
       });
 
@@ -104,9 +124,12 @@ export class MCPApiClient {
 
   async testConnection(data: MCPConnectionTestRequest): Promise<MCPApiResponse> {
     try {
+      const headers = await this.getAuthHeaders(data.connection_id);
       const response = await fetch(`${this.baseUrl}/api/mcp/test`, {
         method: 'POST',
-        headers: this.buildHeaders(data.connection_id),
+        headers,
+        referrer: MCP_REFERRER,
+        referrerPolicy: 'strict-origin-when-cross-origin',
         body: JSON.stringify(data),
       });
 
@@ -128,9 +151,12 @@ export class MCPApiClient {
 
   async listTools(data: MCPListToolsRequest): Promise<MCPApiResponse<MCPToolDefinition[]>> {
     try {
+      const headers = await this.getAuthHeaders(data.connection_id);
       const response = await fetch(`${this.baseUrl}/api/mcp/tools`, {
         method: 'POST',
-        headers: this.buildHeaders(data.connection_id),
+        headers,
+        referrer: MCP_REFERRER,
+        referrerPolicy: 'strict-origin-when-cross-origin',
         body: JSON.stringify(data),
       });
 
@@ -152,9 +178,12 @@ export class MCPApiClient {
 
   async executeTool(data: MCPExecuteToolRequest): Promise<MCPApiResponse> {
     try {
+      const headers = await this.getAuthHeaders(data.connection_id);
       const response = await fetch(`${this.baseUrl}/api/mcp/execute`, {
         method: 'POST',
-        headers: this.buildHeaders(data.connection_id),
+        headers,
+        referrer: MCP_REFERRER,
+        referrerPolicy: 'strict-origin-when-cross-origin',
         body: JSON.stringify(data),
       });
 
