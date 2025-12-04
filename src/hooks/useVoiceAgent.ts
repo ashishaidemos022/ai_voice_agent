@@ -298,7 +298,7 @@ export function useVoiceAgent() {
         console.log('[useVoiceAgent] Function call received', { name, rawArguments: argsStr });
         const args = argsStr ? JSON.parse(argsStr) : {};
         console.log('[useVoiceAgent] Parsed function call args', { name, args });
-        const result = await executeTool(name, args, currentSessionId || '');
+        const result = await executeTool(name, args, { sessionId: currentSessionId || undefined });
         client.sendFunctionCallOutput(id, result);
       } catch (toolError: any) {
         console.error('Tool execution error:', toolError);

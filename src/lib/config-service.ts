@@ -3,9 +3,11 @@ import { RealtimeConfig } from '../types/voice-agent';
 
 export interface SelectedTool {
   tool_name: string;
-  tool_source: 'mcp';
+  tool_source: 'mcp' | 'n8n';
   tool_id?: string;
   connection_id?: string;
+  n8n_integration_id?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface AgentConfigPreset {
@@ -13,6 +15,11 @@ export interface AgentConfigPreset {
   user_id: string;
   name: string;
   instructions: string;
+  summary?: string | null;
+  tags?: string[] | null;
+  agent_avatar_url?: string | null;
+  chat_model?: string | null;
+  chat_theme?: Record<string, any> | null;
   voice: string;
   temperature: number;
   model: string;
@@ -254,7 +261,7 @@ export async function cloneTemplateToAgent(
 export async function getConfigTools(configId: string): Promise<SelectedTool[]> {
   const { data, error } = await supabase
     .from('va_agent_config_tools')
-    .select('tool_name, tool_source, tool_id, connection_id')
+    .select('tool_name, tool_source, tool_id, connection_id, n8n_integration_id, metadata')
     .eq('config_id', configId);
 
   if (error) {
@@ -277,7 +284,9 @@ export async function updateConfigTools(configId: string, tools: SelectedTool[])
       tool_name: tool.tool_name,
       tool_source: tool.tool_source,
       tool_id: tool.tool_id || null,
-      connection_id: tool.connection_id || null
+      connection_id: tool.connection_id || null,
+      n8n_integration_id: tool.n8n_integration_id || null,
+      metadata: tool.metadata || null
     }));
 
     const { error } = await supabase

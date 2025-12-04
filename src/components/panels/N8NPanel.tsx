@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Copy, Globe, Loader2, Play, Plus, RefreshCw, Shield, Trash2 } from 'lucide-react';
+import { AlertTriangle, Copy, Globe, Loader2, Play, Plus, RefreshCw, Shield, Trash2 } from 'lucide-react';
 import { RightPanel } from '../layout/RightPanel';
 import { Button } from '../ui/Button';
 import { Card, CardContent, CardHeader } from '../ui/Card';

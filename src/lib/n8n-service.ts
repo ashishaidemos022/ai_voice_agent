@@ -18,9 +18,9 @@ export interface N8NIntegration {
 }
 
 export interface SaveN8NIntegrationInput {
-  name: string;
+  name?: string;
   description?: string;
-  webhook_url: string;
+  webhook_url?: string;
   http_method?: 'POST' | 'PUT' | 'PATCH';
   custom_headers?: Record<string, string>;
   secret?: string | null;
@@ -47,6 +47,9 @@ export async function createN8NIntegration(
   configId: string,
   input: SaveN8NIntegrationInput
 ): Promise<N8NIntegration> {
+  if (!input.name || !input.webhook_url) {
+    throw new Error('Name and webhook URL are required.');
+  }
   const payload = {
     ...input,
     config_id: configId,
@@ -75,17 +78,24 @@ export async function updateN8NIntegration(
   id: string,
   input: SaveN8NIntegrationInput
 ): Promise<N8NIntegration> {
+  const payload: Record<string, any> = {
+    updated_at: new Date().toISOString()
+  };
+
+  if (input.name !== undefined) payload.name = input.name;
+  if (input.description !== undefined) payload.description = input.description;
+  if (input.webhook_url !== undefined) payload.webhook_url = input.webhook_url;
+  if (input.http_method !== undefined) payload.http_method = input.http_method;
+  if (input.custom_headers !== undefined) payload.custom_headers = input.custom_headers;
+  if (input.secret !== undefined) payload.secret = input.secret;
+  if (input.forward_session_context !== undefined) {
+    payload.forward_session_context = input.forward_session_context;
+  }
+  if (input.enabled !== undefined) payload.enabled = input.enabled;
+
   const { data, error } = await supabase
     .from('va_n8n_integrations')
-    .update({
-      ...input,
-      http_method: input.http_method || 'POST',
-      custom_headers: input.custom_headers || {},
-      forward_session_context:
-        input.forward_session_context === undefined ? true : input.forward_session_context,
-      enabled: input.enabled ?? true,
-      updated_at: new Date().toISOString()
-    })
+    .update(payload)
     .eq('id', id)
     .select()
     .single();

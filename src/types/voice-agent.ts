@@ -29,8 +29,10 @@ export interface ToolCall {
 
 export interface ToolExecution {
   id: string;
-  message_id: string;
-  session_id: string;
+  message_id?: string | null;
+  chat_message_id?: string | null;
+  session_id?: string | null;
+  chat_session_id?: string | null;
   tool_name: string;
   input_params: Record<string, any>;
   output_result: Record<string, any>;
@@ -38,7 +40,7 @@ export interface ToolExecution {
   status: 'success' | 'error' | 'timeout';
   error_message?: string;
   executed_at: string;
-  execution_type: 'mcp';
+  execution_type: 'mcp' | 'webhook';
 }
 
 export interface RealtimeConfig {

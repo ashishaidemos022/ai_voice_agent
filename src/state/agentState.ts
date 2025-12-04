@@ -3,7 +3,12 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 
 export type AgentPanel = 'session' | 'settings' | 'logs';
 
-type ToolSelections = Record<string, string[]>;
+export type ToolSelectionCache = {
+  mcp: string[];
+  n8n: string[];
+};
+
+type ToolSelections = Record<string, ToolSelectionCache>;
 
 interface AgentUIState {
   activeConfigId: string | null;
@@ -15,7 +20,7 @@ interface AgentUIState {
   setActivePanel: (panel: AgentPanel) => void;
   setPreferredModel: (model: string) => void;
   setPreferredVoice: (voice: string) => void;
-  setToolsForConfig: (configId: string, tools: string[]) => void;
+  setToolsForConfig: (configId: string, tools: ToolSelectionCache) => void;
 }
 
 const defaultModel = 'gpt-realtime';
@@ -58,7 +63,10 @@ export const useAgentState = create<AgentUIState>()(
       setToolsForConfig: (configId, tools) => set((state) => ({
         toolSelections: {
           ...state.toolSelections,
-          [configId]: [...tools]
+          [configId]: {
+            mcp: [...(tools.mcp || [])],
+            n8n: [...(tools.n8n || [])]
+          }
         }
       }))
     }),

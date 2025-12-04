@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { PostgrestError } from '@supabase/supabase-js';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { Card } from '../ui/Card';
@@ -24,6 +25,8 @@ export function ProviderKeyStep() {
     setError(null);
     setSuccessMessage(null);
 
+    const isConflict = (dbError?: Pick<PostgrestError, 'code'> | null) => dbError?.code === '23505';
+
     try {
       const masked = apiKey.trim();
       const encoded = btoa(masked);
@@ -41,7 +44,7 @@ export function ProviderKeyStep() {
 
       if (insertError) {
         // Handle duplicate key (e.g., existing key for this user) by updating in place
-        if (insertError.code === '23505' || insertError.status === 409) {
+        if (isConflict(insertError)) {
           const { error: updateError } = await supabase
             .from('va_provider_keys')
             .update(payload)
@@ -66,7 +69,7 @@ export function ProviderKeyStep() {
       setSuccessMessage('Key saved. Continue to create your agent.');
     } catch (err: any) {
       console.error('Failed to save provider key', err);
-      if (err?.code === '23505' || err?.status === 409) {
+      if (isConflict(err)) {
         setError('A key for this account already exists. You can overwrite it by saving again.');
       } else {
         setError(err.message || 'Failed to save key');

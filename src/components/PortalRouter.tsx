@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { AuthScreen } from './auth/AuthScreen';
-import { VoiceAgent } from './VoiceAgent';
 import { useAuth } from '../context/AuthContext';
 import { LoadingScreen } from './ui/LoadingScreen';
 import { ProviderKeyStep } from './portal/ProviderKeyStep';
 import { AgentSetupStep } from './portal/AgentSetupStep';
+import { AgentWorkspace } from './portal/AgentWorkspace';
 
 export function PortalRouter() {
   const { session, vaUser, providerKeys, isLoading } = useAuth();
@@ -26,7 +26,7 @@ export function PortalRouter() {
   }
 
   if (hasUnlockedAgent) {
-    return <VoiceAgent />;
+    return <AgentWorkspace />;
   }
 
   if (isLoading || !vaUser) {

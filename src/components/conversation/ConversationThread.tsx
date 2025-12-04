@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Loader2, MessageSquare } from "lucide-react";
 import { AgentState } from "../../lib/realtime-client";
@@ -36,13 +36,25 @@ export function ConversationThread({
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
     if (!scrollRef.current) return;
-    scrollRef.current.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior: isHistorical ? "auto" : "smooth"
+    const container = scrollRef.current;
+    window.requestAnimationFrame(() => {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior
+      });
     });
-  }, [messages, isHistorical, liveAssistantTranscript, liveUserTranscript]);
+  };
+
+  useLayoutEffect(() => {
+    scrollToBottom(isHistorical ? "auto" : "smooth");
+  }, [messages, isHistorical]);
+
+  useEffect(() => {
+    if (isHistorical) return;
+    scrollToBottom("smooth");
+  }, [liveAssistantTranscript, liveUserTranscript, isHistorical]);
 
   return (
     <Card className="h-full flex flex-col relative overflow-hidden bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 border border-white/10">

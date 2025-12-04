@@ -2,6 +2,7 @@ import { supabase } from './supabase';
 import { mcpApiClient } from './mcp-api-client';
 import { normalizeMCPArguments, JSONSchema, resolveSchemaDefinition } from './mcp-normalizer';
 import { triggerN8NWebhook } from './n8n-service';
+import { buildN8NToolName, normalizeIdentifier } from './tool-utils';
 
 export interface Tool {
   name: string;
@@ -15,10 +16,34 @@ export interface Tool {
 }
 
 export let mcpTools: Tool[] = [];
-export let selectedToolNames: string[] | null = null;
+let selectedMcpToolNames: string[] | null = null;
+let selectedWebhookToolNames: string[] | null = null;
 
-function normalizeIdentifier(value: string | undefined | null): string {
-  return (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+type WebhookParameterDefinition = {
+  key: string;
+  label?: string;
+  description?: string;
+  type?: 'string' | 'number' | 'integer' | 'boolean';
+  required?: boolean;
+  example?: string;
+};
+
+interface N8NSelectionInfo {
+  integrationId: string;
+  metadata?: Record<string, any>;
+}
+
+interface ToolSelectionState {
+  mcpToolNames: string[] | null;
+  n8nToolNames: string[] | null;
+  n8nSelections: N8NSelectionInfo[];
+}
+
+export interface ToolExecutionContext {
+  sessionId?: string;
+  chatSessionId?: string;
+  messageId?: string;
+  chatMessageId?: string;
 }
 
 function findToolSchemaBySlug(slug?: string): Tool | undefined {
@@ -148,23 +173,34 @@ export function getToolByName(name: string): Tool | undefined {
 }
 
 export function getToolSchemas() {
-  const availableTools = selectedToolNames === null
-    ? mcpTools
-    : mcpTools.filter(tool => {
-        if (tool.executionType !== 'mcp') {
-          return true;
-        }
-        return selectedToolNames!.includes(tool.name);
-      });
+  const filteredTools = mcpTools.filter(tool => {
+    if (tool.executionType === 'mcp') {
+      if (selectedMcpToolNames === null) return true;
+      return selectedMcpToolNames.includes(tool.name);
+    }
+    if (tool.executionType === 'webhook') {
+      if (selectedWebhookToolNames === null) return true;
+      return selectedWebhookToolNames.includes(tool.name);
+    }
+    return true;
+  });
 
-  // If a stored selection points to tools that no longer exist, fall back to all available
-  if (selectedToolNames !== null && availableTools.length === 0) {
-    console.warn('No matching tools for selection; defaulting to all available MCP tools');
+  const hasMcpSelection = Array.isArray(selectedMcpToolNames) && (selectedMcpToolNames?.length ?? 0) > 0;
+  const hasWebhookSelection = Array.isArray(selectedWebhookToolNames) && (selectedWebhookToolNames?.length ?? 0) > 0;
+  const hasMcpMatch = filteredTools.some(tool => tool.executionType === 'mcp');
+  const hasWebhookMatch = filteredTools.some(tool => tool.executionType === 'webhook');
+
+  if ((hasMcpSelection && !hasMcpMatch) || (hasWebhookSelection && !hasWebhookMatch)) {
+    console.warn('No matching tools for stored selection; defaulting to all available tools');
+    return mcpTools.map(tool => ({
+      type: 'function',
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters
+    }));
   }
 
-  const toolsToReturn = selectedToolNames === null || availableTools.length > 0 ? availableTools : mcpTools;
-
-  return toolsToReturn.map(tool => ({
+  return filteredTools.map(tool => ({
     type: 'function',
     name: tool.name,
     description: tool.description,
@@ -172,13 +208,17 @@ export function getToolSchemas() {
   }));
 }
 
-export function setSelectedTools(toolNames: string[] | null) {
-  selectedToolNames = toolNames;
-  console.log(`🔧 Tool selection updated: ${toolNames === null ? 'All MCP tools' : `${toolNames.length} MCP tools selected`}`);
-}
-
 export async function loadMCPTools(configId?: string): Promise<void> {
   try {
+    let selectionState: ToolSelectionState | null = null;
+
+    if (configId) {
+      selectionState = await loadToolSelectionForConfig(configId);
+    } else {
+      selectedMcpToolNames = null;
+      selectedWebhookToolNames = null;
+    }
+
     const { data: connections, error: connError } = await supabase
       .from('va_mcp_connections')
       .select('id')
@@ -237,53 +277,84 @@ export async function loadMCPTools(configId?: string): Promise<void> {
     }
 
     if (configId) {
-      const n8nTools = await loadN8NWebhookTools(configId);
+      const n8nTools = await loadN8NWebhookTools(configId, selectionState);
       registeredTools = [...registeredTools, ...n8nTools];
+      applyWebhookSelection(selectionState, n8nTools);
+    } else {
+      selectedWebhookToolNames = null;
     }
 
     mcpTools = registeredTools;
-
-    if (configId) {
-      await loadToolSelectionForConfig(configId);
-    }
   } catch (error) {
     console.error('Error loading MCP tools:', error);
     mcpTools = [];
+    selectedMcpToolNames = null;
+    selectedWebhookToolNames = null;
   }
 }
 
-export async function loadToolSelectionForConfig(configId: string): Promise<void> {
+export async function loadToolSelectionForConfig(configId: string): Promise<ToolSelectionState | null> {
   try {
     const { data: selectedTools, error } = await supabase
       .from('va_agent_config_tools')
-      .select('tool_name')
+      .select('tool_name, tool_source, n8n_integration_id, metadata')
       .eq('config_id', configId);
 
     if (error) {
       console.error('Failed to load tool selection:', error);
-      selectedToolNames = null;
-      return;
+      selectedMcpToolNames = null;
+      selectedWebhookToolNames = null;
+      return null;
     }
 
     if (!selectedTools || selectedTools.length === 0) {
-      selectedToolNames = null;
+      selectedMcpToolNames = null;
+      selectedWebhookToolNames = null;
       console.log('🔧 No tool selection found, using all available tools');
-    } else {
-      selectedToolNames = selectedTools.map(t => t.tool_name);
-      console.log(`🔧 Loaded tool selection: ${selectedToolNames.length} tools selected`);
+      return {
+        mcpToolNames: null,
+        n8nToolNames: null,
+        n8nSelections: []
+      };
     }
+
+    const mcpRows = selectedTools.filter(tool => tool.tool_source === 'mcp');
+    const n8nRows = selectedTools.filter(tool => tool.tool_source === 'n8n');
+
+    selectedMcpToolNames = mcpRows.length ? mcpRows.map(tool => tool.tool_name) : null;
+    selectedWebhookToolNames = n8nRows.length ? n8nRows.map(tool => tool.tool_name) : null;
+
+    console.log('🔧 Loaded tool selections', {
+      mcp: selectedMcpToolNames?.length || 0,
+      n8n: selectedWebhookToolNames?.length || 0
+    });
+
+    return {
+      mcpToolNames: selectedMcpToolNames,
+      n8nToolNames: selectedWebhookToolNames,
+      n8nSelections: n8nRows
+        .filter(tool => !!tool.n8n_integration_id)
+        .map(tool => ({
+          integrationId: tool.n8n_integration_id as string,
+          metadata: tool.metadata || {}
+        }))
+    };
   } catch (error) {
     console.error('Error loading tool selection:', error);
-    selectedToolNames = null;
+    selectedMcpToolNames = null;
+    selectedWebhookToolNames = null;
+    return null;
   }
 }
 
 export async function executeTool(
   toolName: string,
   params: any,
-  sessionId: string,
-  messageId?: string
+  context: ToolExecutionContext
 ): Promise<any> {
+  if (!context.sessionId && !context.chatSessionId) {
+    throw new Error('Tool execution requires a voice session or chat session context');
+  }
   const tool = getToolByName(toolName);
   if (!tool) {
     throw new Error(`Tool not found: ${toolName}`);
@@ -329,7 +400,7 @@ export async function executeTool(
         summary: normalizedParams.summary,
         severity: normalizedParams.severity,
         metadata: normalizedParams.metadata,
-        sessionId
+        sessionId: context.chatSessionId || context.sessionId || null
       });
     } else {
       result = await tool.execute(normalizedParams);
@@ -343,8 +414,10 @@ export async function executeTool(
   const executionTimeMs = Date.now() - startTime;
 
   await supabase.from('va_tool_executions').insert({
-    message_id: messageId || null,
-    session_id: sessionId,
+    message_id: context.messageId || null,
+    chat_message_id: context.chatMessageId || null,
+    session_id: context.sessionId || null,
+    chat_session_id: context.chatSessionId || null,
     tool_name: toolName,
     input_params: normalizedParams,
     output_result: result,
@@ -361,7 +434,38 @@ export function getAllTools(): Tool[] {
   return mcpTools;
 }
 
-async function loadN8NWebhookTools(configId: string): Promise<Tool[]> {
+function applyWebhookSelection(selection: ToolSelectionState | null, webhookTools: Tool[]) {
+  if (!selection || !selection.n8nToolNames) {
+    selectedWebhookToolNames = null;
+    return;
+  }
+
+  const allowedIds = new Set(
+    (selection.n8nSelections || [])
+      .map(sel => sel.integrationId)
+      .filter(Boolean)
+  );
+
+  if (!allowedIds.size) {
+    selectedWebhookToolNames = null;
+    return;
+  }
+
+  const matchingNames = webhookTools
+    .filter(tool => tool.executionType === 'webhook' && tool.metadata?.integrationId)
+    .filter(tool => allowedIds.has(tool.metadata!.integrationId as string))
+    .map(tool => tool.name);
+
+  if (matchingNames.length === 0) {
+    console.warn('Stored n8n selection did not match any active integrations; defaulting to all webhook tools');
+    selectedWebhookToolNames = null;
+    return;
+  }
+
+  selectedWebhookToolNames = matchingNames;
+}
+
+async function loadN8NWebhookTools(configId: string, selection?: ToolSelectionState | null): Promise<Tool[]> {
   try {
     const { data, error } = await supabase
       .from('va_n8n_integrations')
@@ -374,8 +478,25 @@ async function loadN8NWebhookTools(configId: string): Promise<Tool[]> {
       return [];
     }
 
-    return (data || []).map((integration: any) => {
+    const restrictToSelection = Boolean(selection?.n8nToolNames);
+    const allowedIds = restrictToSelection
+      ? new Set((selection?.n8nSelections || []).map(sel => sel.integrationId).filter(Boolean))
+      : null;
+    const metadataByIntegration = new Map(
+      (selection?.n8nSelections || []).map(sel => [sel.integrationId, sel.metadata || {}])
+    );
+
+    let integrations = (data || []).filter((integration: any) => integration.enabled);
+
+    if (restrictToSelection) {
+      integrations = integrations.filter((integration: any) => allowedIds?.has(integration.id));
+    }
+
+    return integrations.map((integration: any) => {
       const toolName = buildN8NToolName(integration.name, integration.id);
+      const selectionMetadata = metadataByIntegration.get(integration.id);
+      const payloadParams = selectionMetadata?.payloadParameters as WebhookParameterDefinition[] | undefined;
+
       return {
         name: toolName,
         description: integration.description || `Trigger n8n workflow "${integration.name}" via webhook`,
@@ -384,29 +505,7 @@ async function loadN8NWebhookTools(configId: string): Promise<Tool[]> {
         metadata: {
           integrationId: integration.id
         },
-        parameters: {
-          type: 'object',
-          properties: {
-            summary: {
-              type: 'string',
-              description: 'Short description of what needs to happen so n8n can branch correctly'
-            },
-            severity: {
-              type: 'string',
-              enum: ['low', 'medium', 'high', 'critical'],
-              description: 'How urgent or important the trigger is'
-            },
-            payload: {
-              type: 'object',
-              description: 'Structured data to pass directly into the n8n workflow entry node'
-            },
-            metadata: {
-              type: 'object',
-              description: 'Optional metadata such as related ticket IDs or human-friendly notes'
-            }
-          },
-          required: ['payload']
-        },
+        parameters: buildWebhookSchema(payloadParams),
         execute: async () => {
           return {};
         }
@@ -418,9 +517,53 @@ async function loadN8NWebhookTools(configId: string): Promise<Tool[]> {
   }
 }
 
-function buildN8NToolName(name: string, id: string): string {
-  const normalized = normalizeIdentifier(name) || 'n8n';
-  const suffix = id.replace(/-/g, '').slice(-8);
-  const truncated = normalized.slice(0, 30);
-  return `trigger_n8n_${truncated}_${suffix}`;
+function buildWebhookSchema(customParams?: WebhookParameterDefinition[]): JSONSchema {
+  const payloadSchema: JSONSchema = {
+    type: 'object',
+    properties: {},
+    additionalProperties: true
+  };
+
+  if (Array.isArray(customParams) && customParams.length > 0) {
+    const properties: Record<string, JSONSchema> = {};
+    const requiredFields: string[] = [];
+
+    customParams.forEach(param => {
+      if (!param.key) return;
+      properties[param.key] = {
+        type: param.type || 'string',
+        description: param.description || param.label,
+        examples: param.example ? [param.example] : undefined
+      };
+      if (param.required) {
+        requiredFields.push(param.key);
+      }
+    });
+
+    payloadSchema.properties = properties;
+    if (requiredFields.length > 0) {
+      payloadSchema.required = requiredFields;
+    }
+  }
+
+  return {
+    type: 'object',
+    properties: {
+      summary: {
+        type: 'string',
+        description: 'Short description of what needs to happen so n8n can branch correctly'
+      },
+      severity: {
+        type: 'string',
+        enum: ['low', 'medium', 'high', 'critical'],
+        description: 'How urgent or important the trigger is'
+      },
+      payload: payloadSchema,
+      metadata: {
+        type: 'object',
+        description: 'Optional metadata such as related ticket IDs or human-friendly notes'
+      }
+    },
+    required: ['payload']
+  };
 }
