@@ -148,7 +148,7 @@ export class RealtimeAPIClient {
         input_audio_format: 'pcm16',
         output_audio_format: 'pcm16',
         input_audio_transcription: {
-          model: 'whisper-1',
+          model: 'gpt-4o-transcribe',
           language: 'en'
         },
         turn_detection: this.config.turn_detection ?? {
