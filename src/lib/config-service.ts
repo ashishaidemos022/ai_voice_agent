@@ -286,7 +286,7 @@ export async function updateConfigTools(configId: string, tools: SelectedTool[])
       tool_id: tool.tool_id || null,
       connection_id: tool.connection_id || null,
       n8n_integration_id: tool.n8n_integration_id || null,
-      metadata: tool.metadata || null
+      metadata: tool.metadata ?? {}
     }));
 
     const { error } = await supabase

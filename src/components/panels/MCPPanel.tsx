@@ -240,6 +240,8 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
       return;
     }
 
+    let shouldClearStatus = true;
+    let createdStatus: string | undefined;
     try {
       setTestStatus({ type: 'testing', message: 'Creating connection...' });
       const createResult = await mcpApiClient.createConnection({
@@ -256,22 +258,38 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
         return;
       }
 
-      setTestStatus({ type: 'testing', message: 'Connection created. Syncing tools...' });
-      const syncOk = await testAndSyncConnection(createResult.data.id);
-      if (syncOk) {
-        setTestStatus({ type: 'success', message: 'Connection verified and tools synced.' });
-      } else {
+      createdStatus = createResult.data.status;
+      const isPending = createdStatus === 'pending';
+
+      if (isPending) {
         setTestStatus({
-          type: 'warning' as any,
-          message: 'Connection created. Initial sync may still be running.'
+          type: 'warning',
+          message: 'Connection saved and awaiting verification. Once your MCP server is reachable, click Refresh Connection to rerun the health check and sync tools.'
         });
+        shouldClearStatus = false;
+      } else {
+        setTestStatus({ type: 'testing', message: 'Connection created. Syncing tools...' });
+        const syncOk = await testAndSyncConnection(createResult.data.id);
+        if (syncOk) {
+          setTestStatus({ type: 'success', message: 'Connection verified and tools synced.' });
+        } else {
+          setTestStatus({
+            type: 'warning',
+            message: 'Connection created, but the MCP server did not finish syncing. Use Refresh Connection once it is ready.'
+          });
+          shouldClearStatus = false;
+        }
       }
 
       setFormData({ name: '', server_url: '', api_key: '' });
-      setShowAddForm(false);
-      setTestStatus(null);
+      if (!isPending) {
+        setShowAddForm(false);
+      }
       await loadConnections();
       onConnectionsChanged?.();
+      if (shouldClearStatus) {
+        setTestStatus(null);
+      }
     } catch (error: any) {
       console.error('Failed to add connection:', error);
       setFormError(error.message || 'Failed to add connection');
@@ -583,6 +601,11 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
                       {connection.status === 'error' && connection.error_message && (
                         <div className="px-3 py-2 bg-red-50 border border-red-200 rounded text-xs text-red-700 mb-2 ml-9">
                           {connection.error_message}
+                        </div>
+                      )}
+                      {connection.status === 'pending' && (
+                        <div className="px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800 mb-2 ml-9">
+                          Connection is waiting for the MCP server to come online. Click <strong>Refresh Connection</strong> once your endpoint responds to finish syncing tools.
                         </div>
                       )}
 

@@ -111,7 +111,19 @@ export class MCPApiClient {
         throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
       }
 
-      return await response.json();
+      const rawResult = await response.json();
+      const normalizedData = rawResult?.data ?? rawResult?.connection;
+
+      // Some endpoints return the connection object under `connection` while the
+      // UI expects `data`. Normalize the payload so pending connections are handled.
+      if (normalizedData) {
+        return {
+          ...rawResult,
+          data: normalizedData
+        };
+      }
+
+      return rawResult;
     } catch (error: any) {
       console.error('MCP API createConnection failed:', error);
       return {
