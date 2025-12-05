@@ -50,39 +50,21 @@ export interface MCPToolDefinition {
 
 export class MCPApiClient {
   private baseUrl: string;
-  private sessionCache: Map<string, string> = new Map();
-  private fallbackSessionId: string | null = null;
 
   constructor(baseUrl?: string) {
     this.baseUrl = baseUrl || MCP_API_BASE_URL;
   }
 
-  private getSessionId(connectionId?: string) {
-    if (connectionId) {
-      if (!this.sessionCache.has(connectionId)) {
-        this.sessionCache.set(connectionId, connectionId);
-      }
-      return this.sessionCache.get(connectionId)!;
-    }
-    if (!this.fallbackSessionId) {
-      this.fallbackSessionId = crypto.randomUUID();
-    }
-    return this.fallbackSessionId;
-  }
-
-  private buildHeaders(connectionId?: string) {
+  private buildHeaders() {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      Referer: MCP_REFERRER,
-      'Referrer-Policy': 'strict-origin-when-cross-origin'
+      Referer: MCP_REFERRER
     };
-    const sessionId = this.getSessionId(connectionId);
-    headers['Mcp-Session-Id'] = sessionId;
     return headers;
   }
 
-  private async getAuthHeaders(connectionId?: string) {
-    const headers = this.buildHeaders(connectionId);
+  private async getAuthHeaders() {
+    const headers = this.buildHeaders();
     try {
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
@@ -93,6 +75,24 @@ export class MCPApiClient {
       console.warn('Failed to load Supabase session for MCP request', error);
     }
     return headers;
+  }
+
+  private async postWithSession(path: string, body: any) {
+    const executeRequest = async () => {
+      const headers = await this.getAuthHeaders();
+      const payload = { ...body };
+      return fetch(`${this.baseUrl}${path}`, {
+        method: 'POST',
+        headers,
+        referrer: MCP_REFERRER,
+        referrerPolicy: 'strict-origin-when-cross-origin',
+        body: JSON.stringify(payload)
+      });
+    };
+
+    let response = await executeRequest();
+
+    return response;
   }
 
   async createConnection(data: MCPConnectionCreateRequest): Promise<MCPApiResponse> {
@@ -124,14 +124,7 @@ export class MCPApiClient {
 
   async testConnection(data: MCPConnectionTestRequest): Promise<MCPApiResponse> {
     try {
-      const headers = await this.getAuthHeaders(data.connection_id);
-      const response = await fetch(`${this.baseUrl}/api/mcp/test`, {
-        method: 'POST',
-        headers,
-        referrer: MCP_REFERRER,
-        referrerPolicy: 'strict-origin-when-cross-origin',
-        body: JSON.stringify(data),
-      });
+      const response = await this.postWithSession('/api/mcp/test', data);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -151,14 +144,7 @@ export class MCPApiClient {
 
   async listTools(data: MCPListToolsRequest): Promise<MCPApiResponse<MCPToolDefinition[]>> {
     try {
-      const headers = await this.getAuthHeaders(data.connection_id);
-      const response = await fetch(`${this.baseUrl}/api/mcp/tools`, {
-        method: 'POST',
-        headers,
-        referrer: MCP_REFERRER,
-        referrerPolicy: 'strict-origin-when-cross-origin',
-        body: JSON.stringify(data),
-      });
+      const response = await this.postWithSession('/api/mcp/tools', data);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -178,14 +164,7 @@ export class MCPApiClient {
 
   async executeTool(data: MCPExecuteToolRequest): Promise<MCPApiResponse> {
     try {
-      const headers = await this.getAuthHeaders(data.connection_id);
-      const response = await fetch(`${this.baseUrl}/api/mcp/execute`, {
-        method: 'POST',
-        headers,
-        referrer: MCP_REFERRER,
-        referrerPolicy: 'strict-origin-when-cross-origin',
-        body: JSON.stringify(data),
-      });
+      const response = await this.postWithSession('/api/mcp/execute', data);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));

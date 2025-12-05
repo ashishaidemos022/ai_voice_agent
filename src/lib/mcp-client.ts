@@ -116,7 +116,7 @@ export class MCPClient {
         };
       }
 
-      const tools = this.mapToolsFromApi(toolsResult.tools || []);
+      const tools = this.mapToolsFromApi(this.extractTools(toolsResult));
 
       return {
         success: true,
@@ -140,11 +140,41 @@ export class MCPClient {
       throw new Error(errorMessage);
     }
 
-    if (!response.tools || !Array.isArray(response.tools)) {
-      throw new Error('Invalid response format from API - expected tools array');
+    const tools = this.extractTools(response);
+    return this.mapToolsFromApi(tools);
+  }
+
+  private extractTools(response: MCPApiResponse): any[] {
+    if (!response) return [];
+
+    const inspectCandidate = (candidate: any): { found: boolean; tools: any[] } => {
+      if (candidate === undefined || candidate === null) {
+        return { found: false, tools: [] };
+      }
+      if (Array.isArray(candidate)) {
+        return { found: true, tools: candidate };
+      }
+      if (typeof candidate === 'object') {
+        const nestedSources = ['tools', 'data', 'result'] as const;
+        for (const key of nestedSources) {
+          const nestedValue = (candidate as any)[key];
+          if (Array.isArray(nestedValue)) {
+            return { found: true, tools: nestedValue };
+          }
+        }
+      }
+      return { found: false, tools: [] };
+    };
+
+    const sources = [response.tools, response.data, response.result];
+    for (const source of sources) {
+      const inspected = inspectCandidate(source);
+      if (inspected.found) {
+        return inspected.tools;
+      }
     }
 
-    return this.mapToolsFromApi(response.tools);
+    return [];
   }
 
   private mapToolsFromApi(tools: any[]): MCPTool[] {
