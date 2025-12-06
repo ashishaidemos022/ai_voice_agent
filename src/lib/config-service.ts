@@ -1,5 +1,31 @@
 import { supabase } from './supabase';
 import { RealtimeConfig } from '../types/voice-agent';
+import type { RagMode, RagSpace } from '../types/rag';
+
+const RAG_RELATION_SELECT = `
+  *,
+  knowledge_spaces:va_rag_agent_spaces (
+    id,
+    agent_config_id,
+    space_id,
+    created_at,
+    rag_space:va_rag_spaces (
+      id,
+      name,
+      description,
+      vector_store_id,
+      status,
+      created_at,
+      updated_at
+    )
+  )
+`;
+
+function isRagRelationError(error: any | null) {
+  if (!error) return false;
+  const message = `${error.message || ''} ${error.details || ''}`.toLowerCase();
+  return message.includes('va_rag_agent_spaces') || message.includes('va_rag_spaces');
+}
 
 export interface SelectedTool {
   tool_name: string;
@@ -29,8 +55,20 @@ export interface AgentConfigPreset {
   is_default: boolean;
   provider_key_id: string | null;
   selected_tools?: SelectedTool[];
+  rag_enabled: boolean;
+  rag_mode: RagMode;
+  rag_default_model?: string | null;
+  knowledge_spaces?: AgentKnowledgeSpaceBinding[];
   created_at: string;
   updated_at: string;
+}
+
+export interface AgentKnowledgeSpaceBinding {
+  id: string;
+  agent_config_id: string;
+  space_id: string;
+  created_at: string;
+  rag_space?: RagSpace | null;
 }
 
 export interface AgentTemplate {
@@ -48,13 +86,19 @@ export function configPresetToRealtimeConfig(preset: AgentConfigPreset): Realtim
   const normalizedModel = preset.model && preset.model.startsWith('gpt-4o-realtime')
     ? 'gpt-realtime'
     : preset.model;
+  const vectorStoreIds = (preset.knowledge_spaces || [])
+    .map((binding) => binding.rag_space?.vector_store_id)
+    .filter((id): id is string => Boolean(id));
   return {
     model: normalizedModel,
     voice: preset.voice,
     instructions: preset.instructions,
     temperature: preset.temperature,
     max_response_output_tokens: preset.max_response_output_tokens,
-    turn_detection: preset.turn_detection_enabled ? preset.turn_detection_config : null
+    turn_detection: preset.turn_detection_enabled ? preset.turn_detection_config : null,
+    rag_mode: preset.rag_mode,
+    rag_enabled: preset.rag_enabled,
+    knowledge_vector_store_ids: vectorStoreIds
   };
 }
 
@@ -77,47 +121,73 @@ export function realtimeConfigToPreset(config: RealtimeConfig, name: string): Pa
 }
 
 export async function getAllConfigPresets(): Promise<AgentConfigPreset[]> {
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('va_agent_configs')
-    .select('*')
+    .select(RAG_RELATION_SELECT)
     .order('created_at', { ascending: false });
+
+  if (error && isRagRelationError(error)) {
+    console.warn('[config-service] va_rag_* tables missing, loading presets without knowledge bindings');
+    ({ data, error } = await supabase
+      .from('va_agent_configs')
+      .select('*')
+      .order('created_at', { ascending: false }));
+  }
 
   if (error) {
     console.error('Failed to fetch config presets:', error);
     throw error;
   }
 
-  return data || [];
+  return (data || []).map(transformPresetRow);
 }
 
 export async function getDefaultConfigPreset(): Promise<AgentConfigPreset | null> {
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('va_agent_configs')
-    .select('*')
+    .select(RAG_RELATION_SELECT)
     .eq('is_default', true)
     .maybeSingle();
+
+  if (error && isRagRelationError(error)) {
+    console.warn('[config-service] Default preset fallback without RAG relations');
+    ({ data, error } = await supabase
+      .from('va_agent_configs')
+      .select('*')
+      .eq('is_default', true)
+      .maybeSingle());
+  }
 
   if (error) {
     console.error('Failed to fetch default config preset:', error);
     throw error;
   }
 
-  return data;
+  return data ? transformPresetRow(data) : null;
 }
 
 export async function getConfigPresetById(id: string): Promise<AgentConfigPreset | null> {
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('va_agent_configs')
-    .select('*')
+    .select(RAG_RELATION_SELECT)
     .eq('id', id)
     .maybeSingle();
+
+  if (error && isRagRelationError(error)) {
+    console.warn(`[config-service] Preset ${id} fallback without RAG relations`);
+    ({ data, error } = await supabase
+      .from('va_agent_configs')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle());
+  }
 
   if (error) {
     console.error('Failed to fetch config preset:', error);
     throw error;
   }
 
-  return data;
+  return data ? transformPresetRow(data) : null;
 }
 
 export async function saveConfigPreset(
@@ -309,4 +379,20 @@ export async function getConfigPresetWithTools(id: string): Promise<AgentConfigP
     ...preset,
     selected_tools: tools
   };
+}
+
+function transformPresetRow(row: any): AgentConfigPreset {
+  return {
+    ...row,
+    rag_enabled: row.rag_enabled ?? false,
+    rag_mode: (row.rag_mode as RagMode) || 'assist',
+    rag_default_model: row.rag_default_model || row.chat_model || row.model,
+    knowledge_spaces: (row.knowledge_spaces || []).map((binding: any) => ({
+      id: binding.id,
+      agent_config_id: binding.agent_config_id,
+      space_id: binding.space_id,
+      created_at: binding.created_at,
+      rag_space: binding.rag_space || null
+    }))
+  } as AgentConfigPreset;
 }

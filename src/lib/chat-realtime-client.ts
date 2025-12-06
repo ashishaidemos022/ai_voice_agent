@@ -1,4 +1,5 @@
 import { getToolSchemas } from './tools-registry';
+import type { RagMode } from '../types/rag';
 
 export type ChatRealtimeEvent =
   | { type: 'connected' }
@@ -14,6 +15,9 @@ export interface ChatRealtimeConfig {
   instructions: string;
   temperature?: number;
   maxTokens?: number;
+  ragMode?: RagMode;
+  ragEnabled?: boolean;
+  vectorStoreIds?: string[];
 }
 
 export class ChatRealtimeClient {
@@ -149,11 +153,14 @@ export class ChatRealtimeClient {
   private sendSessionUpdate() {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const tools = getToolSchemas();
+    const ragInstructions = this.config.ragMode === 'guardrail'
+      ? `${this.config.instructions}\n\nIf you cannot find supporting knowledge, respond with "I do not have enough approved information to answer."`
+      : this.config.instructions;
     const payload = {
       type: 'session.update',
       session: {
         modalities: ['text'],
-        instructions: this.config.instructions,
+        instructions: ragInstructions,
         tool_choice: 'auto',
         tools,
         temperature: this.config.temperature ?? 0.6,
@@ -161,6 +168,19 @@ export class ChatRealtimeClient {
       }
     };
     this.ws.send(JSON.stringify(payload));
+  }
+
+  sendSystemMessage(text: string) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !text.trim()) return;
+    const content = [{ type: 'input_text', text }];
+    this.ws.send(JSON.stringify({
+      type: 'conversation.item.create',
+      item: {
+        type: 'message',
+        role: 'system',
+        content
+      }
+    }));
   }
 
   private handleServerMessage(message: any) {

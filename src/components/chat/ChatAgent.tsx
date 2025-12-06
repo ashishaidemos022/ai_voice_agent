@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bot,
+  BookOpenCheck,
   Clock,
   History,
   Loader2,
@@ -53,7 +54,11 @@ export function ChatAgent() {
     isHistoryLoading,
     startSession,
     sendMessage,
-    endSession
+    endSession,
+    ragResult,
+    ragInvoked,
+    ragError,
+    isRagLoading
   } = useChatAgent();
   const [composerValue, setComposerValue] = useState('');
   const [viewMode, setViewMode] = useState<'current' | 'history'>('current');
@@ -70,6 +75,12 @@ export function ChatAgent() {
   };
 
   const showHistoryDetail = viewMode === 'history';
+  const conversationRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!conversationRef.current) return;
+    conversationRef.current.scrollTop = conversationRef.current.scrollHeight;
+  }, [visibleMessages, liveAssistantText, showHistoryDetail]);
 
   return (
     <div className="h-full w-full bg-slate-950 text-white flex">
@@ -261,7 +272,7 @@ export function ChatAgent() {
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+            <div ref={conversationRef} className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
               {visibleMessages.length === 0 && !showHistoryDetail && (
                 <div className="text-center text-white/50 py-16">
                   <p className="text-lg font-medium">Ask anything.</p>
@@ -372,23 +383,65 @@ export function ChatAgent() {
 
             <Card className="p-5 bg-slate-900/40 border-white/5 h-1/2 flex flex-col">
               <div className="flex items-center gap-3 mb-4">
-                <GlobeIcon />
-                <div>
-                  <p className="font-semibold">Embeddable widget</p>
-                  <p className="text-xs text-white/50">Drop-in script for any website</p>
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center">
+                  <BookOpenCheck className="w-5 h-5 text-slate-950" />
                 </div>
+                <div className="flex-1">
+                  <p className="font-semibold">Knowledge grounding</p>
+                  <p className="text-xs text-white/50">Latest retrieval context + citations</p>
+                </div>
+                {isRagLoading && <Loader2 className="w-4 h-4 text-white/70 animate-spin" />}
               </div>
-              <div className="text-xs font-mono bg-black/40 border border-white/5 rounded-xl p-4 text-white/80">
-                <p>{'<script'}</p>
-                <p className="ml-2">src="https://yourdomain.com/agentic-chat.js"</p>
-                <p className="ml-2">data-agent-id="{activePresetId || 'XXXX'}"</p>
-                <p className="ml-2">data-user-jwt="YOUR_JWT"</p>
-                <p className="ml-2">data-theme="light"</p>
-                <p>{'></script>'}</p>
+              <div className="flex items-center justify-between text-xs text-white/60 mb-3">
+                <span className={cn(
+                  'px-2 py-0.5 rounded-full border text-[11px] uppercase tracking-[0.2em]',
+                  ragInvoked
+                    ? 'border-emerald-400/70 text-emerald-200'
+                    : 'border-white/20 text-white/40'
+                )}>
+                  {ragInvoked ? 'RAG invoked' : 'RAG idle'}
+                </span>
+                {ragResult && (
+                  <span className="text-[11px] text-white/40">
+                    Updated {formatRelative(ragResult.createdAt)}
+                  </span>
+                )}
               </div>
-              <p className="text-xs text-white/50 mt-3">
-                Script enforces JWT auth, domain allow-list, and streams responses from the same OpenAI Realtime backend as this workspace.
-              </p>
+              {ragError && (
+                <p className="text-xs text-rose-300 mb-2">{ragError}</p>
+              )}
+              {ragResult ? (
+                <div className="space-y-3 flex-1 overflow-y-auto">
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                    <p className="text-[11px] uppercase tracking-[0.2em] text-white/40 mb-1">Synthesized answer</p>
+                    <p className="text-sm text-white/80 whitespace-pre-wrap">{ragResult.answer || 'No summary returned.'}</p>
+                    {ragResult.guardrailTriggered && (
+                      <p className="text-[11px] text-amber-300 mt-2">Guardrail enforced — insufficient citations.</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase text-white/40 mb-2">Citations</p>
+                    <div className="space-y-2">
+                      {ragResult.citations.length === 0 && (
+                        <p className="text-xs text-white/50">No citations returned for the last turn.</p>
+                      )}
+                      {ragResult.citations.map((citation, index) => (
+                        <div key={`${citation.file_id}-${index}`} className="rounded-xl border border-white/10 bg-black/20 p-3">
+                          <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.2em] text-white/40 mb-1">
+                            <span>Ref {index + 1}</span>
+                            {citation.title && <span className="text-[10px] text-white/60 normal-case">{citation.title}</span>}
+                          </div>
+                          <p className="text-sm text-white/80">{citation.snippet}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-white/50">
+                  Connect knowledge spaces to this agent to see retrieved snippets every time a user asks a question.
+                </p>
+              )}
             </Card>
           </div>
         </div>
@@ -430,14 +483,6 @@ function PlugZapIcon() {
   return (
     <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-400 to-pink-500 flex items-center justify-center">
       <Sparkles className="w-5 h-5 text-slate-950" />
-    </div>
-  );
-}
-
-function GlobeIcon() {
-  return (
-    <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-sky-400 to-indigo-500 flex items-center justify-center">
-      <ShieldCheck className="w-5 h-5 text-slate-950" />
     </div>
   );
 }

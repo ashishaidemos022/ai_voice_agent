@@ -43,6 +43,8 @@ export interface ToolExecution {
   execution_type: 'mcp' | 'webhook';
 }
 
+import type { RagMode } from './rag';
+
 export interface RealtimeConfig {
   model: string;
   voice: string;
@@ -55,6 +57,9 @@ export interface RealtimeConfig {
     prefix_padding_ms?: number;
     silence_duration_ms?: number;
   } | null;
+  rag_enabled?: boolean;
+  rag_mode?: RagMode;
+  knowledge_vector_store_ids?: string[];
 }
 
 export interface AudioVisualizerData {

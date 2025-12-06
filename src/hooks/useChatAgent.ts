@@ -18,12 +18,14 @@ import { ChatRealtimeClient } from '../lib/chat-realtime-client';
 import { executeTool, loadMCPTools } from '../lib/tools-registry';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { runRagAugmentation } from '../lib/rag-service';
+import type { RagAugmentationResult } from '../types/rag';
 
 const MAX_CONTEXT_MESSAGES = 40;
 const DEFAULT_REALTIME_MODEL = 'gpt-4o-realtime-preview-2024-12-17';
 
 function resolveChatRealtimeModel(preset: AgentConfigPreset): string {
-  const candidate = preset.chat_model || preset.model || DEFAULT_REALTIME_MODEL;
+  const candidate = (preset.chat_model || preset.model || DEFAULT_REALTIME_MODEL).trim();
   const normalized = candidate.toLowerCase();
   if (normalized.includes('realtime')) {
     return candidate;
@@ -50,6 +52,10 @@ export function useChatAgent() {
   const [error, setError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [ragResult, setRagResult] = useState<RagAugmentationResult | null>(null);
+  const [ragInvoked, setRagInvoked] = useState(false);
+  const [ragError, setRagError] = useState<string | null>(null);
+  const [isRagLoading, setIsRagLoading] = useState(false);
 
   const realtimeRef = useRef<ChatRealtimeClient | null>(null);
   const sessionRef = useRef<ChatSession | null>(null);
@@ -96,13 +102,15 @@ export function useChatAgent() {
     setLiveAssistantText('');
     responseStartMsRef.current = null;
     firstTokenRecordedRef.current = false;
-  }, []);
+  }, [activePresetId, presets]);
 
   const endSession = useCallback(async () => {
     const activeSession = sessionRef.current;
     cleanupRealtime();
     setSession(null);
     setMessages([]);
+    setRagResult(null);
+    setRagError(null);
     setToolEvents([]);
 
     if (activeSession) {
@@ -265,11 +273,18 @@ export function useChatAgent() {
         realtimeRef.current.disconnect();
       }
 
+      const vectorStoreIds = (preset.knowledge_spaces || [])
+        .map((binding) => binding.rag_space?.vector_store_id)
+        .filter((id): id is string => Boolean(id));
+
       realtimeRef.current = new ChatRealtimeClient({
         model: resolveChatRealtimeModel(preset),
         instructions: preset.instructions,
         temperature: preset.temperature,
-        maxTokens: preset.max_response_output_tokens
+        maxTokens: preset.max_response_output_tokens,
+        ragMode: preset.rag_mode,
+        ragEnabled: preset.rag_enabled,
+        vectorStoreIds
       });
 
       attachRealtimeHandlers(realtimeRef.current);
@@ -304,6 +319,65 @@ export function useChatAgent() {
 
     setMessages((prev) => [...prev, outgoing].slice(-MAX_CONTEXT_MESSAGES));
 
+    const preset = presets.find((p) => p.id === activePresetId);
+    const hasKnowledgeSpaces = (preset?.knowledge_spaces?.length || 0) > 0;
+    const canRunRag = preset?.rag_enabled && hasKnowledgeSpaces && Boolean(realtimeRef.current);
+    if (!preset?.rag_enabled) {
+      console.debug('[RAG] Skipping augmentation - preset disabled', { presetId: preset?.id });
+    } else if (!hasKnowledgeSpaces) {
+      console.debug('[RAG] Skipping augmentation - no knowledge spaces attached', { presetId: preset?.id });
+    }
+    let ragContext: RagAugmentationResult | null = null;
+
+    if (canRunRag) {
+      setIsRagLoading(true);
+      try {
+        const spaceIds = (preset!.knowledge_spaces || []).map((binding) => binding.space_id);
+        console.log('[RAG] Starting augmentation', {
+          presetId: preset!.id,
+          sessionId: sessionRef.current.id,
+          ragMode: preset!.rag_mode,
+          spaceCount: spaceIds.length
+        });
+
+        ragContext = await runRagAugmentation({
+          agentConfigId: preset!.id,
+          query: trimmed,
+          ragMode: preset!.rag_mode,
+          spaceIds,
+          conversationId: sessionRef.current.id
+        });
+        console.log('[RAG] Augmentation response', {
+          presetId: preset!.id,
+          guardrailTriggered: ragContext.guardrailTriggered,
+          citations: ragContext.citations.length
+        });
+        setRagResult(ragContext);
+        setRagInvoked(true);
+        setRagError(null);
+        const knowledgeLines = ragContext.citations.map((citation, index) => {
+          const label = `[${index + 1}]`;
+          const title = citation.title ? ` • ${citation.title}` : '';
+          return `${label} ${citation.snippet}${title}`;
+        });
+        if (knowledgeLines.length) {
+          const contextMessage = `Knowledge retrieved for this turn:\n${knowledgeLines.join('\n')}\nUse these citations when answering. If information is missing and you are in guardrail mode, decline gracefully.`;
+          realtimeRef.current?.sendSystemMessage(contextMessage);
+        }
+      } catch (err: any) {
+        console.error('[RAG] Augmentation failed', err);
+        setRagError(err.message || 'Knowledge search failed');
+        setRagResult(null);
+        setRagInvoked(true);
+      } finally {
+        setIsRagLoading(false);
+      }
+    } else {
+      setRagResult(null);
+      setRagError(null);
+      setRagInvoked(false);
+    }
+
     try {
       await insertChatMessage({
         sessionId: sessionRef.current.id,
@@ -317,7 +391,7 @@ export function useChatAgent() {
     responseStartMsRef.current = Date.now();
     firstTokenRecordedRef.current = false;
     realtimeRef.current.sendUserMessage(trimmed);
-  }, []);
+  }, [activePresetId, presets]);
 
   const loadHistoricalSession = useCallback(async (sessionId: string) => {
     setIsHistoryLoading(true);
@@ -362,6 +436,10 @@ export function useChatAgent() {
     isHistoryLoading,
     startSession,
     sendMessage,
-    endSession
+    endSession,
+    ragResult,
+    ragInvoked,
+    ragError,
+    isRagLoading
   };
 }

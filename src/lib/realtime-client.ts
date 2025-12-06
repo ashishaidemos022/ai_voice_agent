@@ -139,11 +139,21 @@ export class RealtimeAPIClient {
       return;
     }
     const tools = getToolSchemas();
+    const ragInstructions = this.config.rag_mode === 'guardrail'
+      ? `${this.config.instructions}\n\nIf relevant knowledge from the approved knowledge base is unavailable, respond with "I do not have enough knowledge to answer that yet."`
+      : this.config.instructions;
+    const resources = this.config.knowledge_vector_store_ids && this.config.knowledge_vector_store_ids.length > 0
+      ? {
+          file_search: {
+            vector_store_ids: this.config.knowledge_vector_store_ids
+          }
+        }
+      : undefined;
     const sessionConfig = {
       type: 'session.update',
       session: {
         modalities: ['text', 'audio'],
-        instructions: this.config.instructions,
+        instructions: ragInstructions,
         voice: this.config.voice,
         input_audio_format: 'pcm16',
         output_audio_format: 'pcm16',
@@ -160,7 +170,8 @@ export class RealtimeAPIClient {
         tools,
         tool_choice: 'auto',
         temperature: this.config.temperature,
-        max_response_output_tokens: this.config.max_response_output_tokens
+        max_response_output_tokens: this.config.max_response_output_tokens,
+        resources
       }
     };
 

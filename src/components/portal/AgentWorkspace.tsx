@@ -1,13 +1,15 @@
 import { useState } from 'react';
-import { MessageSquare, Waves } from 'lucide-react';
+import { BookOpen, MessageSquare, Waves } from 'lucide-react';
 import { ChatAgent } from '../chat/ChatAgent';
 import { VoiceAgent } from '../VoiceAgent';
 import { cn } from '../../lib/utils';
+import { KnowledgeBaseDrawer } from '../rag/KnowledgeBaseDrawer';
 
 type WorkspaceTab = 'chat' | 'voice';
 
 export function AgentWorkspace() {
   const [tab, setTab] = useState<WorkspaceTab>('chat');
+  const [isKnowledgeDrawerOpen, setIsKnowledgeDrawerOpen] = useState(false);
   const isChat = tab === 'chat';
 
   return (
@@ -39,10 +41,29 @@ export function AgentWorkspace() {
           tone={isChat ? 'light' : 'dark'}
           onClick={() => setTab('voice')}
         />
+        <div className="ml-auto">
+          <button
+            type="button"
+            onClick={() => setIsKnowledgeDrawerOpen(true)}
+            className={cn(
+              'flex items-center gap-2 px-4 py-1.5 rounded-full border text-sm transition-colors',
+              isChat
+                ? 'border-white/20 text-white hover:border-white/60'
+                : 'border-gray-300 text-gray-700 hover:border-gray-500'
+            )}
+          >
+            <BookOpen className="w-4 h-4" />
+            Knowledge Base
+          </button>
+        </div>
       </div>
       <div className="flex-1 overflow-hidden">
         {isChat ? <ChatAgent /> : <VoiceAgent />}
       </div>
+      <KnowledgeBaseDrawer
+        isOpen={isKnowledgeDrawerOpen}
+        onClose={() => setIsKnowledgeDrawerOpen(false)}
+      />
     </div>
   );
 }
