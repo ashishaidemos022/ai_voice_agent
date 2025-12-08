@@ -15,14 +15,14 @@ import {
   updateChatToolEvent
 } from '../lib/chat-session-service';
 import { ChatRealtimeClient } from '../lib/chat-realtime-client';
-import { executeTool, loadMCPTools } from '../lib/tools-registry';
+import { executeTool, getAllTools, loadMCPTools, type Tool } from '../lib/tools-registry';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { runRagAugmentation } from '../lib/rag-service';
 import type { RagAugmentationResult } from '../types/rag';
 
 const MAX_CONTEXT_MESSAGES = 40;
-const DEFAULT_REALTIME_MODEL = 'gpt-4o-realtime-preview-2024-12-17';
+const DEFAULT_REALTIME_MODEL = 'gpt-realtime';
 
 function resolveChatRealtimeModel(preset: AgentConfigPreset): string {
   const candidate = (preset.chat_model || preset.model || DEFAULT_REALTIME_MODEL).trim();
@@ -56,6 +56,7 @@ export function useChatAgent() {
   const [ragInvoked, setRagInvoked] = useState(false);
   const [ragError, setRagError] = useState<string | null>(null);
   const [isRagLoading, setIsRagLoading] = useState(false);
+  const [availableTools, setAvailableTools] = useState<Tool[]>([]);
 
   const realtimeRef = useRef<ChatRealtimeClient | null>(null);
   const sessionRef = useRef<ChatSession | null>(null);
@@ -91,6 +92,37 @@ export function useChatAgent() {
   useEffect(() => {
     refreshHistorySessions();
   }, [refreshHistorySessions]);
+
+  const loadToolsForPreset = useCallback(async (presetId: string): Promise<Tool[]> => {
+    await loadMCPTools(presetId);
+    return [...getAllTools()];
+  }, []);
+
+  useEffect(() => {
+    if (!activePresetId || !vaUser) {
+      setAvailableTools([]);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const tools = await loadToolsForPreset(activePresetId);
+        if (!cancelled) {
+          setAvailableTools(tools);
+        }
+      } catch (err) {
+        console.error('Failed to load automation tools for preset', err);
+        if (!cancelled) {
+          setAvailableTools([]);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activePresetId, loadToolsForPreset, vaUser]);
 
   const cleanupRealtime = useCallback(() => {
     if (realtimeRef.current) {
@@ -260,7 +292,8 @@ export function useChatAgent() {
     setLiveAssistantText('');
 
     try {
-      await loadMCPTools(preset.id);
+      const tools = await loadToolsForPreset(preset.id);
+      setAvailableTools(tools);
       const newSession = await createChatSession({
         userId: vaUser.id,
         agentPresetId: preset.id,
@@ -299,7 +332,7 @@ export function useChatAgent() {
       setIsConnecting(false);
       refreshHistorySessions();
     }
-  }, [activePresetId, attachRealtimeHandlers, cleanupRealtime, endSession, presets, refreshHistorySessions, vaUser]);
+  }, [activePresetId, attachRealtimeHandlers, cleanupRealtime, endSession, loadToolsForPreset, presets, refreshHistorySessions, vaUser]);
 
   const sendMessage = useCallback(async (text: string) => {
     const trimmed = text.trim();
@@ -440,6 +473,7 @@ export function useChatAgent() {
     ragResult,
     ragInvoked,
     ragError,
-    isRagLoading
+    isRagLoading,
+    availableTools
   };
 }

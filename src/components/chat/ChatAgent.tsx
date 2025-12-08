@@ -37,6 +37,7 @@ export function ChatAgent() {
     presets,
     activePresetId,
     setActivePresetId,
+    availableTools,
     session,
     messages,
     historySessions,
@@ -66,6 +67,17 @@ export function ChatAgent() {
   const visibleMessages = useMemo<ChatMessage[]>(() => {
     return viewMode === 'current' ? messages : historicalMessages;
   }, [messages, historicalMessages, viewMode]);
+
+  const toolSummary = useMemo(() => {
+    const mcpCount = availableTools.filter((tool) => tool.source !== 'n8n').length;
+    const n8nCount = availableTools.filter((tool) => tool.source === 'n8n').length;
+    return {
+      total: availableTools.length,
+      mcpCount,
+      n8nCount,
+      preview: availableTools.slice(0, 6)
+    };
+  }, [availableTools]);
 
   const handleSend = () => {
     const trimmed = composerValue.trim();
@@ -378,6 +390,42 @@ export function ChatAgent() {
                     )}
                   </div>
                 ))}
+              </div>
+              <div className="mt-4 border-t border-white/5 pt-4">
+                <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.3em] text-white/40">
+                  <span>Connected automations</span>
+                  <span>{toolSummary.total}</span>
+                </div>
+                {toolSummary.total === 0 ? (
+                  <p className="text-xs text-white/50 mt-2">No MCP or n8n tools configured for this preset.</p>
+                ) : (
+                  <>
+                    <div className="flex gap-4 text-[11px] text-white/60 mt-3">
+                      <span>MCP: {toolSummary.mcpCount}</span>
+                      <span>n8n: {toolSummary.n8nCount}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      {toolSummary.preview.map((tool) => (
+                        <span
+                          key={tool.name}
+                          className={cn(
+                            'px-2 py-1 rounded-full border text-[11px]',
+                            tool.source === 'n8n'
+                              ? 'border-amber-400/50 text-amber-200/90 bg-amber-500/10'
+                              : 'border-white/10 text-white/70 bg-white/5'
+                          )}
+                        >
+                          {tool.name}
+                        </span>
+                      ))}
+                      {toolSummary.total > toolSummary.preview.length && (
+                        <span className="text-[11px] text-white/60">
+                          +{toolSummary.total - toolSummary.preview.length} more
+                        </span>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             </Card>
 
