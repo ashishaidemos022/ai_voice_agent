@@ -142,13 +142,6 @@ export class RealtimeAPIClient {
     const ragInstructions = this.config.rag_mode === 'guardrail'
       ? `${this.config.instructions}\n\nIf relevant knowledge from the approved knowledge base is unavailable, respond with "I do not have enough knowledge to answer that yet."`
       : this.config.instructions;
-    const resources = this.config.knowledge_vector_store_ids && this.config.knowledge_vector_store_ids.length > 0
-      ? {
-          file_search: {
-            vector_store_ids: this.config.knowledge_vector_store_ids
-          }
-        }
-      : undefined;
     const sessionConfig = {
       type: 'session.update',
       session: {
@@ -170,8 +163,7 @@ export class RealtimeAPIClient {
         tools,
         tool_choice: 'auto',
         temperature: this.config.temperature,
-        max_response_output_tokens: this.config.max_response_output_tokens,
-        resources
+        max_response_output_tokens: this.config.max_response_output_tokens
       }
     };
 
@@ -406,7 +398,26 @@ export class RealtimeAPIClient {
     });
   }
 
-  cancelResponse(): void {
+  sendSystemMessage(text: string): void {
+    if (!text || !text.trim()) {
+      return;
+    }
+    this.send({
+      type: 'conversation.item.create',
+      item: {
+        type: 'message',
+        role: 'system',
+        content: [
+          {
+            type: 'input_text',
+            text: text.trim()
+          }
+        ]
+      }
+    });
+  }
+
+  cancelResponse(options?: { suppressState?: boolean }): void {
     this.hasBufferedAudio = false;
     this.bufferedSamples = 0;
     this.hasReceivedAudio = false;
@@ -414,7 +425,15 @@ export class RealtimeAPIClient {
     this.send({
       type: 'response.cancel'
     });
-    this.setAgentState('interrupted');
+    if (!options?.suppressState) {
+      this.setAgentState('interrupted');
+    }
+  }
+
+  requestResponse(): void {
+    this.send({
+      type: 'response.create'
+    });
   }
 
   private send(message: any): void {

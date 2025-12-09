@@ -60,6 +60,21 @@ export interface RealtimeConfig {
   rag_enabled?: boolean;
   rag_mode?: RagMode;
   knowledge_vector_store_ids?: string[];
+  knowledge_space_ids?: string[];
+  rag_default_model?: string | null;
+}
+
+export type VoiceToolEventStatus = 'pending' | 'running' | 'succeeded' | 'failed';
+
+export interface VoiceToolEvent {
+  id: string;
+  toolName: string;
+  status: VoiceToolEventStatus;
+  request?: Record<string, any> | null;
+  response?: Record<string, any> | null;
+  error?: string | null;
+  createdAt: string;
+  completedAt?: string | null;
 }
 
 export interface AudioVisualizerData {

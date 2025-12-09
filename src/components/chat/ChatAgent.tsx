@@ -18,6 +18,7 @@ import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { ChatMessage } from '../../types/chat';
 import { cn } from '../../lib/utils';
+import { AgentEmbedPanel } from './AgentEmbedPanel';
 
 const formatRelative = (dateString?: string | null) => {
   if (!dateString) return 'moments ago';
@@ -63,6 +64,7 @@ export function ChatAgent() {
   } = useChatAgent();
   const [composerValue, setComposerValue] = useState('');
   const [viewMode, setViewMode] = useState<'current' | 'history'>('current');
+  const activePreset = useMemo(() => presets.find((p) => p.id === activePresetId), [presets, activePresetId]);
 
   const visibleMessages = useMemo<ChatMessage[]>(() => {
     return viewMode === 'current' ? messages : historicalMessages;
@@ -352,8 +354,8 @@ export function ChatAgent() {
             )}
           </Card>
 
-          <div className="flex flex-col gap-6 h-full overflow-hidden">
-            <Card className="p-5 bg-slate-900/40 border-white/5 flex flex-col h-1/2">
+          <div className="flex flex-col gap-6 h-full overflow-y-auto pr-1">
+            <Card className="p-5 bg-slate-900/40 border-white/5 flex flex-col">
               <div className="flex items-center gap-3 mb-4">
                 <PlugZapIcon />
                 <div>
@@ -429,7 +431,7 @@ export function ChatAgent() {
               </div>
             </Card>
 
-            <Card className="p-5 bg-slate-900/40 border-white/5 h-1/2 flex flex-col">
+            <Card className="p-5 bg-slate-900/40 border-white/5 flex flex-col">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center">
                   <BookOpenCheck className="w-5 h-5 text-slate-950" />
@@ -491,6 +493,11 @@ export function ChatAgent() {
                 </p>
               )}
             </Card>
+
+            <AgentEmbedPanel
+              agentConfigId={activePresetId}
+              agentName={activePreset?.name}
+            />
           </div>
         </div>
       </div>

@@ -89,6 +89,9 @@ export function configPresetToRealtimeConfig(preset: AgentConfigPreset): Realtim
   const vectorStoreIds = (preset.knowledge_spaces || [])
     .map((binding) => binding.rag_space?.vector_store_id)
     .filter((id): id is string => Boolean(id));
+  const knowledgeSpaceIds = (preset.knowledge_spaces || [])
+    .map((binding) => binding.space_id)
+    .filter((id): id is string => Boolean(id));
   return {
     model: normalizedModel,
     voice: preset.voice,
@@ -98,7 +101,9 @@ export function configPresetToRealtimeConfig(preset: AgentConfigPreset): Realtim
     turn_detection: preset.turn_detection_enabled ? preset.turn_detection_config : null,
     rag_mode: preset.rag_mode,
     rag_enabled: preset.rag_enabled,
-    knowledge_vector_store_ids: vectorStoreIds
+    knowledge_vector_store_ids: vectorStoreIds,
+    knowledge_space_ids: knowledgeSpaceIds,
+    rag_default_model: preset.rag_default_model || preset.chat_model || preset.model
   };
 }
 

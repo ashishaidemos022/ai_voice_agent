@@ -3,7 +3,10 @@ import { AudioManager, getAudioManager } from '../lib/audio-manager';
 import { AgentState, RealtimeAPIClient } from '../lib/realtime-client';
 import { supabase } from '../lib/supabase';
 import { executeTool, loadMCPTools } from '../lib/tools-registry';
-import { Message, RealtimeConfig } from '../types/voice-agent';
+import { Message, RealtimeConfig, VoiceToolEvent } from '../types/voice-agent';
+import { runRagAugmentation } from '../lib/rag-service';
+import type { RagAugmentationResult, RagMode } from '../types/rag';
+import { configPresetToRealtimeConfig, getConfigPresetById } from '../lib/config-service';
 
 type LiveTranscripts = {
   user: Record<string, string>;
@@ -26,6 +29,11 @@ export function useVoiceAgent() {
   const [agentState, setAgentState] = useState<AgentState>('idle');
   const [liveUserTranscript, setLiveUserTranscript] = useState('');
   const [liveAssistantTranscript, setLiveAssistantTranscript] = useState('');
+  const [toolEvents, setToolEvents] = useState<VoiceToolEvent[]>([]);
+  const [ragResult, setRagResult] = useState<RagAugmentationResult | null>(null);
+  const [ragInvoked, setRagInvoked] = useState(false);
+  const [ragError, setRagError] = useState<string | null>(null);
+  const [isRagLoading, setIsRagLoading] = useState(false);
 
   const audioManagerRef = useRef<AudioManager | null>(null);
   const realtimeClientRef = useRef<RealtimeAPIClient | null>(null);
@@ -42,6 +50,14 @@ export function useVoiceAgent() {
   const isCleaningUpRef = useRef(false);
   const micStartedRef = useRef(false);
   const shouldPersistSession = useRef(true);
+  const ragMetadataRef = useRef<{ enabled: boolean; mode: RagMode; spaceIds: string[]; model: string | null }>({
+    enabled: false,
+    mode: 'assist',
+    spaceIds: [],
+    model: null
+  });
+  const activeConfigIdRef = useRef<string | null>(null);
+  const ragResponsePendingRef = useRef(false);
 
   const createSession = useCallback(async (sessionConfig: RealtimeConfig, configId: string | null) => {
     if (!configId) {
@@ -135,6 +151,144 @@ export function useVoiceAgent() {
     setLiveAssistantTranscript('');
   }, []);
 
+  const mergeRealtimeConfig = useCallback((prev: RealtimeConfig | null, next: RealtimeConfig): RealtimeConfig => {
+    const fallback = prev ?? next;
+    return {
+      ...fallback,
+      ...next,
+      rag_enabled: next.rag_enabled ?? fallback?.rag_enabled ?? false,
+      rag_mode: next.rag_mode ?? fallback?.rag_mode ?? 'assist',
+      rag_default_model: next.rag_default_model ?? fallback?.rag_default_model ?? null,
+      knowledge_vector_store_ids: next.knowledge_vector_store_ids ?? fallback?.knowledge_vector_store_ids,
+      knowledge_space_ids: next.knowledge_space_ids ?? fallback?.knowledge_space_ids
+    };
+  }, []);
+
+  const syncRagMetadata = useCallback((cfg?: RealtimeConfig | null) => {
+    if (!cfg) {
+      ragMetadataRef.current = {
+        enabled: false,
+        mode: 'assist',
+        spaceIds: [],
+        model: null
+      };
+      return;
+    }
+    ragMetadataRef.current = {
+      enabled: Boolean(cfg.rag_enabled),
+      mode: (cfg.rag_mode as RagMode) || 'assist',
+      spaceIds: cfg.knowledge_space_ids || [],
+      model: cfg.rag_default_model || null
+    };
+  }, []);
+
+  const hydrateConfigWithKnowledge = useCallback(
+    async (configId: string, baseConfig: RealtimeConfig): Promise<RealtimeConfig> => {
+      const hasKnowledgeSpaces = Array.isArray(baseConfig.knowledge_space_ids) && baseConfig.knowledge_space_ids.length > 0;
+      const hasVectorStores = Array.isArray(baseConfig.knowledge_vector_store_ids) && baseConfig.knowledge_vector_store_ids.length > 0;
+      const hasRagSettings = baseConfig.rag_enabled !== undefined && baseConfig.rag_mode !== undefined;
+      if (hasKnowledgeSpaces && hasVectorStores && hasRagSettings) {
+        return baseConfig;
+      }
+      try {
+        const preset = await getConfigPresetById(configId);
+        if (!preset) {
+          return baseConfig;
+        }
+        const presetConfig = configPresetToRealtimeConfig(preset);
+        const merged = mergeRealtimeConfig(baseConfig, presetConfig);
+        console.log('[useVoiceAgent] Hydrated missing RAG metadata from preset', {
+          configId,
+          knowledgeSpaces: merged.knowledge_space_ids?.length || 0,
+          vectorStores: merged.knowledge_vector_store_ids?.length || 0,
+          ragEnabled: merged.rag_enabled
+        });
+        return merged;
+      } catch (err) {
+        console.warn('[useVoiceAgent] Failed to hydrate config with preset metadata', err);
+        return baseConfig;
+      }
+    },
+    [mergeRealtimeConfig]
+  );
+
+  const maybeRunRagAugmentation = useCallback(async (transcriptText: string) => {
+    const query = (transcriptText || '').trim();
+    if (!query) {
+      setRagInvoked(false);
+      setRagResult(null);
+      setRagError(null);
+      ragResponsePendingRef.current = false;
+      return;
+    }
+    const metadata = ragMetadataRef.current;
+    const agentConfigId = activeConfigIdRef.current;
+    if (!metadata.enabled || !metadata.spaceIds.length || !agentConfigId) {
+      setRagInvoked(false);
+      setRagResult(null);
+      setRagError(null);
+      ragResponsePendingRef.current = false;
+      return;
+    }
+    const client = realtimeClientRef.current;
+    ragResponsePendingRef.current = true;
+    if (client) {
+      client.cancelResponse({ suppressState: true });
+    }
+    setAgentState('thinking');
+    setIsRagLoading(true);
+    setRagInvoked(true);
+    try {
+      const ragContext = await runRagAugmentation({
+        agentConfigId,
+        query,
+        ragMode: metadata.mode,
+        spaceIds: metadata.spaceIds,
+        conversationId: sessionIdRef.current || undefined,
+        model: metadata.model || undefined
+      });
+      console.log('[useVoiceAgent] RAG augmentation success', {
+        presetId: agentConfigId,
+        citations: ragContext.citations.length,
+        guardrail: ragContext.guardrailTriggered
+      });
+      setRagResult(ragContext);
+      setRagError(null);
+      const knowledgeLines = ragContext.citations.map((citation, index) => {
+        const label = `[${index + 1}]`;
+        const snippet = citation.snippet || '';
+        const title = citation.title ? ` • ${citation.title}` : '';
+        return `${label} ${snippet}${title}`;
+      }).filter(Boolean);
+      if (client) {
+        if (knowledgeLines.length) {
+          client.sendSystemMessage(
+            `Knowledge retrieved for this turn:\n${knowledgeLines.join('\n')}\nUse these citations when answering.`
+          );
+        }
+        if (ragContext.answer) {
+          const citationNumbers = ragContext.citations.length
+            ? `Citations: ${ragContext.citations.map((_, idx) => `[${idx + 1}]`).join(' ')}`
+            : '';
+          client.sendSystemMessage(
+            `Synthesized answer for this user turn:\n${ragContext.answer}\n${citationNumbers}\nRespond by conveying this synthesized answer, paraphrasing only for conversational tone.`
+          );
+        }
+      }
+    } catch (err: any) {
+      console.error('[useVoiceAgent] RAG augmentation failed', err);
+      setRagResult(null);
+      setRagError(err?.message || 'Knowledge search failed');
+    } finally {
+      setIsRagLoading(false);
+      const shouldRestart = ragResponsePendingRef.current;
+      ragResponsePendingRef.current = false;
+      if (shouldRestart && client) {
+        client.requestResponse();
+      }
+    }
+  }, []);
+
   const attachRealtimeHandlers = useCallback(() => {
     const client = realtimeClientRef.current;
     const audioManager = audioManagerRef.current;
@@ -224,6 +378,7 @@ export function useVoiceAgent() {
 
       if (isUser) {
         await persistMessage('user', transcriptText);
+        await maybeRunRagAugmentation(transcriptText);
         delete transcriptsRef.current.user[itemId];
         if (transcriptsRef.current.activeUserId === itemId) {
           transcriptsRef.current.activeUserId = null;
@@ -292,17 +447,49 @@ export function useVoiceAgent() {
     client.on('function_call', async (event: any) => {
       const { id, name, arguments: argsStr } = event.call;
       const currentSessionId = sessionIdRef.current;
+      let parsedArgs: Record<string, any> = {};
+      try {
+        parsedArgs = argsStr ? JSON.parse(argsStr) : {};
+      } catch (parseError) {
+        console.warn('[useVoiceAgent] Failed to parse tool arguments', parseError);
+      }
+      const toolEventId = id || crypto.randomUUID();
+      const startedAt = new Date().toISOString();
+      setToolEvents((prev) => [
+        ...prev,
+        {
+          id: toolEventId,
+          toolName: name,
+          status: 'running',
+          request: parsedArgs,
+          createdAt: startedAt
+        }
+      ]);
 
       try {
         setIsProcessing(true);
         console.log('[useVoiceAgent] Function call received', { name, rawArguments: argsStr });
-        const args = argsStr ? JSON.parse(argsStr) : {};
-        console.log('[useVoiceAgent] Parsed function call args', { name, args });
-        const result = await executeTool(name, args, { sessionId: currentSessionId || undefined });
+        console.log('[useVoiceAgent] Parsed function call args', { name, parsedArgs });
+        const result = await executeTool(name, parsedArgs, { sessionId: currentSessionId || undefined });
+        setToolEvents((prev) =>
+          prev.map((tool) =>
+            tool.id === toolEventId
+              ? { ...tool, status: 'succeeded', response: result, completedAt: new Date().toISOString() }
+              : tool
+          )
+        );
         client.sendFunctionCallOutput(id, result);
       } catch (toolError: any) {
         console.error('Tool execution error:', toolError);
-        client.sendFunctionCallOutput(id, { error: toolError.message });
+        const message = toolError?.message || 'Tool execution failed';
+        setToolEvents((prev) =>
+          prev.map((tool) =>
+            tool.id === toolEventId
+              ? { ...tool, status: 'failed', error: message, completedAt: new Date().toISOString() }
+              : tool
+          )
+        );
+        client.sendFunctionCallOutput(id, { error: message });
       } finally {
         setIsProcessing(false);
       }
@@ -381,16 +568,25 @@ export function useVoiceAgent() {
         if (!configId) {
           throw new Error('Select an agent preset before starting the voice agent.');
         }
-        setConfig(initConfig);
+        const baseConfig = mergeRealtimeConfig(config, initConfig);
+        const hydratedConfig = await hydrateConfigWithKnowledge(configId, baseConfig);
+        setConfig(hydratedConfig);
         setActiveConfigId(configId);
+        activeConfigIdRef.current = configId;
+        syncRagMetadata(hydratedConfig);
         resetTranscripts();
         savedMessagesRef.current.clear();
         messagesRef.current = [];
         setMessages([]);
+        setToolEvents([]);
+        setRagResult(null);
+        setRagError(null);
+        setRagInvoked(false);
+        setIsRagLoading(false);
 
         await loadMCPTools(configId);
 
-        const sid = await createSession(initConfig, configId);
+        const sid = await createSession(hydratedConfig, configId);
         if (!sid) throw new Error('Failed to create session');
 
         sessionIdRef.current = sid;
@@ -413,7 +609,7 @@ export function useVoiceAgent() {
           console.log('[useVoiceAgent] disposing previous realtime client instance');
           realtimeClientRef.current.disconnect();
         }
-        realtimeClientRef.current = new RealtimeAPIClient(initConfig);
+        realtimeClientRef.current = new RealtimeAPIClient(hydratedConfig);
 
         attachRealtimeHandlers();
         await realtimeClientRef.current.connect();
@@ -435,7 +631,7 @@ export function useVoiceAgent() {
         throw err;
       }
     },
-    [attachRealtimeHandlers, createSession, resetTranscripts, startRecording]
+    [attachRealtimeHandlers, config, createSession, hydrateConfigWithKnowledge, mergeRealtimeConfig, resetTranscripts, syncRagMetadata]
   );
 
   const cleanup = useCallback(async () => {
@@ -490,6 +686,12 @@ export function useVoiceAgent() {
     setSessionId(null);
     setMessages([]);
     messagesRef.current = [];
+    setToolEvents([]);
+    setRagResult(null);
+    setRagError(null);
+    setRagInvoked(false);
+    setIsRagLoading(false);
+    syncRagMetadata(config);
     resetTranscripts();
     setIsProcessing(false);
     setAgentState('idle');
@@ -497,7 +699,7 @@ export function useVoiceAgent() {
     micStartedRef.current = false;
     isCleaningUpRef.current = false;
     shouldPersistSession.current = true;
-  }, [resetTranscripts, stopRecording]);
+  }, [config, resetTranscripts, stopRecording, syncRagMetadata]);
 
   useEffect(() => {
     return () => {
@@ -548,14 +750,19 @@ export function useVoiceAgent() {
   }, []);
 
   const updateConfig = useCallback((newConfig: RealtimeConfig) => {
-    setConfig(newConfig);
-    if (realtimeClientRef.current && isConnected) {
-      realtimeClientRef.current.updateSessionConfig(newConfig);
-    }
-  }, [isConnected]);
+    setConfig(prev => {
+      const merged = mergeRealtimeConfig(prev, newConfig);
+      syncRagMetadata(merged);
+      if (realtimeClientRef.current && isConnected) {
+        realtimeClientRef.current.updateSessionConfig(merged);
+      }
+      return merged;
+    });
+  }, [isConnected, mergeRealtimeConfig, syncRagMetadata]);
 
   const setActiveConfig = useCallback((configId: string | null) => {
     setActiveConfigId(configId);
+    activeConfigIdRef.current = configId;
   }, []);
 
   return {
@@ -572,6 +779,11 @@ export function useVoiceAgent() {
     liveUserTranscript,
     liveAssistantTranscript,
     activeConfigId,
+    toolEvents,
+    ragResult,
+    ragInvoked,
+    ragError,
+    isRagLoading,
     setConfig: updateConfig,
     setActiveConfig,
     initialize,

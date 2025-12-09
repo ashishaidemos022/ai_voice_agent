@@ -2,11 +2,60 @@
   const currentScript = document.currentScript;
   if (!currentScript) return;
 
-  const agentId = currentScript.getAttribute('data-agent-id') || '';
-  const userJwt = currentScript.getAttribute('data-user-jwt') || '';
-  const theme = currentScript.getAttribute('data-theme') || 'dark';
-  const origin = new URL(currentScript.src, window.location.href).origin;
-  const widgetUrl = `${origin}/widget?agent=${encodeURIComponent(agentId)}&theme=${encodeURIComponent(theme)}${userJwt ? `&token=${encodeURIComponent(userJwt)}` : ''}`;
+  const globalConfig =
+    window.AgenticChat ||
+    window.MyVoiceAgent ||
+    window.myVoiceAgent ||
+    {};
+  const dataset = currentScript.dataset || {};
+
+  function resolveBaseUrl() {
+    if (globalConfig.baseUrl) return globalConfig.baseUrl.replace(/\/$/, '');
+    if (dataset.baseUrl) return dataset.baseUrl.replace(/\/$/, '');
+    try {
+      const src = currentScript.src || window.location.href;
+      return new URL(src).origin;
+    } catch {
+      return window.location.origin;
+    }
+  }
+
+  const baseUrl = resolveBaseUrl();
+  const theme = globalConfig.theme || dataset.theme || 'dark';
+
+  const publicId =
+    globalConfig.publicId ||
+    globalConfig.public_id ||
+    dataset.publicId ||
+    dataset.public_id ||
+    '';
+
+  const legacyAgentId = globalConfig.agentId || dataset.agentId || '';
+  const legacyToken = globalConfig.token || dataset.userJwt || dataset.token || '';
+
+  function buildWidgetUrl() {
+    if (publicId) {
+      const params = new URLSearchParams({ widget: '1', theme });
+      return `${baseUrl}/embed/agent/${encodeURIComponent(publicId)}?${params}`;
+    }
+    if (!legacyAgentId) {
+      console.error(
+        '[AgenticChat] Missing publicId. Provide data-public-id or window.AgenticChat.publicId.'
+      );
+      return null;
+    }
+    const params = new URLSearchParams({
+      agent: legacyAgentId,
+      theme
+    });
+    if (legacyToken) {
+      params.set('token', legacyToken);
+    }
+    return `${baseUrl}/widget?${params}`;
+  }
+
+  const widgetUrl = buildWidgetUrl();
+  if (!widgetUrl) return;
 
   const style = document.createElement('style');
   style.textContent = `
