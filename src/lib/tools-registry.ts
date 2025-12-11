@@ -19,6 +19,17 @@ export let mcpTools: Tool[] = [];
 let selectedMcpToolNames: string[] | null = null;
 let selectedWebhookToolNames: string[] | null = null;
 
+export type SerializedToolDefinition = {
+  name: string;
+  description?: string | null;
+  parameters?: JSONSchema | null;
+  execution_type: 'mcp' | 'webhook';
+  connection_id?: string | null;
+  metadata?: Record<string, any> | null;
+  source?: 'mcp' | 'n8n' | null;
+  owner_user_id?: string | null;
+};
+
 type WebhookParameterDefinition = {
   key: string;
   label?: string;
@@ -291,6 +302,70 @@ export async function loadMCPTools(configId?: string): Promise<void> {
     selectedMcpToolNames = null;
     selectedWebhookToolNames = null;
   }
+}
+
+export function registerToolsFromServer(serialized: SerializedToolDefinition[] | null | undefined) {
+  if (!Array.isArray(serialized) || serialized.length === 0) {
+    console.warn('[MCP] No serialized tools provided from server payload');
+    mcpTools = [];
+    selectedMcpToolNames = null;
+    selectedWebhookToolNames = null;
+    return;
+  }
+
+  const fallbackSchema: JSONSchema = {
+    type: 'object',
+    properties: {},
+    additionalProperties: true
+  };
+
+  mcpTools = serialized.map((tool) => {
+    const executionType = tool.execution_type;
+    const resolvedSchema =
+      tool.parameters && typeof tool.parameters === 'object'
+        ? tool.parameters
+        : fallbackSchema;
+    const connectionId = tool.connection_id || undefined;
+    const ownerUserId = tool.owner_user_id || undefined;
+    const metadata = tool.metadata || undefined;
+    return {
+      name: tool.name,
+      description: tool.description || '',
+      parameters: resolvedSchema,
+      executionType,
+      connectionId,
+      source: tool.source || undefined,
+      metadata,
+      execute:
+        executionType === 'mcp'
+          ? async (params: any) => {
+              if (!connectionId) {
+                throw new Error('MCP tool is missing connection information');
+              }
+              const userId = ownerUserId || (metadata as any)?.userId || (metadata as any)?.user_id || '';
+              const result = await mcpApiClient.executeTool({
+                connection_id: connectionId,
+                tool_name: tool.name,
+                parameters: params,
+                user_id: userId
+              });
+
+              if (!result.success) {
+                throw new Error(result.error || 'MCP tool execution failed');
+              }
+
+              return result.data || result.result;
+            }
+          : async () => {
+              return {};
+            }
+    };
+  });
+
+  selectedMcpToolNames = mcpTools.filter((tool) => tool.executionType === 'mcp').map((tool) => tool.name);
+  selectedWebhookToolNames = mcpTools
+    .filter((tool) => tool.executionType === 'webhook')
+    .map((tool) => tool.name);
 }
 
 export async function loadToolSelectionForConfig(configId: string): Promise<ToolSelectionState | null> {

@@ -12,6 +12,7 @@ import { MainLayout } from './layout/MainLayout';
 import { Sidebar } from './layout/Sidebar';
 import { TopBar } from './layout/TopBar';
 import { VoiceInteractionArea } from './voice/VoiceInteractionArea';
+import { VoiceEmbedPanel } from './voice/VoiceEmbedPanel';
 import { ConversationThread } from './conversation/ConversationThread';
 import { ToolsList } from './tools/ToolsList';
 import { SettingsPanel } from './panels/SettingsPanel';
@@ -671,7 +672,7 @@ export function VoiceAgent() {
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
                     {viewMode === 'current' ? (
                     <>
                       <VoiceInteractionArea
@@ -691,167 +692,174 @@ export function VoiceAgent() {
                         </p>
                       )}
 
-                      <Card className="p-5 bg-slate-900/60 border-white/5 flex flex-col gap-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-400 to-pink-500 flex items-center justify-center">
-                            <Sparkles className="w-5 h-5 text-slate-950" />
-                          </div>
-                          <div>
-                            <p className="font-semibold text-white">Tool executions</p>
-                            <p className="text-xs text-white/50">Every MCP + workflow call this session</p>
-                          </div>
-                        </div>
-                        <div className="space-y-3 max-h-48 overflow-y-auto pr-1">
-                          {toolEvents.length === 0 ? (
-                            <p className="text-sm text-white/50">No tools called yet.</p>
-                          ) : toolEvents.map(event => {
-                            const responsePreview = event.response ? JSON.stringify(event.response) : null;
-                            return (
-                              <div
-                                key={event.id}
-                                className={cn(
-                                  'rounded-2xl border px-3 py-2',
-                                  event.status === 'failed'
-                                    ? 'border-rose-400/40 bg-rose-500/10'
-                                    : event.status === 'succeeded'
-                                    ? 'border-emerald-400/40 bg-emerald-500/10'
-                                    : 'border-white/10 bg-white/5'
-                                )}
-                              >
-                                <div className="flex items-center justify-between text-sm text-white/80">
-                                  <span className="font-semibold">{event.toolName}</span>
-                                  <span className="text-xs text-white/50 uppercase tracking-[0.2em]">{event.status}</span>
-                                </div>
-                                {event.error && (
-                                  <p className="text-xs text-rose-200 mt-1">{event.error}</p>
-                                )}
-                                {responsePreview && (
-                                  <p className="text-xs text-white/60 mt-1 truncate">
-                                    {responsePreview.slice(0, 80)}
-                                    {responsePreview.length > 80 ? '…' : ''}
-                                  </p>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                        <div className="border-t border-white/10 pt-3">
-                          <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.3em] text-white/40">
-                            <span>Connected automations</span>
-                            <span>{toolSummary.total}</span>
-                          </div>
-                          {toolSummary.total === 0 ? (
-                            <p className="text-xs text-white/50 mt-2">
-                              No MCP or n8n tools configured for this preset.
-                            </p>
-                          ) : (
-                            <>
-                              <div className="flex gap-4 text-[11px] text-white/60 mt-3">
-                                <span>MCP: {toolSummary.mcpCount}</span>
-                                <span>n8n: {toolSummary.n8nCount}</span>
-                              </div>
-                              <div className="flex flex-wrap gap-2 mt-3">
-                                {toolSummary.preview.map(tool => (
-                                  <span
-                                    key={tool.name}
-                                    className={cn(
-                                      'px-2 py-1 rounded-full border text-[11px]',
-                                      tool.source === 'n8n'
-                                        ? 'border-amber-400/50 text-amber-200/90 bg-amber-500/10'
-                                        : 'border-white/10 text-white/70 bg-white/5'
-                                    )}
-                                  >
-                                    {tool.name}
-                                  </span>
-                                ))}
-                                {toolSummary.total > toolSummary.preview.length && (
-                                  <span className="text-[11px] text-white/60">
-                                    +{toolSummary.total - toolSummary.preview.length} more
-                                  </span>
-                                )}
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </Card>
-
-                      <Card className="p-5 bg-slate-900/60 border-white/5 flex flex-col gap-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center">
-                            <BookOpenCheck className="w-5 h-5 text-slate-950" />
-                          </div>
-                          <div className="flex-1">
-                            <p className="font-semibold text-white">Knowledge grounding</p>
-                            <p className="text-xs text-white/50">Latest retrieval context + citations</p>
-                          </div>
-                          {isRagLoading && <Loader2 className="w-4 h-4 text-white/70 animate-spin" />}
-                        </div>
-                        <div className="flex items-center justify-between text-xs text-white/60">
-                          <span
-                            className={cn(
-                              'px-2 py-0.5 rounded-full border text-[11px] uppercase tracking-[0.2em]',
-                              ragInvoked
-                                ? 'border-emerald-400/70 text-emerald-200'
-                                : 'border-white/20 text-white/40'
-                            )}
-                          >
-                            {ragInvoked ? 'RAG invoked' : 'RAG idle'}
-                          </span>
-                          {ragResult && (
-                            <span className="text-[11px] text-white/40">
-                              Updated {formatRelative(ragResult.createdAt)}
-                            </span>
-                          )}
-                        </div>
-                        {ragError && (
-                          <p className="text-xs text-rose-300">{ragError}</p>
-                        )}
-                        {ragResult ? (
-                          <div className="space-y-3">
-                            <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-                              <p className="text-[11px] uppercase tracking-[0.2em] text-white/40 mb-1">Synthesized answer</p>
-                              <p className="text-sm text-white/80 whitespace-pre-wrap">
-                                {ragResult.answer || 'No summary returned.'}
-                              </p>
-                              {ragResult.guardrailTriggered && (
-                                <p className="text-[11px] text-amber-300 mt-2">
-                                  Guardrail enforced — insufficient citations.
-                                </p>
-                              )}
+                      <div className="flex-1 min-h-0 overflow-y-auto pr-1 pb-2 flex flex-col gap-4">
+                        <Card className="p-5 bg-slate-900/60 border-white/5 flex flex-col gap-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-400 to-pink-500 flex items-center justify-center">
+                              <Sparkles className="w-5 h-5 text-slate-950" />
                             </div>
                             <div>
-                              <p className="text-xs uppercase text-white/40 mb-2">Citations</p>
-                              <div className="space-y-2">
-                                {ragResult.citations.length === 0 && (
-                                  <p className="text-xs text-white/50">
-                                    No citations returned for the last turn.
-                                  </p>
-                                )}
-                                {ragResult.citations.map((citation, index) => (
-                                  <div
-                                    key={`${citation.file_id}-${index}`}
-                                    className="rounded-xl border border-white/10 bg-black/20 p-3"
-                                  >
-                                    <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.2em] text-white/40 mb-1">
-                                      <span>Ref {index + 1}</span>
-                                      {citation.title && (
-                                        <span className="text-[10px] text-white/60 normal-case">
-                                          {citation.title}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <p className="text-sm text-white/80">{citation.snippet}</p>
-                                  </div>
-                                ))}
-                              </div>
+                              <p className="font-semibold text-white">Tool executions</p>
+                              <p className="text-xs text-white/50">Every MCP + workflow call this session</p>
                             </div>
                           </div>
-                        ) : (
-                          <p className="text-sm text-white/50">
-                            Connect knowledge spaces to this agent to see retrieved snippets every time a user speaks.
-                          </p>
-                        )}
-                      </Card>
+                          <div className="space-y-3 max-h-48 overflow-y-auto pr-1">
+                            {toolEvents.length === 0 ? (
+                              <p className="text-sm text-white/50">No tools called yet.</p>
+                            ) : toolEvents.map(event => {
+                              const responsePreview = event.response ? JSON.stringify(event.response) : null;
+                              return (
+                                <div
+                                  key={event.id}
+                                  className={cn(
+                                    'rounded-2xl border px-3 py-2',
+                                    event.status === 'failed'
+                                      ? 'border-rose-400/40 bg-rose-500/10'
+                                      : event.status === 'succeeded'
+                                      ? 'border-emerald-400/40 bg-emerald-500/10'
+                                      : 'border-white/10 bg-white/5'
+                                  )}
+                                >
+                                  <div className="flex items-center justify-between text-sm text-white/80">
+                                    <span className="font-semibold">{event.toolName}</span>
+                                    <span className="text-xs text-white/50 uppercase tracking-[0.2em]">{event.status}</span>
+                                  </div>
+                                  {event.error && (
+                                    <p className="text-xs text-rose-200 mt-1">{event.error}</p>
+                                  )}
+                                  {responsePreview && (
+                                    <p className="text-xs text-white/60 mt-1 truncate">
+                                      {responsePreview.slice(0, 80)}
+                                      {responsePreview.length > 80 ? '…' : ''}
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div className="border-t border-white/10 pt-3">
+                            <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.3em] text-white/40">
+                              <span>Connected automations</span>
+                              <span>{toolSummary.total}</span>
+                            </div>
+                            {toolSummary.total === 0 ? (
+                              <p className="text-xs text-white/50 mt-2">
+                                No MCP or n8n tools configured for this preset.
+                              </p>
+                            ) : (
+                              <>
+                                <div className="flex gap-4 text-[11px] text-white/60 mt-3">
+                                  <span>MCP: {toolSummary.mcpCount}</span>
+                                  <span>n8n: {toolSummary.n8nCount}</span>
+                                </div>
+                                <div className="flex flex-wrap gap-2 mt-3">
+                                  {toolSummary.preview.map(tool => (
+                                    <span
+                                      key={tool.name}
+                                      className={cn(
+                                        'px-2 py-1 rounded-full border text-[11px]',
+                                        tool.source === 'n8n'
+                                          ? 'border-amber-400/50 text-amber-200/90 bg-amber-500/10'
+                                          : 'border-white/10 text-white/70 bg-white/5'
+                                      )}
+                                    >
+                                      {tool.name}
+                                    </span>
+                                  ))}
+                                  {toolSummary.total > toolSummary.preview.length && (
+                                    <span className="text-[11px] text-white/60">
+                                      +{toolSummary.total - toolSummary.preview.length} more
+                                    </span>
+                                  )}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </Card>
+
+                        <Card className="p-5 bg-slate-900/60 border-white/5 flex flex-col gap-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center">
+                              <BookOpenCheck className="w-5 h-5 text-slate-950" />
+                            </div>
+                            <div className="flex-1">
+                              <p className="font-semibold text-white">Knowledge grounding</p>
+                              <p className="text-xs text-white/50">Latest retrieval context + citations</p>
+                            </div>
+                            {isRagLoading && <Loader2 className="w-4 h-4 text-white/70 animate-spin" />}
+                          </div>
+                          <div className="flex items-center justify-between text-xs text-white/60">
+                            <span
+                              className={cn(
+                                'px-2 py-0.5 rounded-full border text-[11px] uppercase tracking-[0.2em]',
+                                ragInvoked
+                                  ? 'border-emerald-400/70 text-emerald-200'
+                                  : 'border-white/20 text-white/40'
+                              )}
+                            >
+                              {ragInvoked ? 'RAG invoked' : 'RAG idle'}
+                            </span>
+                            {ragResult && (
+                              <span className="text-[11px] text-white/40">
+                                Updated {formatRelative(ragResult.createdAt)}
+                              </span>
+                            )}
+                          </div>
+                          {ragError && (
+                            <p className="text-xs text-rose-300">{ragError}</p>
+                          )}
+                          {ragResult ? (
+                            <div className="space-y-3">
+                              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                                <p className="text-[11px] uppercase tracking-[0.2em] text-white/40 mb-1">Synthesized answer</p>
+                                <p className="text-sm text-white/80 whitespace-pre-wrap">
+                                  {ragResult.answer || 'No summary returned.'}
+                                </p>
+                                {ragResult.guardrailTriggered && (
+                                  <p className="text-[11px] text-amber-300 mt-2">
+                                    Guardrail enforced — insufficient citations.
+                                  </p>
+                                )}
+                              </div>
+                              <div>
+                                <p className="text-xs uppercase text-white/40 mb-2">Citations</p>
+                                <div className="space-y-2">
+                                  {ragResult.citations.length === 0 && (
+                                    <p className="text-xs text-white/50">
+                                      No citations returned for the last turn.
+                                    </p>
+                                  )}
+                                  {ragResult.citations.map((citation, index) => (
+                                    <div
+                                      key={`${citation.file_id}-${index}`}
+                                      className="rounded-xl border border-white/10 bg-black/20 p-3"
+                                    >
+                                      <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.2em] text-white/40 mb-1">
+                                        <span>Ref {index + 1}</span>
+                                        {citation.title && (
+                                          <span className="text-[10px] text-white/60 normal-case">
+                                            {citation.title}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-sm text-white/80">{citation.snippet}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-white/50">
+                              Connect knowledge spaces to this agent to see retrieved snippets every time a user speaks.
+                            </p>
+                          )}
+                        </Card>
+
+                        <VoiceEmbedPanel
+                          agentConfigId={selectedPresetId}
+                          agentName={activeConfigName}
+                        />
+                      </div>
 
                     </>
                   ) : (

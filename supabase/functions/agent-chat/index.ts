@@ -124,6 +124,7 @@ function summarizeTools(tools: LoadedTool[]) {
 async function buildEmbedResponse(embed: any, includeToolSummary: boolean) {
   const response: Record<string, any> = {
     public_id: embed.public_id,
+    source: embed.embed_type || 'chat',
     agent: {
       name: embed.agent_config?.name || 'AI Agent',
       summary: embed.agent_config?.summary || null
@@ -685,35 +686,49 @@ async function runAgenticAssistant(params: {
 }
 
 async function fetchEmbed(publicId: string) {
+  const baseSelect = `
+    *,
+    agent_config:va_agent_configs(
+      id,
+      user_id,
+      name,
+      summary,
+      instructions,
+      model,
+      chat_model,
+      temperature,
+      max_response_output_tokens
+    )
+  `;
+
   const { data, error } = await adminClient
     .from('va_agent_embeds')
-    .select(`
-      *,
-      agent_config:va_agent_configs(
-        id,
-        user_id,
-        name,
-        summary,
-        instructions,
-        model,
-        chat_model,
-        temperature,
-        max_response_output_tokens
-      )
-    `)
+    .select(baseSelect)
     .eq('public_id', publicId)
     .eq('is_enabled', true)
     .single();
 
-  if (error) {
-    // PGRST116 = "JSON object requested, multiple (or no) rows returned"
-    if (error.code === 'PGRST116') {
-      return null;
-    }
+  if (data) {
+    return { ...data, embed_type: 'chat' as const };
+  }
+  if (error && error.code !== 'PGRST116') {
     throw error;
   }
 
-  return data;
+  const { data: voiceData, error: voiceError } = await adminClient
+    .from('va_voice_embeds')
+    .select(baseSelect)
+    .eq('public_id', publicId)
+    .eq('is_enabled', true)
+    .single();
+
+  if (voiceData) {
+    return { ...voiceData, embed_type: 'voice' as const };
+  }
+  if (voiceError && voiceError.code !== 'PGRST116') {
+    throw voiceError;
+  }
+  return null;
 }
 
 async function ensureSession(params: {
@@ -723,6 +738,7 @@ async function ensureSession(params: {
   publicId: string;
   sessionId?: string;
   clientSessionId?: string;
+  embedType?: 'chat' | 'voice';
 }) {
   if (params.sessionId) {
     const { data } = await adminClient
@@ -738,7 +754,7 @@ async function ensureSession(params: {
   }
 
   const metadata = {
-    source: 'embed',
+    source: params.embedType === 'voice' ? 'voice-embed' : 'embed',
     embed_id: params.embedId,
     embed_public_id: params.publicId,
     client_session_id: params.clientSessionId || null
@@ -931,7 +947,8 @@ Deno.serve(async (req: Request) => {
       embedId: embed.id,
       publicId: embed.public_id,
       sessionId: body.session_id,
-      clientSessionId: body.client_session_id
+      clientSessionId: body.client_session_id,
+      embedType: embed.embed_type
     });
 
     const systemPrompt = buildSystemPrompt(agentConfig.instructions);

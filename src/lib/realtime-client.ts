@@ -20,6 +20,12 @@ export type RealtimeEvent =
   | { type: 'conversation.item.created'; item: any }
   | { type: 'session.updated' };
 
+type RealtimeClientOptions = {
+  apiKey?: string;
+  tools?: ReturnType<typeof getToolSchemas>;
+  allowInterruptions?: boolean;
+};
+
 export class RealtimeAPIClient {
   private ws: WebSocket | null = null;
   private config: RealtimeConfig;
@@ -34,9 +40,17 @@ export class RealtimeAPIClient {
   private hasReceivedAudio = false;
   private sessionUpdateSent = false;
   private pendingClear = true;
+  private overrideApiKey?: string;
+  private overrideTools?: ReturnType<typeof getToolSchemas>;
+  private activeResponseCount = 0;
+  private cancelPending = false;
+  private allowInterruptions: boolean;
 
-  constructor(config: RealtimeConfig) {
+  constructor(config: RealtimeConfig, options?: RealtimeClientOptions) {
     this.config = config;
+    this.overrideApiKey = options?.apiKey;
+    this.overrideTools = options?.tools;
+    this.allowInterruptions = options?.allowInterruptions ?? true;
   }
 
   updateSessionConfig(newConfig: RealtimeConfig): void {
@@ -53,7 +67,9 @@ export class RealtimeAPIClient {
     this.hasReceivedAudio = false;
     this.hasBufferedAudio = false;
     this.bufferedSamples = 0;
-    const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+    this.activeResponseCount = 0;
+    this.cancelPending = false;
+    const apiKey = this.overrideApiKey || import.meta.env.VITE_OPENAI_API_KEY;
     if (!apiKey) {
       throw new Error('Missing OpenAI API key');
     }
@@ -130,6 +146,8 @@ export class RealtimeAPIClient {
     this.intentionalClose = false;
     this.sessionUpdateSent = false;
     this.pendingClear = true;
+    this.activeResponseCount = 0;
+    this.cancelPending = false;
     return this.connect();
   }
 
@@ -138,7 +156,7 @@ export class RealtimeAPIClient {
       console.log('Session update already sent, skipping duplicate');
       return;
     }
-    const tools = getToolSchemas();
+    const tools = this.overrideTools ?? getToolSchemas();
     const ragInstructions = this.config.rag_mode === 'guardrail'
       ? `${this.config.instructions}\n\nIf relevant knowledge from the approved knowledge base is unavailable, respond with "I do not have enough knowledge to answer that yet."`
       : this.config.instructions;
@@ -194,7 +212,7 @@ export class RealtimeAPIClient {
         this.hasBufferedAudio = false;
         this.hasReceivedAudio = false;
         this.pendingClear = true;
-        if (this.agentState === 'speaking') {
+        if (this.agentState === 'speaking' && this.allowInterruptions) {
           this.cancelResponse();
           this.emit({ type: 'interruption' });
         }
@@ -239,6 +257,7 @@ export class RealtimeAPIClient {
         break;
 
       case 'response.created':
+        this.markResponseCreated();
         this.setAgentState('thinking');
         this.emit({ type: 'response.created', id: message.response?.id });
         break;
@@ -268,6 +287,44 @@ export class RealtimeAPIClient {
           role: 'assistant',
           itemId: message.item_id
         });
+        break;
+
+      // Newer Realtime event names (output_*). Mirror the legacy audio.* behavior.
+      case 'response.output_audio.delta':
+        this.setAgentState('speaking');
+        this.emit({ type: 'audio.delta', delta: message.delta });
+        break;
+
+      case 'response.output_audio.done':
+        this.emit({ type: 'audio.done' });
+        break;
+
+      case 'response.output_audio_transcript.delta':
+        this.emit({
+          type: 'transcript.delta',
+          delta: message.delta,
+          role: 'assistant',
+          itemId: message.item_id
+        });
+        break;
+
+      case 'response.output_audio_transcript.done':
+        this.emit({
+          type: 'transcript.done',
+          transcript: message.transcript,
+          role: 'assistant',
+          itemId: message.item_id
+        });
+        break;
+
+      case 'response.text.delta':
+      case 'response.output_text.delta':
+        console.log('📝 Text delta:', message.delta ?? message.text_delta);
+        break;
+
+      case 'response.text.done':
+      case 'response.output_text.done':
+        console.log('📝 Text done:', message.text ?? message.output_text);
         break;
 
       case 'response.output_item.added':
@@ -308,6 +365,7 @@ export class RealtimeAPIClient {
       case 'response.interrupted':
       case 'response.canceled':
       case 'response.cancelled': // handle both spellings just in case
+        this.markResponseFinished();
         this.setAgentState('interrupted');
         this.emit({ type: 'interruption' });
         this.hasBufferedAudio = false;
@@ -315,6 +373,7 @@ export class RealtimeAPIClient {
         break;
 
       case 'response.done':
+        this.markResponseFinished();
         this.setAgentState('idle');
         this.emit({ type: 'response.done', response: message.response ?? message });
         break;
@@ -418,10 +477,19 @@ export class RealtimeAPIClient {
   }
 
   cancelResponse(options?: { suppressState?: boolean }): void {
+    if (!this.hasActiveResponse()) {
+      console.warn('Cancel requested but no active response');
+      return;
+    }
+    if (this.cancelPending) {
+      console.warn('Cancel already in progress, ignoring duplicate');
+      return;
+    }
     this.hasBufferedAudio = false;
     this.bufferedSamples = 0;
     this.hasReceivedAudio = false;
     this.pendingClear = true;
+    this.cancelPending = true;
     this.send({
       type: 'response.cancel'
     });
@@ -471,6 +539,19 @@ export class RealtimeAPIClient {
     this.emit({ type: 'agent_state', state, reason });
   }
 
+  private markResponseCreated(): void {
+    this.activeResponseCount = Math.max(0, this.activeResponseCount) + 1;
+  }
+
+  private markResponseFinished(): void {
+    this.activeResponseCount = Math.max(0, this.activeResponseCount - 1);
+    this.cancelPending = false;
+  }
+
+  private hasActiveResponse(): boolean {
+    return this.activeResponseCount > 0;
+  }
+
   private attemptReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.error('Max reconnection attempts reached');
@@ -505,6 +586,8 @@ export class RealtimeAPIClient {
     this.hasReceivedAudio = false;
     this.hasBufferedAudio = false;
     this.bufferedSamples = 0;
+    this.activeResponseCount = 0;
+    this.cancelPending = false;
     if (this.ws) {
       try {
         if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {

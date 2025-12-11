@@ -366,25 +366,18 @@ export class AudioManager {
       isInitializing: this.isInitializing,
       isClosing: this.isClosing
     });
+
     if (this.isInitializing && !force) {
       console.warn('⚠️ Prevented cleanup during initialization');
       return;
     }
 
+    // Stop any active capture and playback first
     this.stopCapture();
+    this.stopPlayback();
 
-    if (force) {
-      this.performCleanup();
-      return;
-    }
-
-    if (this.audioContext) {
-      try {
-        this.audioContext.suspend();
-      } catch (e) {
-        console.warn('Audio suspend error', e);
-      }
-    }
+    // Fully clean up all audio resources so we can safely re-init later
+    this.performCleanup();
   }
 }
 

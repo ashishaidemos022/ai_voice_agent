@@ -14,11 +14,13 @@ function resolvePublicId(): string | null {
   return decodeURIComponent(parts[embedIndex + 2]);
 }
 
-export function EmbedAgentApp() {
-  const publicId = useMemo(() => resolvePublicId(), []);
-  const search = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
-  const theme = search.get('theme') === 'light' ? 'light' : 'dark';
-  const isWidget = search.get('widget') === '1';
+type ChatEmbedViewProps = {
+  publicId: string;
+  theme: 'light' | 'dark';
+  isWidget: boolean;
+};
+
+export function ChatEmbedView({ publicId, theme, isWidget }: ChatEmbedViewProps) {
   const [composer, setComposer] = useState('');
 
   const {
@@ -29,15 +31,7 @@ export function EmbedAgentApp() {
     error,
     sendMessage,
     resetChat
-  } = useEmbedChat(publicId || '', { persist: isWidget });
-
-  if (!publicId) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white">
-        <p>Missing public embed id.</p>
-      </div>
-    );
-  }
+  } = useEmbedChat(publicId, { persist: isWidget });
 
   const allowSend = composer.trim().length > 0 && !isSending;
 
@@ -160,4 +154,21 @@ export function EmbedAgentApp() {
       </div>
     </div>
   );
+}
+
+export function ChatEmbedApp() {
+  const publicId = useMemo(() => resolvePublicId(), []);
+  const search = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
+  const theme = search.get('theme') === 'light' ? 'light' : 'dark';
+  const isWidget = search.get('widget') === '1';
+
+  if (!publicId) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white">
+        <p>Missing public embed id.</p>
+      </div>
+    );
+  }
+
+  return <ChatEmbedView publicId={publicId} theme={theme} isWidget={isWidget} />;
 }
