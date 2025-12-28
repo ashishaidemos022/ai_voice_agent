@@ -5,7 +5,7 @@ export interface MCPConnection {
   id: string;
   name: string;
   server_url: string;
-  api_key: string;
+  api_key?: string | null;
   user_id: string;
   is_enabled: boolean;
   status: 'active' | 'error' | 'disconnected' | 'pending' | 'connected' | 'syncing';

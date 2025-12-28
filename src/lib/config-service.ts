@@ -347,11 +347,20 @@ export async function getConfigTools(configId: string): Promise<SelectedTool[]> 
   return data || [];
 }
 
-export async function updateConfigTools(configId: string, tools: SelectedTool[]): Promise<void> {
-  await supabase
+export async function updateConfigTools(
+  configId: string,
+  tools: SelectedTool[],
+  userId?: string
+): Promise<void> {
+  const { error: deleteError } = await supabase
     .from('va_agent_config_tools')
     .delete()
     .eq('config_id', configId);
+
+  if (deleteError) {
+    console.error('Failed to clear existing config tools:', deleteError);
+    throw deleteError;
+  }
 
   if (tools.length > 0) {
     const toolsToInsert = tools.map(tool => ({
@@ -361,7 +370,8 @@ export async function updateConfigTools(configId: string, tools: SelectedTool[])
       tool_id: tool.tool_id || null,
       connection_id: tool.connection_id || null,
       n8n_integration_id: tool.n8n_integration_id || null,
-      metadata: tool.metadata ?? {}
+      metadata: tool.metadata ?? {},
+      user_id: userId || null
     }));
 
     const { error } = await supabase
@@ -372,6 +382,40 @@ export async function updateConfigTools(configId: string, tools: SelectedTool[])
       console.error('Failed to update config tools:', error);
       throw error;
     }
+    console.log('[config-service] Saved tool selection', {
+      configId,
+      toolCount: toolsToInsert.length,
+      userId: userId || 'null'
+    });
+  } else {
+    console.log('[config-service] Cleared tool selection (no tools provided)', { configId });
+    const { error: sentinelError } = await supabase
+      .from('va_agent_config_tools')
+      .insert({
+        config_id: configId,
+        tool_name: '__none__',
+        tool_source: 'client',
+        tool_id: null,
+        connection_id: null,
+        n8n_integration_id: null,
+        metadata: { selectionCleared: true },
+        user_id: userId || null
+      });
+    if (sentinelError) {
+      console.error('Failed to write selection sentinel:', sentinelError);
+      throw sentinelError;
+    }
+  }
+
+  // Emit current DB state for debugging
+  const { data: afterRows, error: afterError } = await supabase
+    .from('va_agent_config_tools')
+    .select('tool_name, tool_source, n8n_integration_id, connection_id, user_id')
+    .eq('config_id', configId);
+  if (afterError) {
+    console.error('[config-service] Failed to read back selection after save', afterError);
+  } else {
+    console.log('[config-service] Post-save rows', afterRows);
   }
 }
 

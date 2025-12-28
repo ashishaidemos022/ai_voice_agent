@@ -16,10 +16,15 @@ export type VoiceEmbedMessage = {
   role: 'user' | 'assistant';
   content: string;
   createdAt: string;
+  thinking?: boolean;
 };
 
 export type UseVoiceEmbedResult = {
-  agentMeta: { name: string; summary?: string | null; voice?: string | null } | null;
+  agentMeta: {
+    name: string;
+    summary?: string | null;
+    voice?: string | null;
+  } | null;
   isLoadingMeta: boolean;
   isInitializing: boolean;
   isConnected: boolean;
@@ -53,10 +58,16 @@ const REQUEST_HEADERS = {
   apikey: SUPABASE_ANON_KEY,
   Authorization: `Bearer ${SUPABASE_ANON_KEY}`
 };
+const SUPPORTED_REALTIME_VOICES = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse', 'marin', 'cedar'];
+const sanitizeVoice = (voice?: string | null) => {
+  if (!voice) return 'alloy';
+  const normalized = voice.toLowerCase();
+  return SUPPORTED_REALTIME_VOICES.includes(normalized) ? normalized : 'alloy';
+};
 const EMBED_LOG_PREFIX = '[voice-embed]';
 
 export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
-  const [agentMeta, setAgentMeta] = useState<{ name: string; summary?: string | null; voice?: string | null } | null>(null);
+  const [agentMeta, setAgentMeta] = useState<UseVoiceEmbedResult['agentMeta']>(null);
   const [isLoadingMeta, setIsLoadingMeta] = useState(true);
   const [isInitializing, setIsInitializing] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -88,6 +99,8 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
   const sessionIdRef = useRef<string | null>(null);
   const agentConfigIdRef = useRef<string | null>(null);
   const loadedToolsConfigRef = useRef<string | null>(null);
+  const lastUserTextRef = useRef<string>('');
+  const agentMetaRef = useRef<UseVoiceEmbedResult['agentMeta']>(null);
 
   const updateSessionId = useCallback((value: string | null) => {
     sessionIdRef.current = value;
@@ -239,12 +252,13 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
       buffers[itemId] = (buffers[itemId] || '') + (event.delta || '');
       if (isUser) {
         setLiveUserTranscript(buffers[itemId]);
+        lastUserTextRef.current = buffers[itemId];
       } else {
         setLiveAssistantTranscript(buffers[itemId]);
       }
     });
 
-    client.on('transcript.done', (event: any) => {
+    client.on('transcript.done', async (event: any) => {
       const isUser = event.role === 'user';
       const buffers = isUser ? transcriptsRef.current.user : transcriptsRef.current.assistant;
       const activeId = isUser ? transcriptsRef.current.activeUserId : transcriptsRef.current.activeAssistantId;
@@ -264,14 +278,16 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
         return;
       }
 
-      const nextMessage: VoiceEmbedMessage = {
-        id: crypto.randomUUID(),
-        role: isUser ? 'user' : 'assistant',
-        content: transcriptText,
-        createdAt: new Date().toISOString()
-      };
-
-      setMessages((prev) => [...prev, nextMessage].slice(-30));
+      if (isUser) {
+        const nextMessage: VoiceEmbedMessage = {
+          id: crypto.randomUUID(),
+          role: 'user',
+          content: transcriptText,
+          createdAt: new Date().toISOString()
+        };
+        setMessages((prev) => [...prev, nextMessage].slice(-30));
+        lastUserTextRef.current = transcriptText;
+      }
 
       delete buffers[itemId];
       if (isUser) {
@@ -279,9 +295,18 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
           transcriptsRef.current.activeUserId = null;
           setLiveUserTranscript('');
         }
-      } else if (transcriptsRef.current.activeAssistantId === itemId) {
-        transcriptsRef.current.activeAssistantId = null;
-        setLiveAssistantTranscript('');
+      } else {
+        const nextMessage: VoiceEmbedMessage = {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: transcriptText,
+          createdAt: new Date().toISOString()
+        };
+        setMessages((prev) => [...prev, nextMessage].slice(-30));
+        if (transcriptsRef.current.activeAssistantId === itemId) {
+          transcriptsRef.current.activeAssistantId = null;
+          setLiveAssistantTranscript('');
+        }
       }
     });
 
@@ -344,7 +369,8 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
           sessionId: currentSessionId
         });
         const result = await executeTool(toolName, parsedArgs, {
-          sessionId: currentSessionId
+          sessionId: currentSessionId,
+          source: 'voice-embed'
         });
         client.sendFunctionCallOutput(callId || crypto.randomUUID(), result);
       } catch (toolError: any) {
@@ -397,12 +423,17 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
       setAgentMeta((prev) => ({
         name: json?.agent?.name || prev?.name || 'Voice Agent',
         summary: json?.agent?.summary || prev?.summary || null,
-        voice: json?.agent?.voice || prev?.voice || null
+        voice: sanitizeVoice(json?.agent?.voice || prev?.voice || null)
       }));
+      agentMetaRef.current = {
+        name: json?.agent?.name || 'Voice Agent',
+        summary: json?.agent?.summary || null,
+        voice: sanitizeVoice(json?.agent?.voice || null)
+      };
 
       const realtimeConfig: RealtimeConfig = {
         model: json?.agent?.model || 'gpt-4o-realtime-preview',
-        voice: json?.agent?.voice || 'alloy',
+        voice: sanitizeVoice(json?.agent?.voice),
         instructions: json?.agent?.instructions || 'You are a helpful AI voice assistant.',
         temperature: 0.8,
         max_response_output_tokens: 1024,
@@ -478,7 +509,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
       setAgentMeta((prev) => ({
         name: json?.agent?.name || prev?.name || 'Voice Agent',
         summary: json?.agent?.summary || prev?.summary || null,
-        voice: json?.agent?.voice || prev?.voice || null
+        voice: sanitizeVoice(json?.agent?.voice || prev?.voice || null)
       }));
       updateAgentConfigId(json?.agent?.id || null);
       setRtcEnabled(Boolean(json?.settings?.rtc_enabled ?? true));

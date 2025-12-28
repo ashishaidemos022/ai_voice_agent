@@ -183,8 +183,8 @@ export function getToolByName(name: string): Tool | undefined {
   return mcpTools.find(tool => normalizeIdentifier(tool.name) === normalizedName);
 }
 
-export function getToolSchemas() {
-  const filteredTools = mcpTools.filter(tool => {
+function filterToolsBySelection(tools: Tool[]): { tools: Tool[]; fellBack: boolean } {
+  const filtered = tools.filter(tool => {
     if (tool.executionType === 'mcp') {
       if (selectedMcpToolNames === null) return true;
       return selectedMcpToolNames.includes(tool.name);
@@ -198,17 +198,21 @@ export function getToolSchemas() {
 
   const hasMcpSelection = Array.isArray(selectedMcpToolNames) && (selectedMcpToolNames?.length ?? 0) > 0;
   const hasWebhookSelection = Array.isArray(selectedWebhookToolNames) && (selectedWebhookToolNames?.length ?? 0) > 0;
-  const hasMcpMatch = filteredTools.some(tool => tool.executionType === 'mcp');
-  const hasWebhookMatch = filteredTools.some(tool => tool.executionType === 'webhook');
+  const hasMcpMatch = filtered.some(tool => tool.executionType === 'mcp');
+  const hasWebhookMatch = filtered.some(tool => tool.executionType === 'webhook');
 
-  if ((hasMcpSelection && !hasMcpMatch) || (hasWebhookSelection && !hasWebhookMatch)) {
+  const fellBack = (hasMcpSelection && !hasMcpMatch) || (hasWebhookSelection && !hasWebhookMatch);
+  return {
+    tools: fellBack ? tools : filtered,
+    fellBack
+  };
+}
+
+export function getToolSchemas() {
+  const { tools: filteredTools, fellBack } = filterToolsBySelection(mcpTools);
+
+  if (fellBack) {
     console.warn('No matching tools for stored selection; defaulting to all available tools');
-    return mcpTools.map(tool => ({
-      type: 'function',
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters
-    }));
   }
 
   return filteredTools.map(tool => ({
@@ -219,12 +223,12 @@ export function getToolSchemas() {
   }));
 }
 
-export async function loadMCPTools(configId?: string): Promise<void> {
+export async function loadMCPTools(configId?: string, userId?: string): Promise<void> {
   try {
     let selectionState: ToolSelectionState | null = null;
 
     if (configId) {
-      selectionState = await loadToolSelectionForConfig(configId);
+      selectionState = await loadToolSelectionForConfig(configId, userId);
     } else {
       selectedMcpToolNames = null;
       selectedWebhookToolNames = null;
@@ -368,11 +372,16 @@ export function registerToolsFromServer(serialized: SerializedToolDefinition[] |
     .map((tool) => tool.name);
 }
 
-export async function loadToolSelectionForConfig(configId: string): Promise<ToolSelectionState | null> {
+const SELECTION_SENTINEL = '__none__';
+
+export async function loadToolSelectionForConfig(
+  configId: string,
+  userId?: string
+): Promise<ToolSelectionState | null> {
   try {
     const { data: selectedTools, error } = await supabase
       .from('va_agent_config_tools')
-      .select('tool_name, tool_source, n8n_integration_id, metadata')
+      .select('tool_name, tool_source, n8n_integration_id, metadata, user_id')
       .eq('config_id', configId);
 
     if (error) {
@@ -382,26 +391,44 @@ export async function loadToolSelectionForConfig(configId: string): Promise<Tool
       return null;
     }
 
-    if (!selectedTools || selectedTools.length === 0) {
-      selectedMcpToolNames = null;
-      selectedWebhookToolNames = null;
-      console.log('🔧 No tool selection found, using all available tools');
+    const ownedTools =
+      userId && selectedTools.some(tool => tool.user_id === userId)
+        ? selectedTools.filter(tool => tool.user_id === userId)
+        : selectedTools;
+
+    console.log('[tools] Loaded tool selections', {
+      configId,
+      requestedUserId: userId,
+      rowCount: selectedTools.length,
+      ownedCount: ownedTools.length
+    });
+
+    const nonSentinel = ownedTools.filter(tool => tool.tool_name !== SELECTION_SENTINEL);
+    const hasSentinel = ownedTools.some(tool => tool.tool_name === SELECTION_SENTINEL);
+
+    if (nonSentinel.length === 0) {
+      selectedMcpToolNames = [];
+      selectedWebhookToolNames = [];
+      console.log('🔧 Tool selection explicitly cleared; no tools enabled', {
+        configId,
+        sentinel: hasSentinel
+      });
       return {
-        mcpToolNames: null,
-        n8nToolNames: null,
+        mcpToolNames: [],
+        n8nToolNames: [],
         n8nSelections: []
       };
     }
 
-    const mcpRows = selectedTools.filter(tool => tool.tool_source === 'mcp');
-    const n8nRows = selectedTools.filter(tool => tool.tool_source === 'n8n');
+    const mcpRows = nonSentinel.filter(tool => tool.tool_source === 'mcp');
+    const n8nRows = nonSentinel.filter(tool => tool.tool_source === 'n8n');
 
-    selectedMcpToolNames = mcpRows.length ? mcpRows.map(tool => tool.tool_name) : null;
-    selectedWebhookToolNames = n8nRows.length ? n8nRows.map(tool => tool.tool_name) : null;
+    selectedMcpToolNames = mcpRows.map(tool => tool.tool_name);
+    selectedWebhookToolNames = n8nRows.map(tool => tool.tool_name);
 
     console.log('🔧 Loaded tool selections', {
-      mcp: selectedMcpToolNames?.length || 0,
-      n8n: selectedWebhookToolNames?.length || 0
+      mcp: selectedMcpToolNames.length,
+      n8n: selectedWebhookToolNames.length
     });
 
     return {
@@ -506,7 +533,7 @@ export async function executeTool(
 }
 
 export function getAllTools(): Tool[] {
-  return mcpTools;
+  return filterToolsBySelection(mcpTools).tools;
 }
 
 function applyWebhookSelection(selection: ToolSelectionState | null, webhookTools: Tool[]) {

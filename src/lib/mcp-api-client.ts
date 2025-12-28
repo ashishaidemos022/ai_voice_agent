@@ -6,7 +6,7 @@ const MCP_REFERRER = import.meta.env.VITE_MCP_REFERRER || 'https://ai-voice-agen
 export interface MCPConnectionCreateRequest {
   name: string;
   server_url: string;
-  api_key: string;
+  api_key?: string | null;
   user_id: string;
 }
 

@@ -148,8 +148,8 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
     setTestStatus({ type: 'testing', message: 'Validating connection details...' });
     setFormError(null);
 
-    if (!formData.name.trim() || !formData.server_url.trim() || !formData.api_key.trim()) {
-      setTestStatus({ type: 'error', message: 'All fields are required to test' });
+    if (!formData.name.trim() || !formData.server_url.trim()) {
+      setTestStatus({ type: 'error', message: 'Connection name and server URL are required to test' });
       return;
     }
 
@@ -175,7 +175,7 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
       const createResult = await mcpApiClient.createConnection({
         name: `${formData.name} (Test)`,
         server_url: formData.server_url,
-        api_key: formData.api_key,
+        api_key: formData.api_key.trim() ? formData.api_key : null,
         user_id: vaUser.id
       });
 
@@ -225,8 +225,8 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
     setFormError(null);
     setTestStatus(null);
 
-    if (!formData.name.trim() || !formData.server_url.trim() || !formData.api_key.trim()) {
-      setFormError('All fields are required');
+    if (!formData.name.trim() || !formData.server_url.trim()) {
+      setFormError('Connection name and server URL are required');
       return;
     }
 
@@ -247,7 +247,7 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
       const createResult = await mcpApiClient.createConnection({
         name: formData.name,
         server_url: formData.server_url,
-        api_key: formData.api_key,
+        api_key: formData.api_key.trim() ? formData.api_key : null,
         user_id: vaUser.id
       });
 
@@ -467,14 +467,14 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  API Key <span className="text-red-500">*</span>
+                  API Key <span className="text-gray-400">(optional)</span>
                 </label>
                 <input
                   type="password"
                   value={formData.api_key}
                   onChange={(e) => setFormData({ ...formData, api_key: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary text-sm"
-                  placeholder="Enter API key"
+                  placeholder="Enter API key if required"
                 />
               </div>
 

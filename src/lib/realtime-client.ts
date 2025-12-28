@@ -157,9 +157,10 @@ export class RealtimeAPIClient {
       return;
     }
     const tools = this.overrideTools ?? getToolSchemas();
+    const languageGuard = 'Always respond in English unless the user explicitly requests a different language.';
     const ragInstructions = this.config.rag_mode === 'guardrail'
-      ? `${this.config.instructions}\n\nIf relevant knowledge from the approved knowledge base is unavailable, respond with "I do not have enough knowledge to answer that yet."`
-      : this.config.instructions;
+      ? `${this.config.instructions}\n\nIf relevant knowledge from the approved knowledge base is unavailable, respond with "I do not have enough knowledge to answer that yet."\n\n${languageGuard}`
+      : `${this.config.instructions}\n\n${languageGuard}`;
     const sessionConfig = {
       type: 'session.update',
       session: {

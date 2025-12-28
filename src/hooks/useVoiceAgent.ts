@@ -7,6 +7,7 @@ import { Message, RealtimeConfig, VoiceToolEvent } from '../types/voice-agent';
 import { runRagAugmentation } from '../lib/rag-service';
 import type { RagAugmentationResult, RagMode } from '../types/rag';
 import { configPresetToRealtimeConfig, getConfigPresetById } from '../lib/config-service';
+import { useAuth } from '../context/AuthContext';
 
 type LiveTranscripts = {
   user: Record<string, string>;
@@ -16,6 +17,7 @@ type LiveTranscripts = {
 };
 
 export function useVoiceAgent() {
+  const { vaUser } = useAuth();
   const [isConnected, setIsConnected] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -584,7 +586,7 @@ export function useVoiceAgent() {
         setRagInvoked(false);
         setIsRagLoading(false);
 
-        await loadMCPTools(configId);
+        await loadMCPTools(configId, vaUser?.id);
 
         const sid = await createSession(hydratedConfig, configId);
         if (!sid) throw new Error('Failed to create session');
@@ -631,7 +633,7 @@ export function useVoiceAgent() {
         throw err;
       }
     },
-    [attachRealtimeHandlers, config, createSession, hydrateConfigWithKnowledge, mergeRealtimeConfig, resetTranscripts, syncRagMetadata]
+    [attachRealtimeHandlers, config, createSession, hydrateConfigWithKnowledge, mergeRealtimeConfig, resetTranscripts, syncRagMetadata, vaUser?.id]
   );
 
   const cleanup = useCallback(async () => {

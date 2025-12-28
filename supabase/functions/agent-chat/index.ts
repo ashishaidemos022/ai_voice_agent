@@ -126,8 +126,16 @@ async function buildEmbedResponse(embed: any, includeToolSummary: boolean) {
     public_id: embed.public_id,
     source: embed.embed_type || 'chat',
     agent: {
+      id: embed.agent_config?.id || null,
       name: embed.agent_config?.name || 'AI Agent',
-      summary: embed.agent_config?.summary || null
+      summary: embed.agent_config?.summary || null,
+      rag_enabled: embed.agent_config?.rag_enabled ?? false,
+      rag_mode: embed.agent_config?.rag_mode || 'assist',
+      rag_default_model: embed.agent_config?.rag_default_model || null,
+      knowledge_spaces: (embed.agent_config?.knowledge_spaces || []).map((binding: any) => ({
+        space_id: binding.space_id,
+        vector_store_id: binding.rag_space?.vector_store_id || null
+      }))
     }
   };
 
@@ -697,7 +705,19 @@ async function fetchEmbed(publicId: string) {
       model,
       chat_model,
       temperature,
-      max_response_output_tokens
+      max_response_output_tokens,
+      rag_enabled,
+      rag_mode,
+      rag_default_model,
+      knowledge_spaces:va_rag_agent_spaces (
+        space_id,
+        rag_space:va_rag_spaces (
+          id,
+          name,
+          description,
+          vector_store_id
+        )
+      )
     )
   `;
 

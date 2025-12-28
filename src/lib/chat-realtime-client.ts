@@ -153,9 +153,10 @@ export class ChatRealtimeClient {
   private sendSessionUpdate() {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const tools = getToolSchemas();
+    const languageGuard = 'Always reply in English unless the user explicitly asks for another language.';
     const ragInstructions = this.config.ragMode === 'guardrail'
-      ? `${this.config.instructions}\n\nIf you cannot find supporting knowledge, respond with "I do not have enough approved information to answer."`
-      : this.config.instructions;
+      ? `${this.config.instructions}\n\nIf you cannot find supporting knowledge, respond with "I do not have enough approved information to answer."\n\n${languageGuard}`
+      : `${this.config.instructions}\n\n${languageGuard}`;
     const payload = {
       type: 'session.update',
       session: {

@@ -54,8 +54,8 @@
 
   var iframeContainer = document.createElement('div');
   iframeContainer.style.position = 'fixed';
-  iframeContainer.style.width = '360px';
-  iframeContainer.style.height = '560px';
+  iframeContainer.style.width = '500px';
+  iframeContainer.style.height = '760px';
   iframeContainer.style.borderRadius = '24px';
   iframeContainer.style.boxShadow = '0 25px 40px rgba(15,23,42,0.35)';
   iframeContainer.style.overflow = 'hidden';

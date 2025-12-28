@@ -7,6 +7,7 @@ import { Card, CardContent } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { useAgentState } from '../../state/agentState';
 import { buildN8NToolName } from '../../lib/tool-utils';
+import { useAuth } from '../../context/AuthContext';
 
 interface ToolSelectionPanelProps {
   configId: string | null;
@@ -27,6 +28,7 @@ interface N8NIntegrationInfo {
   name: string;
   description?: string | null;
   toolName: string;
+  enabled?: boolean;
 }
 
 type PayloadParamType = 'string' | 'number' | 'integer' | 'boolean';
@@ -41,6 +43,7 @@ interface PayloadParameterRow {
 }
 
 export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPanelProps) {
+  const { vaUser } = useAuth();
   const persistedSelection = useAgentState((state) =>
     configId ? state.toolSelections[configId] : undefined
   );
@@ -104,22 +107,25 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
   };
 
   const fetchN8nIntegrations = async (cfgId: string): Promise<N8NIntegrationInfo[]> => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('va_n8n_integrations')
-      .select('id, name, description, enabled')
-      .eq('config_id', cfgId)
-      .eq('enabled', true);
+      .select('id, name, description, enabled, webhook_url')
+      .eq('config_id', cfgId);
 
-    if (!data || data.length === 0) {
+    if (error) {
+      console.error('Failed to load n8n integrations:', error);
       return [];
     }
 
-    return data.map(integration => ({
+    const integrations = (data || []).map(integration => ({
       id: integration.id,
       name: integration.name,
       description: integration.description,
+      enabled: integration.enabled,
       toolName: buildN8NToolName(integration.name, integration.id)
     }));
+
+    return integrations;
   };
 
   useEffect(() => {
@@ -130,47 +136,63 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
   useEffect(() => {
     let isMounted = true;
 
-    const loadData = async () => {
-      if (!configId) {
-        setSelectedMcpTools(new Set());
-        setSelectedN8nTools(new Set());
-        setN8nParameters({});
+  const loadData = async () => {
+    if (!configId) {
+      setSelectedMcpTools(new Set());
+      setSelectedN8nTools(new Set());
+      setN8nParameters({});
         setMcpTools([]);
         setN8nIntegrations([]);
         setHasChanges(false);
-        return;
-      }
+      return;
+    }
 
-      setIsLoading(true);
-      try {
-        const [availableMcpTools, availableN8n, toolsFromConfig] = await Promise.all([
-          fetchMcpTools(),
-          fetchN8nIntegrations(configId),
-          getConfigTools(configId)
-        ]);
+    setIsLoading(true);
+    try {
+      const [availableMcpTools, availableN8n, toolsFromConfig] = await Promise.all([
+        fetchMcpTools(),
+        fetchN8nIntegrations(configId),
+        getConfigTools(configId)
+      ]);
 
-        if (!isMounted) return;
+    if (!isMounted) return;
 
-        setMcpTools(availableMcpTools);
-        setN8nIntegrations(availableN8n);
+    setMcpTools(availableMcpTools);
+    setN8nIntegrations(availableN8n);
+        console.log('[ToolSelectionPanel] Loaded tool context', {
+          configId,
+          availableMcp: availableMcpTools.length,
+          availableN8n: availableN8n.length,
+          fromConfig: toolsFromConfig.length
+        });
 
         const storeState = useAgentState.getState();
         const storedSelection = storeState.toolSelections[configId];
         const storedMcp = storedSelection?.mcp ?? [];
         const storedN8n = storedSelection?.n8n ?? [];
 
-        const savedMcp = toolsFromConfig.filter(t => t.tool_source === 'mcp').map(t => t.tool_name);
-        const savedN8n = toolsFromConfig.filter(t => t.tool_source === 'n8n').map(t => t.tool_name);
+        const selectionCleared = toolsFromConfig.some(
+          tool => tool.tool_name === '__none__' || (tool.metadata as any)?.selectionCleared
+        );
+        const filteredTools = toolsFromConfig.filter(
+          tool => tool.tool_source === 'mcp' || tool.tool_source === 'n8n'
+        );
 
-        const defaultMcp = savedMcp.length === 0
-          ? availableMcpTools.map(t => t.tool_name)
-          : savedMcp;
-        const defaultN8n = savedN8n.length === 0
-          ? availableN8n.map(t => t.toolName)
-          : savedN8n;
+        const savedMcp = filteredTools.filter(t => t.tool_source === 'mcp').map(t => t.tool_name);
+        const savedN8n = filteredTools.filter(t => t.tool_source === 'n8n').map(t => t.tool_name);
 
-        const nextMcpSelection = storedMcp.length ? storedMcp : defaultMcp;
-        const nextN8nSelection = storedN8n.length ? storedN8n : defaultN8n;
+        const hasDbSelection = filteredTools.length > 0 || selectionCleared;
+
+        const nextMcpSelection = selectionCleared
+          ? []
+          : hasDbSelection
+            ? savedMcp
+            : availableMcpTools.map(t => t.tool_name);
+        const nextN8nSelection = selectionCleared
+          ? []
+          : hasDbSelection
+            ? savedN8n
+            : availableN8n.map(t => t.toolName);
 
         setSelectedMcpTools(new Set(nextMcpSelection));
         setSelectedN8nTools(new Set(nextN8nSelection));
@@ -193,7 +215,10 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
           });
         setN8nParameters(params);
 
-        if (!storedSelection) {
+        // Sync the persisted UI state to the DB-backed selection only when it differs to avoid loops.
+        const mcpChanged = nextMcpSelection.length !== storedMcp.length || nextMcpSelection.some(name => !storedMcp.includes(name));
+        const n8nChanged = nextN8nSelection.length !== storedN8n.length || nextN8nSelection.some(name => !storedN8n.includes(name));
+        if (mcpChanged || n8nChanged) {
           setToolsForConfig(configId, {
             mcp: nextMcpSelection,
             n8n: nextN8nSelection
@@ -308,6 +333,10 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
 
   const handleSave = async () => {
     if (!configId) return;
+    if (!vaUser?.id) {
+      console.error('Cannot save tool selection without an authenticated user');
+      return;
+    }
 
     setIsSaving(true);
     try {
@@ -344,7 +373,15 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
         }
       });
 
-      await updateConfigTools(configId, toolsToSave);
+      console.log('[ToolSelectionPanel] Saving selection', {
+        configId,
+        mcpCount: toolsToSave.filter(t => t.tool_source === 'mcp').length,
+        n8nCount: toolsToSave.filter(t => t.tool_source === 'n8n').length,
+        mcpNames: toolsToSave.filter(t => t.tool_source === 'mcp').map(t => t.tool_name),
+        n8nNames: toolsToSave.filter(t => t.tool_source === 'n8n').map(t => t.tool_name)
+      });
+
+      await updateConfigTools(configId, toolsToSave, vaUser.id);
       setHasChanges(false);
       onToolsChanged?.();
     } catch (error) {

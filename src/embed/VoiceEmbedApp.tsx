@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Headphones, Loader2, Mic, RotateCcw, Sparkles, Square, Waves } from 'lucide-react';
+import { Headphones, Loader2, Mic, RotateCcw, Square, Waves } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button } from '../components/ui/Button';
 import { ChatEmbedView } from './ChatEmbedApp';

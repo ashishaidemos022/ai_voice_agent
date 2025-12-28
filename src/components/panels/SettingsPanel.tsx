@@ -1,20 +1,31 @@
-import { useState, useEffect } from 'react';
-import { Save, Trash2, RotateCcw, Plus } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import {
+  BadgeCheck,
+  Copy,
+  Plus,
+  RotateCcw,
+  Save,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
+  Trash2,
+  Wand2,
+  Workflow
+} from 'lucide-react';
 import { RealtimeConfig } from '../../types/voice-agent';
 import {
-  getAllConfigPresets,
-  saveConfigPreset,
-  updateConfigPreset,
-  deleteConfigPreset,
-  realtimeConfigToPreset,
+  AgentConfigPreset,
   configPresetToRealtimeConfig,
-  AgentConfigPreset
+  deleteConfigPreset,
+  getAllConfigPresets,
+  realtimeConfigToPreset,
+  saveConfigPreset,
+  updateConfigPreset
 } from '../../lib/config-service';
 import { RightPanel } from '../layout/RightPanel';
 import { Button } from '../ui/Button';
-import { Card, CardHeader, CardContent } from '../ui/Card';
+import { Card, CardHeader } from '../ui/Card';
 import { Badge } from '../ui/Badge';
-import { Separator } from '../ui/Separator';
 import { ToolSelectionPanel } from '../settings/ToolSelectionPanel';
 
 interface SettingsPanelProps {
@@ -27,17 +38,39 @@ interface SettingsPanelProps {
   userId: string;
   providerKeyId: string | null;
   onPresetsRefresh?: () => Promise<void> | void;
+  onToolsChanged?: () => Promise<void> | void;
 }
 
-const DEFAULT_INSTRUCTIONS = 'You are a helpful AI voice assistant. You can help users with various tasks, answer questions, and execute tools when needed. Be conversational and friendly.';
+const DEFAULT_INSTRUCTIONS =
+  'You are a helpful AI voice assistant. You can help users with various tasks, answer questions, and execute tools when needed. Be conversational and friendly.';
 
-// Latest GPT Realtime voices
+// Voice options (OpenAI supported). Premium voices are labeled.
 const VOICE_OPTIONS = [
   { value: 'alloy', label: 'Alloy', description: 'Balanced, default choice' },
   { value: 'verse', label: 'Verse', description: 'Expressive and dynamic' },
   { value: 'shimmer', label: 'Shimmer', description: 'Warm and gentle' },
-  { value: 'echo', label: 'Echo', description: 'Clear and energetic' }
+  { value: 'echo', label: 'Echo', description: 'Clear and energetic' },
+  { value: 'ash', label: 'Ash (premium)', description: 'Premium: crisp and modern' },
+  { value: 'ballad', label: 'Ballad (premium)', description: 'Premium: narrative, steady cadence' },
+  { value: 'coral', label: 'Coral (premium)', description: 'Premium: bright, approachable' },
+  { value: 'sage', label: 'Sage (premium)', description: 'Premium: calm and measured' },
+  { value: 'marin', label: 'Marin (premium)', description: 'Premium: smooth, contemporary' },
+  { value: 'cedar', label: 'Cedar (premium)', description: 'Premium: warm and grounded' }
 ];
+
+const BASE_DEFAULT_CONFIG: RealtimeConfig = {
+  model: 'gpt-realtime',
+  voice: 'alloy',
+  instructions: DEFAULT_INSTRUCTIONS,
+  temperature: 0.8,
+  max_response_output_tokens: 4096,
+  turn_detection: {
+    type: 'server_vad',
+    threshold: 0.5,
+    prefix_padding_ms: 300,
+    silence_duration_ms: 500
+  }
+};
 
 export function SettingsPanel({
   isOpen,
@@ -48,7 +81,8 @@ export function SettingsPanel({
   onActiveConfigChange,
   userId,
   providerKeyId,
-  onPresetsRefresh
+  onPresetsRefresh,
+  onToolsChanged
 }: SettingsPanelProps) {
   const [presets, setPresets] = useState<AgentConfigPreset[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -56,25 +90,22 @@ export function SettingsPanel({
   const [newPresetName, setNewPresetName] = useState('');
   const [saveError, setSaveError] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const activePreset = presets.find((p) => p.id === activeConfigId);
 
   useEffect(() => {
     if (isOpen) {
-      loadPresets();
+      void loadPresets();
     }
   }, [isOpen]);
 
   useEffect(() => {
-    if (activeConfigId) {
-      const activePreset = presets.find(p => p.id === activeConfigId);
-      if (activePreset) {
-        const presetConfig = configPresetToRealtimeConfig(activePreset);
-        const hasChanges = JSON.stringify(presetConfig) !== JSON.stringify(config);
-        setHasUnsavedChanges(hasChanges);
-      }
+    if (activeConfigId && activePreset) {
+      const presetConfig = configPresetToRealtimeConfig(activePreset);
+      setHasUnsavedChanges(JSON.stringify(presetConfig) !== JSON.stringify(config));
     } else {
       setHasUnsavedChanges(false);
     }
-  }, [config, activeConfigId, presets]);
+  }, [config, activeConfigId, activePreset]);
 
   const loadPresets = async () => {
     setIsLoading(true);
@@ -89,13 +120,12 @@ export function SettingsPanel({
   };
 
   const handlePresetSelect = (presetId: string) => {
-    const preset = presets.find(p => p.id === presetId);
-    if (preset) {
-      const newConfig = configPresetToRealtimeConfig(preset);
-      onConfigChange(newConfig);
-      onActiveConfigChange(presetId);
-      setHasUnsavedChanges(false);
-    }
+    const preset = presets.find((p) => p.id === presetId);
+    if (!preset) return;
+    const newConfig = configPresetToRealtimeConfig(preset);
+    onConfigChange(newConfig);
+    onActiveConfigChange(presetId);
+    setHasUnsavedChanges(false);
   };
 
   const handleSaveNewPreset = async () => {
@@ -114,9 +144,7 @@ export function SettingsPanel({
       const presetData = realtimeConfigToPreset(config, newPresetName.trim());
       const savedPreset = await saveConfigPreset(presetData, userId, providerKeyId);
       await loadPresets();
-      if (onPresetsRefresh) {
-        await onPresetsRefresh();
-      }
+      await onPresetsRefresh?.();
       onActiveConfigChange(savedPreset.id);
       setShowSaveDialog(false);
       setNewPresetName('');
@@ -129,17 +157,22 @@ export function SettingsPanel({
     }
   };
 
+  const handleDuplicate = () => {
+    const fallbackName = activePreset?.name ? `${activePreset.name} Copy` : 'New Agent Copy';
+    setNewPresetName(fallbackName);
+    setShowSaveDialog(true);
+    setSaveError(null);
+  };
+
   const handleUpdateCurrentPreset = async () => {
     if (!activeConfigId) return;
-
     setIsLoading(true);
     try {
-      const updates = realtimeConfigToPreset(config, presets.find(p => p.id === activeConfigId)?.name || 'Unnamed');
+      const name = presets.find((p) => p.id === activeConfigId)?.name || 'Unnamed';
+      const updates = realtimeConfigToPreset(config, name);
       await updateConfigPreset(activeConfigId, updates);
       await loadPresets();
-      if (onPresetsRefresh) {
-        await onPresetsRefresh();
-      }
+      await onPresetsRefresh?.();
       setHasUnsavedChanges(false);
     } catch (error) {
       console.error('Failed to update preset:', error);
@@ -150,7 +183,6 @@ export function SettingsPanel({
 
   const handleDeletePreset = async (presetId: string) => {
     if (!confirm('Are you sure you want to delete this preset?')) return;
-
     setIsLoading(true);
     try {
       await deleteConfigPreset(presetId);
@@ -158,9 +190,7 @@ export function SettingsPanel({
         onActiveConfigChange(null);
       }
       await loadPresets();
-      if (onPresetsRefresh) {
-        await onPresetsRefresh();
-      }
+      await onPresetsRefresh?.();
     } catch (error) {
       console.error('Failed to delete preset:', error);
     } finally {
@@ -179,222 +209,328 @@ export function SettingsPanel({
       isOpen={isOpen}
       onClose={onClose}
       title="Agent Configuration"
-      subtitle={hasUnsavedChanges ? "You have unsaved changes" : undefined}
+      subtitle={hasUnsavedChanges ? 'Unsaved changes' : activePreset?.name || 'New preset'}
+      width="920px"
     >
-      <div className="p-6 space-y-6">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-800">Configuration Presets</h3>
-              <Button
-                size="sm"
-                onClick={() => setShowSaveDialog(true)}
-                disabled={isLoading}
-              >
-                <Plus className="w-3 h-3" />
-                Save as New
-              </Button>
+      <div className="h-full flex flex-col">
+        <div className="px-6 py-4 border-b border-gray-200 bg-white/90 backdrop-blur flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-gray-500">
+              <Sparkles className="w-4 h-4" />
+              <span>Agent preset</span>
             </div>
-          </CardHeader>
-          <CardContent>
-            <select
-              value={activeConfigId || ''}
-              onChange={(e) => handlePresetSelect(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary bg-white text-sm"
+            <div className="flex items-center gap-3">
+              <h2 className="text-xl font-semibold text-gray-900">{activePreset?.name || 'New agent preset'}</h2>
+              {activePreset?.is_default && <Badge variant="secondary">Default</Badge>}
+              {hasUnsavedChanges && <Badge variant="warning">Unsaved</Badge>}
+            </div>
+            <p className="text-sm text-gray-600">
+              Configure persona, response style, voice, and automations. Changes apply after you save.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                onActiveConfigChange(null);
+                onConfigChange(BASE_DEFAULT_CONFIG);
+                setShowSaveDialog(true);
+                setNewPresetName('');
+                setSaveError(null);
+                setHasUnsavedChanges(true);
+              }}
               disabled={isLoading}
             >
-              <option value="">Select a preset...</option>
-              {presets.map(preset => (
-                <option key={preset.id} value={preset.id}>
-                  {preset.name} {preset.is_default ? '(Default)' : ''}
-                </option>
-              ))}
-            </select>
-
-            {activeConfigId && (
-              <div className="flex gap-2 mt-3">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleUpdateCurrentPreset}
-                  disabled={isLoading || !hasUnsavedChanges}
-                  className="flex-1"
-                >
-                  <Save className="w-3 h-3" />
-                  Update
-                </Button>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={() => handleDeletePreset(activeConfigId)}
-                  disabled={isLoading}
-                >
-                  <Trash2 className="w-3 h-3" />
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {showSaveDialog && (
-          <Card className="border-2 border-blue-500">
-            <CardHeader>
-              <h4 className="text-sm font-semibold text-gray-800">Save Configuration Preset</h4>
-            </CardHeader>
-            <CardContent>
-              <input
-                type="text"
-                value={newPresetName}
-                onChange={(e) => setNewPresetName(e.target.value)}
-                placeholder="Enter preset name"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary mb-3 text-sm"
-                autoFocus
-              />
-              {saveError && (
-                <p className="text-xs text-red-600 mb-3">{saveError}</p>
-              )}
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  onClick={handleSaveNewPreset}
-                  disabled={isLoading}
-                  className="flex-1"
-                >
-                  Save Preset
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setShowSaveDialog(false);
-                    setNewPresetName('');
-                    setSaveError(null);
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        <Separator />
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Voice
-          </label>
-          <select
-            value={config.voice}
-            onChange={(e) => onConfigChange({ ...config, voice: e.target.value })}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary text-sm"
-          >
-            {VOICE_OPTIONS.map(voice => (
-              <option key={voice.value} value={voice.value}>
-                {voice.label} - {voice.description}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-medium text-gray-700">
-              System Instructions
-            </label>
+              <Plus className="w-3 h-3" />
+              New preset
+            </Button>
+            <Button variant="ghost" size="sm" onClick={handleDuplicate} disabled={isLoading || !activePreset}>
+              <Copy className="w-3 h-3" />
+              Duplicate preset
+            </Button>
             <Button
-              variant="ghost"
               size="sm"
-              onClick={handleResetToDefault}
+              onClick={handleUpdateCurrentPreset}
+              disabled={isLoading || !activeConfigId || !hasUnsavedChanges}
             >
-              <RotateCcw className="w-3 h-3" />
-              Reset
+              <Save className="w-3 h-3" />
+              Save changes
             </Button>
           </div>
-          <textarea
-            value={config.instructions}
-            onChange={(e) => onConfigChange({ ...config, instructions: e.target.value })}
-            rows={8}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary font-mono text-xs"
-            placeholder="Enter custom instructions..."
-          />
-          <div className="flex items-center justify-between mt-1">
-            <p className="text-xs text-gray-500">
-              Customize how the AI behaves and responds
-            </p>
-            <p className="text-xs text-gray-500">
-              {characterCount} characters
-            </p>
-          </div>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Temperature: {config.temperature.toFixed(1)}
-          </label>
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.1"
-            value={config.temperature}
-            onChange={(e) => onConfigChange({ ...config, temperature: parseFloat(e.target.value) })}
-            className="w-full"
-          />
-          <p className="mt-1 text-xs text-gray-500">
-            Higher values make responses more creative
-          </p>
-        </div>
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+          <Card className="border-gray-200 shadow-sm">
+            <CardHeader className="flex flex-col gap-4">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase text-gray-500 tracking-[0.2em]">Preset lifecycle</p>
+                  <h3 className="text-lg font-semibold text-gray-900">Select or manage presets</h3>
+                  <p className="text-sm text-gray-600">
+                    Switch between saved agents or capture the current setup as a new preset.
+                  </p>
+                </div>
+                {activeConfigId && (
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => handleDeletePreset(activeConfigId)}
+                      disabled={isLoading}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={handleResetToDefault}>
+                      <RotateCcw className="w-4 h-4" />
+                      Reset instructions
+                    </Button>
+                  </div>
+                )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="col-span-2 space-y-2">
+                  <label className="text-xs font-semibold text-gray-700">Active preset</label>
+                  <select
+                    value={activeConfigId || ''}
+                    onChange={(e) => handlePresetSelect(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary bg-white text-sm"
+                    disabled={isLoading}
+                  >
+                    <option value="">Select a preset...</option>
+                    {presets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.name} {preset.is_default ? '(Default)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {showSaveDialog && (
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-2">
+                      <label className="text-xs font-semibold text-gray-700">Save as new preset</label>
+                      <input
+                        value={newPresetName}
+                        onChange={(e) => setNewPresetName(e.target.value)}
+                        placeholder="e.g. Support Agent, Sales Concierge"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary text-sm"
+                        disabled={isLoading}
+                      />
+                      {saveError && <p className="text-xs text-red-600">{saveError}</p>}
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setShowSaveDialog(false);
+                            setNewPresetName('');
+                            setSaveError(null);
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                        <Button size="sm" onClick={handleSaveNewPreset} disabled={isLoading}>
+                          Save preset
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="h-full rounded-lg border border-dashed border-gray-200 bg-white p-3">
+                  <p className="text-xs font-semibold text-gray-700 flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    Snapshot
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Model: <span className="font-medium text-gray-800">{config.model}</span>
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Updated: {activePreset?.updated_at ? new Date(activePreset.updated_at).toLocaleString() : '—'}
+                  </p>
+                  <p className="text-xs text-gray-500">Max tokens: {config.max_response_output_tokens}</p>
+                </div>
+              </div>
+            </CardHeader>
+          </Card>
 
-        <div>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={config.turn_detection !== null}
-              onChange={() => onConfigChange({
-                ...config,
-                turn_detection: config.turn_detection
-                  ? null
-                  : {
-                      type: 'server_vad',
-                      threshold: 0.5,
-                      prefix_padding_ms: 300,
-                      silence_duration_ms: 500
+          <Card className="border-gray-200 shadow-sm">
+            <CardHeader className="flex flex-col gap-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center">
+                  <Wand2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs uppercase text-gray-500 tracking-[0.2em]">Behavior</p>
+                  <h3 className="text-lg font-semibold text-gray-900">Persona & tone</h3>
+                  <p className="text-sm text-gray-600">Guide the agent’s reasoning style, role, and safety posture.</p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-semibold text-gray-800">System instructions</label>
+                  <div className="flex gap-2">
+                    <Badge variant="secondary" className="text-[11px]">
+                      Characters: {characterCount}
+                    </Badge>
+                    <Button variant="ghost" size="sm" onClick={handleResetToDefault}>
+                      <RotateCcw className="w-3 h-3" />
+                      Reset
+                    </Button>
+                  </div>
+                </div>
+                <textarea
+                  value={config.instructions}
+                  onChange={(e) => onConfigChange({ ...config, instructions: e.target.value })}
+                  rows={8}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary font-mono text-xs"
+                  placeholder="Define the persona, boundaries, and style..."
+                />
+                <p className="text-xs text-gray-500">
+                  Use concise directives, add safety rules, and keep language consistent.
+                </p>
+              </div>
+            </CardHeader>
+          </Card>
+
+          <Card className="border-gray-200 shadow-sm">
+            <CardHeader className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="col-span-1 flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center">
+                  <SlidersHorizontal className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs uppercase text-gray-500 tracking-[0.2em]">Response controls</p>
+                  <h3 className="text-lg font-semibold text-gray-900">Model tuning</h3>
+                  <p className="text-sm text-gray-600">Balance creativity vs. determinism for this agent.</p>
+                </div>
+              </div>
+              <div className="col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-semibold text-gray-800 flex items-center justify-between">
+                    Temperature
+                    <span className="text-xs text-gray-500">{config.temperature.toFixed(1)}</span>
+                  </label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.1"
+                    value={config.temperature}
+                    onChange={(e) =>
+                      onConfigChange({
+                        ...config,
+                        temperature: parseFloat(e.target.value)
+                      })
                     }
-              })}
-              className="w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary"
-            />
-            <span className="text-sm font-medium text-gray-700">
-              Voice Activity Detection
+                    className="w-full"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Higher is more creative; lower is more deterministic.</p>
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-gray-800 flex items-center justify-between">
+                    Max response tokens
+                    <span className="text-xs text-gray-500">{config.max_response_output_tokens}</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={256}
+                    max={16000}
+                    step={128}
+                    value={config.max_response_output_tokens}
+                    onChange={(e) =>
+                      onConfigChange({
+                        ...config,
+                        max_response_output_tokens: parseInt(e.target.value || '0', 10)
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary text-sm"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Keep within model limits to avoid truncation.</p>
+                </div>
+              </div>
+            </CardHeader>
+          </Card>
+
+          <Card className="border-gray-200 shadow-sm">
+            <CardHeader className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="col-span-1 flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center">
+                  <Workflow className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs uppercase text-gray-500 tracking-[0.2em]">Voice & pacing</p>
+                  <h3 className="text-lg font-semibold text-gray-900">Voice + turn detection</h3>
+                  <p className="text-sm text-gray-600">Choose the voice and how the agent listens and responds.</p>
+                </div>
+              </div>
+              <div className="col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-semibold text-gray-800">Voice</label>
+                  <select
+                    value={config.voice}
+                    onChange={(e) => onConfigChange({ ...config, voice: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary text-sm"
+                  >
+                    {VOICE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label} — {option.description}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.turn_detection !== null}
+                      onChange={() =>
+                        onConfigChange({
+                          ...config,
+                          turn_detection: config.turn_detection
+                            ? null
+                            : {
+                                type: 'server_vad',
+                                threshold: 0.5,
+                                prefix_padding_ms: 300,
+                                silence_duration_ms: 500
+                              }
+                        })
+                      }
+                      className="w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary"
+                    />
+                    <span className="text-sm font-semibold text-gray-800">Voice activity detection</span>
+                  </label>
+                  <p className="text-xs text-gray-500">Let the agent auto-respond when you pause speaking.</p>
+                </div>
+              </div>
+            </CardHeader>
+          </Card>
+
+          <Card className="border-gray-200 shadow-sm">
+            <CardHeader className="space-y-3">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs uppercase text-gray-400 tracking-[0.2em]">Automations</p>
+                  <h3 className="text-lg font-semibold text-gray-900">Tools & n8n workflows</h3>
+                  <p className="text-sm text-gray-600">
+                    Choose which MCP tools and n8n webhooks the agent can call. Changes save immediately to the preset.
+                  </p>
+                </div>
+              </div>
+              <ToolSelectionPanel configId={activeConfigId} onToolsChanged={onToolsChanged} />
+            </CardHeader>
+          </Card>
+
+          <div className="flex items-center justify-between text-xs text-gray-500 px-1">
+            <span className="flex items-center gap-1">
+              <BadgeCheck className="w-4 h-4 text-emerald-600" />
+              Provider key: {providerKeyId || 'Not set'}
             </span>
-          </label>
-          <p className="mt-1 text-xs text-gray-500 ml-6">
-            AI will automatically respond when you finish speaking
-          </p>
-        </div>
-
-        <Separator />
-
-        <ToolSelectionPanel
-          configId={activeConfigId}
-          onToolsChanged={() => {
-            console.log('Tool selection updated');
-          }}
-        />
-
-        <Separator />
-
-        <div>
-          <h3 className="text-sm font-medium text-gray-700 mb-2">Model Information</h3>
-          <div className="space-y-1 text-xs text-gray-600">
-            <div className="flex justify-between">
-              <span className="font-medium">Model:</span>
-              <Badge variant="secondary">{config.model}</Badge>
-            </div>
-            <div className="flex justify-between">
-              <span className="font-medium">Max Tokens:</span>
-              <Badge variant="secondary">{config.max_response_output_tokens}</Badge>
-            </div>
+            <span>
+              Created: {activePreset?.created_at ? new Date(activePreset.created_at).toLocaleString() : '—'}
+            </span>
           </div>
         </div>
       </div>

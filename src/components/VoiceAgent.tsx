@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useVoiceAgent } from '../hooks/useVoiceAgent';
 import { RealtimeConfig, Message } from '../types/voice-agent';
-import { loadMCPTools, mcpTools } from '../lib/tools-registry';
+import { getAllTools, loadMCPTools } from '../lib/tools-registry';
 import { configPresetToRealtimeConfig, getAllConfigPresets, AgentConfigPreset } from '../lib/config-service';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -128,7 +128,7 @@ export function VoiceAgent() {
   const clearRememberedSession = useCallback(() => {
     resumeSessionRef.current = null;
   }, []);
-  const availableTools = mcpTools;
+  const availableTools = getAllTools();
   const toolSummary = {
     total: availableTools.length,
     mcpCount: availableTools.filter(tool => tool.source !== 'n8n').length,
@@ -357,14 +357,14 @@ export function VoiceAgent() {
   };
 
   const updateToolsCount = () => {
-    setToolsCount(mcpTools.length);
+    setToolsCount(getAllTools().length);
   };
 
   const refreshTools = useCallback(async () => {
     const targetConfigId = isInitialized
       ? activeConfigId
       : (pendingConfigId || persistedConfigId);
-    await loadMCPTools(targetConfigId || undefined);
+    await loadMCPTools(targetConfigId || undefined, vaUser?.id);
     updateToolsCount();
   }, [isInitialized, activeConfigId, pendingConfigId, persistedConfigId]);
 
@@ -562,7 +562,7 @@ export function VoiceAgent() {
       selectedSessionId={selectedHistoricalSessionId}
       currentSessionId={sessionId}
     >
-      <ToolsList mcpTools={mcpTools} />
+      <ToolsList mcpTools={availableTools} />
     </Sidebar>
   );
 
@@ -892,6 +892,7 @@ export function VoiceAgent() {
         onPresetsRefresh={async () => {
           await refreshPresets();
         }}
+        onToolsChanged={refreshTools}
             />
 
             <MCPPanel

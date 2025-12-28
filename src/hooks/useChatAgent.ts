@@ -94,9 +94,9 @@ export function useChatAgent() {
   }, [refreshHistorySessions]);
 
   const loadToolsForPreset = useCallback(async (presetId: string): Promise<Tool[]> => {
-    await loadMCPTools(presetId);
+    await loadMCPTools(presetId, vaUser?.id);
     return [...getAllTools()];
-  }, []);
+  }, [vaUser?.id]);
 
   useEffect(() => {
     if (!activePresetId || !vaUser) {
