@@ -1,9 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, type CSSProperties } from 'react';
 import { Headphones, Loader2, Mic, RotateCcw, Square, Waves } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button } from '../components/ui/Button';
 import { ChatEmbedView } from './ChatEmbedApp';
-import { useVoiceEmbedSession } from './useVoiceEmbed';
+import { useVoiceEmbedSession, type VoiceEmbedAppearance } from './useVoiceEmbed';
 
 function resolveVoicePublicId(): string | null {
   if (typeof window === 'undefined') return null;
@@ -42,6 +42,25 @@ function buildWaveHeights(waveformData: Uint8Array | null, volume: number) {
   return heights;
 }
 
+function buildAppearanceVars(appearance: VoiceEmbedAppearance | null) {
+  if (!appearance) return {};
+  const vars: Record<string, string> = {};
+  if (appearance.background_color) vars['--va-embed-bg'] = appearance.background_color;
+  if (appearance.surface_color) vars['--va-embed-surface'] = appearance.surface_color;
+  if (appearance.text_color) vars['--va-embed-text'] = appearance.text_color;
+  if (appearance.accent_color) vars['--va-embed-accent'] = appearance.accent_color;
+  if (appearance.button_color) vars['--va-embed-button'] = appearance.button_color;
+  if (appearance.button_text_color) vars['--va-embed-button-text'] = appearance.button_text_color;
+  if (appearance.helper_text_color) vars['--va-embed-helper-text'] = appearance.helper_text_color;
+  if (appearance.wave_color) vars['--va-embed-wave'] = appearance.wave_color;
+  if (appearance.bubble_color) vars['--va-embed-bubble'] = appearance.bubble_color;
+  if (appearance.corner_radius !== null && appearance.corner_radius !== undefined) {
+    vars['--va-embed-radius'] = `${appearance.corner_radius}px`;
+  }
+  if (appearance.font_family) vars['--va-embed-font'] = appearance.font_family;
+  return vars;
+}
+
 export function VoiceEmbedApp() {
   const publicId = useMemo(() => resolveVoicePublicId(), []);
   const search = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
@@ -64,8 +83,32 @@ export function VoiceEmbedApp() {
     fallbackReason,
     toggleRecording,
     stopSession,
-    resetConversation
+    resetConversation,
+    appearance
   } = useVoiceEmbedSession(publicId || '');
+
+  const appearanceVars = buildAppearanceVars(appearance);
+  const rootStyle: CSSProperties = {
+    ...appearanceVars,
+    ...(appearance?.background_color ? { backgroundColor: 'var(--va-embed-bg)' } : {}),
+    ...(appearance?.text_color ? { color: 'var(--va-embed-text)' } : {}),
+    ...(appearance?.font_family ? { fontFamily: 'var(--va-embed-font)' } : {})
+  };
+  const surfaceStyle = appearance?.surface_color ? { backgroundColor: 'var(--va-embed-surface)' } : undefined;
+  const bubbleStyle = appearance?.bubble_color ? { backgroundColor: 'var(--va-embed-bubble)' } : undefined;
+  const accentStyle = appearance?.accent_color ? { color: 'var(--va-embed-accent)' } : undefined;
+  const buttonStyle = appearance?.button_color || appearance?.button_text_color
+    ? {
+        backgroundColor: appearance?.button_color ? 'var(--va-embed-button)' : undefined,
+        color: appearance?.button_text_color ? 'var(--va-embed-button-text)' : undefined
+      }
+    : undefined;
+  const helperTextStyle = appearance?.helper_text_color
+    ? { color: 'var(--va-embed-helper-text)' }
+    : undefined;
+  const radiusStyle = appearance?.corner_radius !== null && appearance?.corner_radius !== undefined
+    ? { borderRadius: 'var(--va-embed-radius)' }
+    : undefined;
 
   if (!publicId) {
     return (
@@ -83,8 +126,9 @@ export function VoiceEmbedApp() {
           theme === 'light' ? 'bg-white text-slate-900' : 'bg-slate-950 text-white',
           isWidget ? 'w-full h-full max-w-sm' : ''
         )}
+        style={rootStyle}
       >
-        <div className="rounded-2xl border border-amber-300/40 bg-amber-400/10 p-4">
+        <div className="rounded-2xl border border-amber-300/40 bg-amber-400/10 p-4" style={radiusStyle}>
           <p className="font-semibold text-amber-100 mb-1">Microphone unavailable</p>
           <p className="text-sm text-amber-200">{fallbackReason}</p>
           <p className="text-xs text-amber-200/80 mt-3">
@@ -107,18 +151,30 @@ export function VoiceEmbedApp() {
         theme === 'light' ? 'bg-white text-slate-900' : 'bg-slate-950 text-white',
         isWidget ? 'w-full h-full max-w-sm' : ''
       )}
+      style={rootStyle}
     >
       <div
         className={cn(
           'px-4 py-3 border-b flex items-center justify-between',
           theme === 'light' ? 'border-slate-200 bg-white' : 'border-white/10 bg-slate-900/70'
         )}
+        style={surfaceStyle}
       >
-        <div>
-          <p className="text-sm font-semibold">{agentMeta?.name || 'Voice Agent'}</p>
-          <p className={cn('text-[11px]', theme === 'light' ? 'text-slate-500' : 'text-white/60')}>
-            {agentMeta?.summary || 'Live AI assistant'}
-          </p>
+        <div className="flex items-center gap-3">
+          {appearance?.logo_url && (
+            <img
+              src={appearance.logo_url}
+              alt={appearance.brand_name || agentMeta?.name || 'Voice Agent'}
+              className="w-8 h-8 rounded-xl object-cover"
+              style={radiusStyle}
+            />
+          )}
+          <div>
+            <p className="text-sm font-semibold">{appearance?.brand_name || agentMeta?.name || 'Voice Agent'}</p>
+            <p className={cn('text-[11px]', theme === 'light' ? 'text-slate-500' : 'text-white/60')}>
+              {agentMeta?.summary || 'Live AI assistant'}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <span
@@ -146,19 +202,20 @@ export function VoiceEmbedApp() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <p className="text-xs uppercase tracking-[0.3em] opacity-60">Realtime Voice</p>
-              <p className="text-lg font-semibold flex items-center gap-2">
-                <Waves className="w-4 h-4 text-indigo-400" />
-                {STATE_LABEL[agentState] || agentState}
-              </p>
-              <p className={cn('text-sm', theme === 'light' ? 'text-slate-500' : 'text-white/70')}>
-                {isRecording ? 'Speak naturally—release to pause.' : 'Tap the mic to start talking.'}
-              </p>
+          <p className="text-lg font-semibold flex items-center gap-2">
+            <Waves className="w-4 h-4 text-indigo-400" style={accentStyle} />
+            {STATE_LABEL[agentState] || agentState}
+          </p>
+          <p className={cn('text-sm', theme === 'light' ? 'text-slate-500' : 'text-white/70')} style={helperTextStyle}>
+            {isRecording ? 'Speak naturally—release to pause.' : 'Tap the mic to start talking.'}
+          </p>
             </div>
             <Button
               size="sm"
               className={cn('gap-2', isRecording ? 'bg-rose-500 hover:bg-rose-400 text-white' : '')}
               onClick={toggleRecording}
               disabled={isInitializing || isLoadingMeta}
+              style={!isRecording ? buttonStyle : undefined}
             >
               {isInitializing ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -176,7 +233,11 @@ export function VoiceEmbedApp() {
 
           <div className="relative flex flex-col gap-6">
             <div className="relative rounded-2xl border overflow-hidden"
-              style={{ borderColor: theme === 'light' ? '#e2e8f0' : 'rgba(255,255,255,0.1)' }}>
+              style={{
+                borderColor: theme === 'light' ? '#e2e8f0' : 'rgba(255,255,255,0.1)',
+                ...(appearance?.corner_radius !== null && appearance?.corner_radius !== undefined ? radiusStyle : {})
+              }}
+            >
               <div
                 className="absolute inset-0 grid items-end gap-[4px] px-4 pb-6 pt-10"
                 style={{ gridTemplateColumns: `repeat(${heights.length}, minmax(0, 1fr))` }}
@@ -185,7 +246,10 @@ export function VoiceEmbedApp() {
                   <div
                     key={idx}
                     className={cn('rounded-full', agentState === 'speaking' ? 'bg-indigo-300' : 'bg-white/25')}
-                    style={{ height: Math.max(24, h / 1.5) }}
+                    style={{
+                      height: Math.max(24, h / 1.5),
+                      backgroundColor: appearance?.wave_color ? 'var(--va-embed-wave)' : undefined
+                    }}
                   />
                 ))}
               </div>
@@ -196,6 +260,10 @@ export function VoiceEmbedApp() {
                       'rounded-2xl px-4 py-3 text-sm max-w-[80%] self-start',
                       theme === 'light' ? 'bg-white shadow text-slate-900' : 'bg-white/10 text-white border border-white/10'
                     )}
+                    style={{
+                      ...(appearance?.accent_color ? { backgroundColor: 'var(--va-embed-accent)', color: 'var(--va-embed-button-text)' } : {}),
+                      ...(radiusStyle || {})
+                    }}
                   >
                     <p className="text-[10px] uppercase tracking-[0.3em] opacity-60 mb-1">You</p>
                     {liveUserTranscript}
@@ -207,20 +275,30 @@ export function VoiceEmbedApp() {
                       'rounded-2xl px-4 py-3 text-sm max-w-[80%] self-end',
                       theme === 'light' ? 'bg-slate-900 text-white' : 'bg-indigo-500/30 text-white border border-indigo-200/30'
                     )}
+                    style={{
+                      ...(bubbleStyle || {}),
+                      ...(radiusStyle || {})
+                    }}
                   >
                     <p className="text-[10px] uppercase tracking-[0.3em] opacity-60 mb-1">Agent</p>
                     {liveAssistantTranscript}
                   </div>
                 )}
                 {!liveAssistantTranscript && !liveUserTranscript && (
-                  <p className={cn('text-sm', theme === 'light' ? 'text-slate-500' : 'text-white/60')}>
+                  <p
+                    className={cn('text-sm', theme === 'light' ? 'text-slate-500' : 'text-white/60')}
+                    style={helperTextStyle}
+                  >
                     {isLoadingMeta ? 'Loading agent...' : 'Tap start and speak naturally.'}
                   </p>
                 )}
               </div>
             </div>
 
-            <div className={cn('flex flex-wrap gap-3 text-xs', theme === 'light' ? 'text-slate-500' : 'text-white/60')}>
+            <div
+              className={cn('flex flex-wrap gap-3 text-xs', theme === 'light' ? 'text-slate-500' : 'text-white/60')}
+              style={helperTextStyle}
+            >
               <span className="flex items-center gap-2">
                 <Mic className="w-3.5 h-3.5" />
                 {isRecording ? 'Mic live' : 'Mic idle'}
@@ -233,14 +311,17 @@ export function VoiceEmbedApp() {
           </div>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-hidden rounded-3xl border border-white/10 bg-black/10">
-          <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between">
+        <div className="flex-1 min-h-0 overflow-hidden rounded-3xl border border-white/10 bg-black/10" style={radiusStyle}>
+          <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between" style={surfaceStyle}>
             <p className="text-sm font-semibold">Conversation log</p>
             <span className="text-xs text-white/60">{messages.length} turns</span>
           </div>
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
             {messages.length === 0 ? (
-              <p className={cn('text-sm', theme === 'light' ? 'text-slate-500' : 'text-white/60')}>
+              <p
+                className={cn('text-sm', theme === 'light' ? 'text-slate-500' : 'text-white/60')}
+                style={helperTextStyle}
+              >
                 No messages yet. Start speaking to begin the conversation.
               </p>
             ) : (
@@ -257,6 +338,11 @@ export function VoiceEmbedApp() {
                       ? 'bg-slate-100 text-slate-900 rounded-bl-sm'
                       : 'bg-white/10 text-white rounded-bl-sm border border-white/10'
                   )}
+                  style={{
+                    ...(message.role === 'user' && appearance?.accent_color ? { backgroundColor: 'var(--va-embed-accent)' } : {}),
+                    ...(message.role === 'assistant' ? bubbleStyle : {}),
+                    ...(radiusStyle || {})
+                  }}
                 >
                   <p className="text-[10px] uppercase tracking-[0.2em] mb-1 opacity-60">
                     {message.role === 'user' ? 'You' : 'Agent'}

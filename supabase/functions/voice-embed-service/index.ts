@@ -12,6 +12,22 @@ interface VoiceEmbedRequestPayload {
   action: VoiceEmbedAction;
   agent_config_id?: string;
   allowed_origins?: string[] | string;
+  logo_url?: string | null;
+  brand_name?: string | null;
+  accent_color?: string | null;
+  background_color?: string | null;
+  surface_color?: string | null;
+  text_color?: string | null;
+  button_color?: string | null;
+  button_text_color?: string | null;
+  helper_text_color?: string | null;
+  corner_radius?: number | null;
+  font_family?: string | null;
+  wave_color?: string | null;
+  bubble_color?: string | null;
+  widget_width?: number | null;
+  widget_height?: number | null;
+  button_image_url?: string | null;
   is_enabled?: boolean;
   rtc_enabled?: boolean;
   tts_voice?: string | null;
@@ -81,7 +97,27 @@ async function ensureUniqueVoicePublicId(
   client: ReturnType<typeof createClient>,
   agentConfigId: string,
   baseName: string,
-  defaults: { allowed_origins?: string[]; rtc_enabled?: boolean; tts_voice?: string | null } = {}
+  defaults: {
+    allowed_origins?: string[];
+    rtc_enabled?: boolean;
+    tts_voice?: string | null;
+    logo_url?: string | null;
+    brand_name?: string | null;
+    accent_color?: string | null;
+    background_color?: string | null;
+    surface_color?: string | null;
+    text_color?: string | null;
+    button_color?: string | null;
+    button_text_color?: string | null;
+    helper_text_color?: string | null;
+    corner_radius?: number | null;
+    font_family?: string | null;
+    wave_color?: string | null;
+    bubble_color?: string | null;
+    widget_width?: number | null;
+    widget_height?: number | null;
+    button_image_url?: string | null;
+  } = {}
 ) {
   const base = slugify(baseName);
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -92,7 +128,23 @@ async function ensureUniqueVoicePublicId(
       public_id: candidate,
       allowed_origins: defaults.allowed_origins ?? [],
       rtc_enabled: defaults.rtc_enabled ?? true,
-      tts_voice: defaults.tts_voice ?? null
+      tts_voice: defaults.tts_voice ?? null,
+      logo_url: defaults.logo_url ?? null,
+      brand_name: defaults.brand_name ?? null,
+      accent_color: defaults.accent_color ?? null,
+      background_color: defaults.background_color ?? null,
+      surface_color: defaults.surface_color ?? null,
+      text_color: defaults.text_color ?? null,
+      button_color: defaults.button_color ?? null,
+      button_text_color: defaults.button_text_color ?? null,
+      helper_text_color: defaults.helper_text_color ?? null,
+      corner_radius: defaults.corner_radius ?? null,
+      font_family: defaults.font_family ?? null,
+      wave_color: defaults.wave_color ?? null,
+      bubble_color: defaults.bubble_color ?? null,
+      widget_width: defaults.widget_width ?? null,
+      widget_height: defaults.widget_height ?? null,
+      button_image_url: defaults.button_image_url ?? null
     };
     const { data, error } = await client
       .from('va_voice_embeds')
@@ -206,7 +258,23 @@ Deno.serve(async (req: Request) => {
         const defaults = {
           allowed_origins: parseOrigins(payload.allowed_origins),
           rtc_enabled: payload.rtc_enabled ?? true,
-          tts_voice: payload.tts_voice || config.voice || null
+          tts_voice: payload.tts_voice || config.voice || null,
+          logo_url: payload.logo_url ?? null,
+          brand_name: payload.brand_name ?? null,
+          accent_color: payload.accent_color ?? null,
+          background_color: payload.background_color ?? null,
+          surface_color: payload.surface_color ?? null,
+          text_color: payload.text_color ?? null,
+          button_color: payload.button_color ?? null,
+          button_text_color: payload.button_text_color ?? null,
+          helper_text_color: payload.helper_text_color ?? null,
+          corner_radius: payload.corner_radius ?? null,
+          font_family: payload.font_family ?? null,
+          wave_color: payload.wave_color ?? null,
+          bubble_color: payload.bubble_color ?? null,
+          widget_width: payload.widget_width ?? null,
+          widget_height: payload.widget_height ?? null,
+          button_image_url: payload.button_image_url ?? null
         };
         const created = await ensureUniqueVoicePublicId(
           supabase,
@@ -223,6 +291,54 @@ Deno.serve(async (req: Request) => {
         const fields: Record<string, any> = {};
         if (payload.allowed_origins !== undefined) {
           fields.allowed_origins = parseOrigins(payload.allowed_origins);
+        }
+        if (payload.logo_url !== undefined) {
+          fields.logo_url = payload.logo_url;
+        }
+        if (payload.brand_name !== undefined) {
+          fields.brand_name = payload.brand_name;
+        }
+        if (payload.accent_color !== undefined) {
+          fields.accent_color = payload.accent_color;
+        }
+        if (payload.background_color !== undefined) {
+          fields.background_color = payload.background_color;
+        }
+        if (payload.surface_color !== undefined) {
+          fields.surface_color = payload.surface_color;
+        }
+        if (payload.text_color !== undefined) {
+          fields.text_color = payload.text_color;
+        }
+        if (payload.button_color !== undefined) {
+          fields.button_color = payload.button_color;
+        }
+        if (payload.button_text_color !== undefined) {
+          fields.button_text_color = payload.button_text_color;
+        }
+        if (payload.helper_text_color !== undefined) {
+          fields.helper_text_color = payload.helper_text_color;
+        }
+        if (payload.corner_radius !== undefined) {
+          fields.corner_radius = payload.corner_radius;
+        }
+        if (payload.font_family !== undefined) {
+          fields.font_family = payload.font_family;
+        }
+        if (payload.wave_color !== undefined) {
+          fields.wave_color = payload.wave_color;
+        }
+        if (payload.bubble_color !== undefined) {
+          fields.bubble_color = payload.bubble_color;
+        }
+        if (payload.widget_width !== undefined) {
+          fields.widget_width = payload.widget_width;
+        }
+        if (payload.widget_height !== undefined) {
+          fields.widget_height = payload.widget_height;
+        }
+        if (payload.button_image_url !== undefined) {
+          fields.button_image_url = payload.button_image_url;
         }
         if (payload.is_enabled !== undefined) {
           fields.is_enabled = payload.is_enabled;

@@ -11,6 +11,22 @@ type TranscriptBuffers = {
   activeAssistantId: string | null;
 };
 
+export type VoiceEmbedAppearance = {
+  logo_url?: string | null;
+  brand_name?: string | null;
+  accent_color?: string | null;
+  background_color?: string | null;
+  surface_color?: string | null;
+  text_color?: string | null;
+  button_color?: string | null;
+  button_text_color?: string | null;
+  helper_text_color?: string | null;
+  corner_radius?: number | null;
+  font_family?: string | null;
+  wave_color?: string | null;
+  bubble_color?: string | null;
+};
+
 export type VoiceEmbedMessage = {
   id: string;
   role: 'user' | 'assistant';
@@ -40,6 +56,7 @@ export type UseVoiceEmbedResult = {
   sessionId: string | null;
   agentConfigId: string | null;
   rtcEnabled: boolean;
+  appearance: VoiceEmbedAppearance | null;
   toggleRecording: () => Promise<void>;
   stopSession: () => void;
   resetConversation: () => void;
@@ -83,6 +100,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [rtcEnabled, setRtcEnabled] = useState(true);
   const [agentConfigId, setAgentConfigId] = useState<string | null>(null);
+  const [appearance, setAppearance] = useState<VoiceEmbedAppearance | null>(null);
 
   const audioManagerRef = useRef<AudioManager | null>(null);
   const realtimeClientRef = useRef<RealtimeAPIClient | null>(null);
@@ -420,6 +438,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
         loadedToolsConfigRef.current = nextConfigId;
       }
       setRtcEnabled(Boolean(json?.settings?.rtc_enabled ?? true));
+      setAppearance((json?.settings?.appearance as VoiceEmbedAppearance) || null);
       setAgentMeta((prev) => ({
         name: json?.agent?.name || prev?.name || 'Voice Agent',
         summary: json?.agent?.summary || prev?.summary || null,
@@ -513,6 +532,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
       }));
       updateAgentConfigId(json?.agent?.id || null);
       setRtcEnabled(Boolean(json?.settings?.rtc_enabled ?? true));
+      setAppearance((json?.settings?.appearance as VoiceEmbedAppearance) || null);
     } catch (metaError: any) {
       setError(metaError?.message || 'Failed to load voice embed');
     } finally {
@@ -630,6 +650,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
     sessionId,
     agentConfigId,
     rtcEnabled,
+    appearance,
     toggleRecording,
     stopSession,
     resetConversation

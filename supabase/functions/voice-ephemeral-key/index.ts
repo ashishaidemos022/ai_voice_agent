@@ -40,6 +40,19 @@ type VoiceEmbedRecord = {
   rtc_enabled: boolean;
   tts_voice: string | null;
   is_enabled: boolean;
+  logo_url?: string | null;
+  brand_name?: string | null;
+  accent_color?: string | null;
+  background_color?: string | null;
+  surface_color?: string | null;
+  text_color?: string | null;
+  button_color?: string | null;
+  button_text_color?: string | null;
+  helper_text_color?: string | null;
+  corner_radius?: number | null;
+  font_family?: string | null;
+  wave_color?: string | null;
+  bubble_color?: string | null;
   agent_config: {
     id: string;
     user_id: string;
@@ -773,7 +786,25 @@ Deno.serve(async (req: Request) => {
           },
           settings: {
             rtc_enabled: embed.rtc_enabled,
-            allowed_origins: embed.allowed_origins || []
+            allowed_origins: embed.allowed_origins || [],
+            appearance: {
+              logo_url: embed.logo_url ?? null,
+              brand_name: embed.brand_name ?? null,
+              accent_color: embed.accent_color ?? null,
+              background_color: embed.background_color ?? null,
+              surface_color: embed.surface_color ?? null,
+              text_color: embed.text_color ?? null,
+              button_color: embed.button_color ?? null,
+              button_text_color: embed.button_text_color ?? null,
+              helper_text_color: embed.helper_text_color ?? null,
+              corner_radius: embed.corner_radius ?? null,
+              font_family: embed.font_family ?? null,
+              wave_color: embed.wave_color ?? null,
+              bubble_color: embed.bubble_color ?? null,
+              widget_width: embed.widget_width ?? null,
+              widget_height: embed.widget_height ?? null,
+              button_image_url: embed.button_image_url ?? null
+            }
           }
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -851,7 +882,25 @@ Deno.serve(async (req: Request) => {
           }))
         },
         settings: {
-          rtc_enabled: embed.rtc_enabled
+          rtc_enabled: embed.rtc_enabled,
+          appearance: {
+            logo_url: embed.logo_url ?? null,
+            brand_name: embed.brand_name ?? null,
+            accent_color: embed.accent_color ?? null,
+            background_color: embed.background_color ?? null,
+            surface_color: embed.surface_color ?? null,
+            text_color: embed.text_color ?? null,
+            button_color: embed.button_color ?? null,
+            button_text_color: embed.button_text_color ?? null,
+            helper_text_color: embed.helper_text_color ?? null,
+            corner_radius: embed.corner_radius ?? null,
+            font_family: embed.font_family ?? null,
+            wave_color: embed.wave_color ?? null,
+            bubble_color: embed.bubble_color ?? null,
+            widget_width: embed.widget_width ?? null,
+            widget_height: embed.widget_height ?? null,
+            button_image_url: embed.button_image_url ?? null
+          }
         },
         tools
       }),

@@ -4,6 +4,22 @@ import { createVoiceEmbed, fetchVoiceEmbedConfig, updateVoiceEmbed } from '../li
 
 interface VoiceEmbedUpdates {
   allowedOrigins?: string[];
+  logoUrl?: string | null;
+  brandName?: string | null;
+  accentColor?: string | null;
+  backgroundColor?: string | null;
+  surfaceColor?: string | null;
+  textColor?: string | null;
+  buttonColor?: string | null;
+  buttonTextColor?: string | null;
+  helperTextColor?: string | null;
+  cornerRadius?: number | null;
+  fontFamily?: string | null;
+  waveColor?: string | null;
+  bubbleColor?: string | null;
+  widgetWidth?: number | null;
+  widgetHeight?: number | null;
+  buttonImageUrl?: string | null;
   isEnabled?: boolean;
   rtcEnabled?: boolean;
   ttsVoice?: string | null;
@@ -76,6 +92,22 @@ export function useVoiceEmbedConfig(agentConfigId: string | null | undefined): U
       try {
         const record = await updateVoiceEmbed(normalizedAgentId, {
           allowed_origins: updates.allowedOrigins,
+          logo_url: updates.logoUrl,
+          brand_name: updates.brandName,
+          accent_color: updates.accentColor,
+          background_color: updates.backgroundColor,
+          surface_color: updates.surfaceColor,
+          text_color: updates.textColor,
+          button_color: updates.buttonColor,
+          button_text_color: updates.buttonTextColor,
+          helper_text_color: updates.helperTextColor,
+          corner_radius: updates.cornerRadius,
+          font_family: updates.fontFamily,
+          wave_color: updates.waveColor,
+          bubble_color: updates.bubbleColor,
+          widget_width: updates.widgetWidth,
+          widget_height: updates.widgetHeight,
+          button_image_url: updates.buttonImageUrl,
           is_enabled: updates.isEnabled,
           rtc_enabled: updates.rtcEnabled,
           tts_voice: updates.ttsVoice
