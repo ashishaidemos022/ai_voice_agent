@@ -11,6 +11,8 @@ interface AgentEmbedPanelProps {
 }
 
 const ORIGIN_PLACEHOLDER = 'https://app.yourdomain.com';
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export function AgentEmbedPanel({ agentConfigId, agentName }: AgentEmbedPanelProps) {
   const {
@@ -26,31 +28,91 @@ export function AgentEmbedPanel({ agentConfigId, agentName }: AgentEmbedPanelPro
 
   const [originsInput, setOriginsInput] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
+  const [logoUrl, setLogoUrl] = useState('');
+  const [brandName, setBrandName] = useState('');
+  const [accentColor, setAccentColor] = useState('');
+  const [backgroundColor, setBackgroundColor] = useState('');
+  const [surfaceColor, setSurfaceColor] = useState('');
+  const [textColor, setTextColor] = useState('');
+  const [buttonColor, setButtonColor] = useState('');
+  const [buttonTextColor, setButtonTextColor] = useState('');
+  const [helperTextColor, setHelperTextColor] = useState('');
+  const [cornerRadius, setCornerRadius] = useState<number | ''>('');
+  const [fontFamily, setFontFamily] = useState('');
+  const [bubbleColor, setBubbleColor] = useState('');
+  const [logoBackgroundColor, setLogoBackgroundColor] = useState('');
+  const [widgetWidth, setWidgetWidth] = useState('360');
+  const [widgetHeight, setWidgetHeight] = useState('520');
+  const [buttonImageUrl, setButtonImageUrl] = useState('');
+  const [overrideWidgetSettings, setOverrideWidgetSettings] = useState(false);
   const isDisabled = !agentConfigId || isLoading;
 
   useEffect(() => {
     if (!embed) {
       setOriginsInput('');
+      setLogoUrl('');
+      setBrandName('');
+      setAccentColor('');
+      setBackgroundColor('');
+      setSurfaceColor('');
+      setTextColor('');
+      setButtonColor('');
+      setButtonTextColor('');
+      setHelperTextColor('');
+      setCornerRadius('');
+      setFontFamily('');
+      setBubbleColor('');
+      setLogoBackgroundColor('');
+      setWidgetWidth('360');
+      setWidgetHeight('520');
+      setButtonImageUrl('');
       return;
     }
     setOriginsInput(embed.allowed_origins.join(', '));
+    setLogoUrl(embed.logo_url || '');
+    setBrandName(embed.brand_name || '');
+    setAccentColor(embed.accent_color || '');
+    setBackgroundColor(embed.background_color || '');
+    setSurfaceColor(embed.surface_color || '');
+    setTextColor(embed.text_color || '');
+    setButtonColor(embed.button_color || '');
+    setButtonTextColor(embed.button_text_color || '');
+    setHelperTextColor(embed.helper_text_color || '');
+    setCornerRadius(embed.corner_radius ?? '');
+    setFontFamily(embed.font_family || '');
+    setBubbleColor(embed.bubble_color || '');
+    setLogoBackgroundColor(embed.logo_background_color || '');
+    setWidgetWidth(String(embed.widget_width ?? 360));
+    setWidgetHeight(String(embed.widget_height ?? 520));
+    setButtonImageUrl(embed.button_image_url || '');
   }, [embed]);
 
   const host = typeof window !== 'undefined' ? window.location.origin : ORIGIN_PLACEHOLDER;
 
   const iframeSnippet = useMemo(() => {
     const slug = embed?.public_id || 'public-id';
+    const widthValue = widgetWidth.trim() || '360';
+    const heightValue = widgetHeight.trim() || '520';
     return `<iframe
   src="${host.replace(/\/$/, '')}/embed/agent/${slug}"
-  style="width: 100%; max-width: 420px; height: 600px; border-radius: 16px; border: none;"
+  style="width: 100%; max-width: ${widthValue}px; height: ${heightValue}px; border-radius: 16px; border: none;"
   allow="microphone"
 ></iframe>`;
-  }, [embed?.public_id, host]);
+  }, [embed?.public_id, host, widgetHeight, widgetWidth]);
 
   const widgetSnippet = useMemo(() => {
     const slug = embed?.public_id || 'public-id';
+    const widthValue = widgetWidth.trim() || '360';
+    const heightValue = widgetHeight.trim() || '520';
+    const buttonImageValue = buttonImageUrl.trim();
+    const supabaseConfig = SUPABASE_URL
+      ? `\n    supabaseUrl: "${SUPABASE_URL.replace(/\/$/, '')}",${SUPABASE_ANON_KEY ? `\n    supabaseKey: "${SUPABASE_ANON_KEY}",` : ''}`
+      : '';
+    const overrideConfig = overrideWidgetSettings
+      ? `\n    override: true,\n    width: "${widthValue}",\n    height: "${heightValue}",\n    buttonImage: "${buttonImageValue}",\n    buttonColor: "${buttonColor.trim() || ''}",\n    buttonTextColor: "${buttonTextColor.trim() || ''}",`
+      : '';
     return `<script>
-  window.MyVoiceAgent = { publicId: "${slug}" };
+  window.MyVoiceAgent = { publicId: "${slug}",${supabaseConfig}${overrideConfig} };
   (function() {
     var s = document.createElement("script");
     s.src = "${host.replace(/\/$/, '')}/widget.js";
@@ -58,7 +120,7 @@ export function AgentEmbedPanel({ agentConfigId, agentName }: AgentEmbedPanelPro
     document.head.appendChild(s);
   })();
 </script>`;
-  }, [embed?.public_id, host]);
+  }, [buttonColor, buttonImageUrl, buttonTextColor, embed?.public_id, host, overrideWidgetSettings, widgetHeight, widgetWidth]);
 
   const handleCopy = async (value: string, key: string) => {
     try {
@@ -83,6 +145,28 @@ export function AgentEmbedPanel({ agentConfigId, agentName }: AgentEmbedPanelPro
     await handleSave({
       allowedOrigins: parsedOrigins,
       isEnabled: embed.is_enabled
+    });
+  };
+
+  const saveAppearance = async () => {
+    if (!embed) return;
+    await handleSave({
+      logoUrl: logoUrl.trim() || null,
+      brandName: brandName.trim() || null,
+      accentColor: accentColor.trim() || null,
+      backgroundColor: backgroundColor.trim() || null,
+      surfaceColor: surfaceColor.trim() || null,
+      textColor: textColor.trim() || null,
+      buttonColor: buttonColor.trim() || null,
+      buttonTextColor: buttonTextColor.trim() || null,
+      helperTextColor: helperTextColor.trim() || null,
+      logoBackgroundColor: logoBackgroundColor.trim() || null,
+      cornerRadius: cornerRadius === '' ? null : Number(cornerRadius),
+      fontFamily: fontFamily.trim() || null,
+      bubbleColor: bubbleColor.trim() || null,
+      widgetWidth: widgetWidth.trim() ? Number(widgetWidth) : null,
+      widgetHeight: widgetHeight.trim() ? Number(widgetHeight) : null,
+      buttonImageUrl: buttonImageUrl.trim() || null
     });
   };
 
@@ -186,6 +270,149 @@ export function AgentEmbedPanel({ agentConfigId, agentName }: AgentEmbedPanelPro
                 Save Origins
               </Button>
             </div>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-xs uppercase text-white/40 tracking-[0.3em]">Appearance</p>
+            <div className="grid gap-3">
+              <label className="text-xs text-white/50">Brand name</label>
+              <input
+                value={brandName}
+                onChange={(e) => setBrandName(e.target.value)}
+                placeholder="Acme Support"
+                className="w-full rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-300/40"
+              />
+              <label className="text-xs text-white/50">Logo URL</label>
+              <input
+                value={logoUrl}
+                onChange={(e) => setLogoUrl(e.target.value)}
+                placeholder="https://cdn.example.com/logo.png"
+                className="w-full rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-300/40"
+              />
+              <label className="text-xs text-white/50">Logo background color</label>
+              <input
+                value={logoBackgroundColor}
+                onChange={(e) => setLogoBackgroundColor(e.target.value)}
+                placeholder="#111827"
+                className="w-full rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-300/40"
+              />
+              <label className="text-xs text-white/50">Font family</label>
+              <input
+                value={fontFamily}
+                onChange={(e) => setFontFamily(e.target.value)}
+                placeholder="Söhne, ui-sans-serif"
+                className="w-full rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-300/40"
+              />
+              <label className="text-xs text-white/50">Corner radius (px)</label>
+              <input
+                type="number"
+                min="0"
+                value={cornerRadius}
+                onChange={(e) => setCornerRadius(e.target.value === '' ? '' : Number(e.target.value))}
+                placeholder="16"
+                className="w-full rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-300/40"
+              />
+            </div>
+            <div className="grid gap-3">
+              <label className="text-xs text-white/50">Accent color</label>
+              <input
+                value={accentColor}
+                onChange={(e) => setAccentColor(e.target.value)}
+                placeholder="#6366f1"
+                className="w-full rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-300/40"
+              />
+              <label className="text-xs text-white/50">Background color</label>
+              <input
+                value={backgroundColor}
+                onChange={(e) => setBackgroundColor(e.target.value)}
+                placeholder="#0f172a"
+                className="w-full rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-300/40"
+              />
+              <label className="text-xs text-white/50">Surface color</label>
+              <input
+                value={surfaceColor}
+                onChange={(e) => setSurfaceColor(e.target.value)}
+                placeholder="#111827"
+                className="w-full rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-300/40"
+              />
+              <label className="text-xs text-white/50">Text color</label>
+              <input
+                value={textColor}
+                onChange={(e) => setTextColor(e.target.value)}
+                placeholder="#f8fafc"
+                className="w-full rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-300/40"
+              />
+              <label className="text-xs text-white/50">Button color</label>
+              <input
+                value={buttonColor}
+                onChange={(e) => setButtonColor(e.target.value)}
+                placeholder="#06b6d4"
+                className="w-full rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-300/40"
+              />
+              <label className="text-xs text-white/50">Button text color</label>
+              <input
+                value={buttonTextColor}
+                onChange={(e) => setButtonTextColor(e.target.value)}
+                placeholder="#0f172a"
+                className="w-full rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-300/40"
+              />
+              <label className="text-xs text-white/50">Helper text color</label>
+              <input
+                value={helperTextColor}
+                onChange={(e) => setHelperTextColor(e.target.value)}
+                placeholder="#94a3b8"
+                className="w-full rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-300/40"
+              />
+              <label className="text-xs text-white/50">Bubble color</label>
+              <input
+                value={bubbleColor}
+                onChange={(e) => setBubbleColor(e.target.value)}
+                placeholder="#111827"
+                className="w-full rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-300/40"
+              />
+            </div>
+            <Button size="xs" onClick={saveAppearance} disabled={isSaving}>
+              Save Appearance
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs uppercase text-white/40 tracking-[0.3em]">Widget Size</p>
+            <div className="grid gap-3">
+              <label className="text-xs text-white/50">Width (px)</label>
+              <input
+                value={widgetWidth}
+                onChange={(e) => setWidgetWidth(e.target.value)}
+                placeholder="360"
+                className="w-full rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-300/40"
+              />
+              <label className="text-xs text-white/50">Height (px)</label>
+              <input
+                value={widgetHeight}
+                onChange={(e) => setWidgetHeight(e.target.value)}
+                placeholder="520"
+                className="w-full rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-300/40"
+              />
+            </div>
+            <label className="text-xs text-white/50 flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={overrideWidgetSettings}
+                onChange={(e) => setOverrideWidgetSettings(e.target.checked)}
+                className="h-4 w-4 rounded border-white/30 bg-white/5 text-cyan-300 focus:ring-cyan-300/40"
+              />
+              Override widget snippet size/button image (iframe always uses saved size)
+            </label>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs uppercase text-white/40 tracking-[0.3em]">Chat Button Image</p>
+            <input
+              value={buttonImageUrl}
+              onChange={(e) => setButtonImageUrl(e.target.value)}
+              placeholder="https://cdn.example.com/chat-icon.png"
+              className="w-full rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-300/40"
+            />
           </div>
 
           {error && <p className="text-xs text-rose-300">{error}</p>}

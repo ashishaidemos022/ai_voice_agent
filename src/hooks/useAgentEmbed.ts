@@ -10,7 +10,27 @@ interface UseAgentEmbedResult {
   regenerateError: string | null;
   refresh: () => Promise<void>;
   handleCreate: () => Promise<void>;
-  handleSave: (updates: { allowedOrigins: string[]; isEnabled: boolean }) => Promise<void>;
+  handleSave: (updates: {
+    allowedOrigins?: string[];
+    isEnabled?: boolean;
+    logoUrl?: string | null;
+    brandName?: string | null;
+    accentColor?: string | null;
+    backgroundColor?: string | null;
+    surfaceColor?: string | null;
+    textColor?: string | null;
+    buttonColor?: string | null;
+    buttonTextColor?: string | null;
+    helperTextColor?: string | null;
+    cornerRadius?: number | null;
+    fontFamily?: string | null;
+    waveColor?: string | null;
+    bubbleColor?: string | null;
+    logoBackgroundColor?: string | null;
+    widgetWidth?: number | null;
+    widgetHeight?: number | null;
+    buttonImageUrl?: string | null;
+  }) => Promise<void>;
   handleRotate: () => Promise<void>;
 }
 
@@ -61,13 +81,50 @@ export function useAgentEmbed(agentConfigId: string | null | undefined): UseAgen
   }, [normalizedAgentId]);
 
   const handleSave = useCallback(
-    async (updates: { allowedOrigins: string[]; isEnabled: boolean }) => {
+    async (updates: {
+      allowedOrigins?: string[];
+      isEnabled?: boolean;
+      logoUrl?: string | null;
+      brandName?: string | null;
+      accentColor?: string | null;
+      backgroundColor?: string | null;
+      surfaceColor?: string | null;
+      textColor?: string | null;
+      buttonColor?: string | null;
+      buttonTextColor?: string | null;
+      helperTextColor?: string | null;
+      cornerRadius?: number | null;
+      fontFamily?: string | null;
+      waveColor?: string | null;
+      bubbleColor?: string | null;
+      logoBackgroundColor?: string | null;
+      widgetWidth?: number | null;
+      widgetHeight?: number | null;
+      buttonImageUrl?: string | null;
+    }) => {
       if (!normalizedAgentId || !embed) return;
       setIsSaving(true);
       setError(null);
       try {
         const record = await updateAgentEmbed(normalizedAgentId, {
           allowed_origins: updates.allowedOrigins,
+          logo_url: updates.logoUrl,
+          brand_name: updates.brandName,
+          accent_color: updates.accentColor,
+          background_color: updates.backgroundColor,
+          surface_color: updates.surfaceColor,
+          text_color: updates.textColor,
+          button_color: updates.buttonColor,
+          button_text_color: updates.buttonTextColor,
+          helper_text_color: updates.helperTextColor,
+          corner_radius: updates.cornerRadius,
+          font_family: updates.fontFamily,
+          wave_color: updates.waveColor,
+          bubble_color: updates.bubbleColor,
+          logo_background_color: updates.logoBackgroundColor,
+          widget_width: updates.widgetWidth,
+          widget_height: updates.widgetHeight,
+          button_image_url: updates.buttonImageUrl,
           is_enabled: updates.isEnabled
         });
         setEmbed(record);

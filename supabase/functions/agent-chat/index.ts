@@ -136,6 +136,28 @@ async function buildEmbedResponse(embed: any, includeToolSummary: boolean) {
         space_id: binding.space_id,
         vector_store_id: binding.rag_space?.vector_store_id || null
       }))
+    },
+    settings: {
+      allowed_origins: embed.allowed_origins || [],
+      appearance: {
+        logo_url: embed.logo_url ?? null,
+        brand_name: embed.brand_name ?? null,
+        accent_color: embed.accent_color ?? null,
+        background_color: embed.background_color ?? null,
+        surface_color: embed.surface_color ?? null,
+        text_color: embed.text_color ?? null,
+        button_color: embed.button_color ?? null,
+        button_text_color: embed.button_text_color ?? null,
+        helper_text_color: embed.helper_text_color ?? null,
+        corner_radius: embed.corner_radius ?? null,
+        font_family: embed.font_family ?? null,
+        wave_color: embed.wave_color ?? null,
+        bubble_color: embed.bubble_color ?? null,
+        logo_background_color: embed.logo_background_color ?? null,
+        widget_width: embed.widget_width ?? null,
+        widget_height: embed.widget_height ?? null,
+        button_image_url: embed.button_image_url ?? null
+      }
     }
   };
 

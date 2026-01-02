@@ -15,6 +15,26 @@ export type EmbedAgentMeta = {
   knowledgeSpaceIds?: string[];
 };
 
+export type ChatEmbedAppearance = {
+  logo_url?: string | null;
+  brand_name?: string | null;
+  accent_color?: string | null;
+  background_color?: string | null;
+  surface_color?: string | null;
+  text_color?: string | null;
+  button_color?: string | null;
+  button_text_color?: string | null;
+  helper_text_color?: string | null;
+  corner_radius?: number | null;
+  font_family?: string | null;
+  wave_color?: string | null;
+  bubble_color?: string | null;
+  logo_background_color?: string | null;
+  widget_width?: number | null;
+  widget_height?: number | null;
+  button_image_url?: string | null;
+};
+
 type RagMode = 'assist' | 'guardrail';
 
 type RagCitation = {
@@ -86,6 +106,7 @@ export function useEmbedChat(publicId: string, options?: { persist?: boolean }) 
   const [messages, setMessages] = useState<EmbedMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [agentMeta, setAgentMeta] = useState<EmbedAgentMeta | null>(null);
+  const [appearance, setAppearance] = useState<ChatEmbedAppearance | null>(null);
   const [isLoadingMeta, setIsLoadingMeta] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -145,6 +166,7 @@ export function useEmbedChat(publicId: string, options?: { persist?: boolean }) 
         ragMode: json.agent?.rag_mode || 'assist',
         knowledgeSpaceIds
       });
+      setAppearance((json?.settings?.appearance as ChatEmbedAppearance) || null);
     } catch (err: any) {
       setAgentMeta({
         name: 'AI Agent',
@@ -256,6 +278,7 @@ export function useEmbedChat(publicId: string, options?: { persist?: boolean }) 
   return {
     messages,
     agentMeta,
+    appearance,
     sessionId,
     isLoadingMeta,
     isSending,

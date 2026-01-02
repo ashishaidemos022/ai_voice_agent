@@ -2,6 +2,8 @@
   var globalConfig = window.MyVoiceAgent || window.myVoiceAgent || {};
   var scriptEl = document.currentScript;
   var baseUrl = globalConfig.baseUrl;
+  var supabaseUrl = (globalConfig.supabaseUrl || '').replace(/\/$/, '');
+  var supabaseKey = globalConfig.supabaseKey;
   if (!baseUrl) {
     try {
       var src = scriptEl ? scriptEl.src : window.location.href;
@@ -16,6 +18,24 @@
   if (!publicId) {
     console.error('[MyVoiceAgent] Missing publicId. Set window.MyVoiceAgent = { publicId: "slug" } before loading widget.js.');
     return;
+  }
+
+  var overrideSettings = globalConfig.override === true || globalConfig.override === '1';
+  var rawWidth = overrideSettings ? globalConfig.width : null;
+  var rawHeight = overrideSettings ? globalConfig.height : null;
+  var rawButtonColor = overrideSettings ? globalConfig.buttonColor : null;
+  var rawButtonTextColor = overrideSettings ? globalConfig.buttonTextColor : null;
+  var buttonImage = overrideSettings ? globalConfig.buttonImage : null;
+
+  function normalizeSize(value, fallback) {
+    if (!value && value !== 0) return fallback;
+    if (typeof value === 'number') return value + 'px';
+    var trimmed = String(value).trim();
+    if (!trimmed) return fallback;
+    if (/\d$/.test(trimmed) && !/%|px|rem|em|vh|vw/.test(trimmed)) {
+      return trimmed + 'px';
+    }
+    return trimmed;
   }
 
   var bubble = document.createElement('button');
@@ -39,12 +59,35 @@
   bubble.style.fontSize = '24px';
   bubble.textContent = '✦';
 
+  var bubbleImg = null;
+  function setButtonImage(url) {
+    if (url) {
+      bubble.textContent = '';
+      if (!bubbleImg) {
+        bubbleImg = document.createElement('img');
+        bubbleImg.alt = 'Open chat';
+        bubbleImg.style.width = '24px';
+        bubbleImg.style.height = '24px';
+        bubbleImg.style.objectFit = 'cover';
+        bubbleImg.style.borderRadius = '999px';
+        bubble.appendChild(bubbleImg);
+      }
+      bubbleImg.src = url;
+      return;
+    }
+    if (bubbleImg && bubbleImg.parentNode) {
+      bubble.removeChild(bubbleImg);
+    }
+    bubbleImg = null;
+    bubble.textContent = '✦';
+  }
+
   var iframeContainer = document.createElement('div');
   iframeContainer.style.position = 'fixed';
   iframeContainer.style.bottom = '96px';
   iframeContainer.style.right = '24px';
-  iframeContainer.style.width = '360px';
-  iframeContainer.style.height = '520px';
+  iframeContainer.style.width = normalizeSize(rawWidth, '360px');
+  iframeContainer.style.height = normalizeSize(rawHeight, '520px');
   iframeContainer.style.borderRadius = '20px';
   iframeContainer.style.boxShadow = '0 20px 60px rgba(15,23,42,0.35)';
   iframeContainer.style.overflow = 'hidden';
@@ -62,6 +105,16 @@
   iframe.style.width = '100%';
   iframe.style.height = '100%';
   iframeContainer.appendChild(iframe);
+
+  if (rawButtonColor) {
+    bubble.style.background = rawButtonColor;
+  }
+  if (rawButtonTextColor) {
+    bubble.style.color = rawButtonTextColor;
+  }
+  if (buttonImage) {
+    setButtonImage(buttonImage);
+  }
 
   var isOpen = false;
   function toggleWidget() {
@@ -90,4 +143,46 @@
     document.body.appendChild(bubble);
     document.body.appendChild(iframeContainer);
   }
+
+  function applyRemoteSettings(settings) {
+    var appearance = settings && settings.appearance ? settings.appearance : {};
+    if (!rawWidth && appearance.widget_width) {
+      iframeContainer.style.width = normalizeSize(appearance.widget_width, iframeContainer.style.width);
+    }
+    if (!rawHeight && appearance.widget_height) {
+      iframeContainer.style.height = normalizeSize(appearance.widget_height, iframeContainer.style.height);
+    }
+    if (!buttonImage && appearance.button_image_url) {
+      setButtonImage(appearance.button_image_url);
+    }
+    if (!rawButtonColor && appearance.button_color) {
+      bubble.style.background = appearance.button_color;
+    }
+    if (!rawButtonTextColor && appearance.button_text_color) {
+      bubble.style.color = appearance.button_text_color;
+    }
+  }
+
+  function fetchSettings() {
+    if (!supabaseUrl) return;
+    var url = supabaseUrl + '/functions/v1/agent-chat?public_id=' + encodeURIComponent(publicId);
+    var headers = {};
+    if (supabaseKey) {
+      headers.apikey = supabaseKey;
+      headers.Authorization = 'Bearer ' + supabaseKey;
+    }
+    fetch(url, { method: 'GET', headers: headers })
+      .then(function (res) {
+        if (!res.ok) throw new Error('chat embed settings unavailable');
+        return res.json();
+      })
+      .then(function (json) {
+        if (json && json.settings) {
+          applyRemoteSettings(json.settings);
+        }
+      })
+      .catch(function () {});
+  }
+
+  fetchSettings();
 })();

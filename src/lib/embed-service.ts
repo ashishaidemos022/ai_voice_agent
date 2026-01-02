@@ -7,6 +7,23 @@ interface EmbedServiceRequest {
   action: EmbedServiceAction;
   agent_config_id: string;
   allowed_origins?: string[] | string;
+  logo_url?: string | null;
+  brand_name?: string | null;
+  accent_color?: string | null;
+  background_color?: string | null;
+  surface_color?: string | null;
+  text_color?: string | null;
+  button_color?: string | null;
+  button_text_color?: string | null;
+  helper_text_color?: string | null;
+  corner_radius?: number | null;
+  font_family?: string | null;
+  wave_color?: string | null;
+  bubble_color?: string | null;
+  logo_background_color?: string | null;
+  widget_width?: number | null;
+  widget_height?: number | null;
+  button_image_url?: string | null;
   is_enabled?: boolean;
   rotate_public_id?: boolean;
 }
@@ -48,7 +65,28 @@ export async function createAgentEmbed(agentConfigId: string): Promise<AgentEmbe
 
 export async function updateAgentEmbed(
   agentConfigId: string,
-  updates: { allowed_origins?: string[] | string; is_enabled?: boolean; rotate_public_id?: boolean }
+  updates: {
+    allowed_origins?: string[] | string;
+    logo_url?: string | null;
+    brand_name?: string | null;
+    accent_color?: string | null;
+    background_color?: string | null;
+    surface_color?: string | null;
+    text_color?: string | null;
+    button_color?: string | null;
+    button_text_color?: string | null;
+    helper_text_color?: string | null;
+    corner_radius?: number | null;
+    font_family?: string | null;
+    wave_color?: string | null;
+    bubble_color?: string | null;
+    logo_background_color?: string | null;
+    widget_width?: number | null;
+    widget_height?: number | null;
+    button_image_url?: string | null;
+    is_enabled?: boolean;
+    rotate_public_id?: boolean;
+  }
 ): Promise<AgentEmbed> {
   const response = await callEmbedService({
     action: 'update_embed',
