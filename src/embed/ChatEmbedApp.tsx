@@ -101,13 +101,20 @@ export function ChatEmbedView({ publicId, theme, isWidget }: ChatEmbedViewProps)
   } as CSSProperties;
 
   useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (container) {
-      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
-      return;
-    }
-    scrollAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages.length, isSending, isLoadingMeta]);
+    const frame = window.requestAnimationFrame(() => {
+      const container = scrollContainerRef.current;
+      if (container && container.scrollHeight > container.clientHeight + 4) {
+        container.scrollTop = container.scrollHeight;
+        return;
+      }
+      if (scrollAnchorRef.current) {
+        scrollAnchorRef.current.scrollIntoView({ block: 'end' });
+        return;
+      }
+      window.scrollTo({ top: document.body.scrollHeight });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [messages.length, isSending, isLoadingMeta, error]);
 
   return (
     <div
