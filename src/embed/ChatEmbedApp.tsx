@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Loader2, MessageCircle, RotateCcw, Sparkles } from 'lucide-react';
 import { useEmbedChat, type ChatEmbedAppearance } from './useEmbedChat';
 import { Button } from '../components/ui/Button';
@@ -41,6 +41,8 @@ function buildAppearanceVars(appearance: ChatEmbedAppearance | null | undefined)
 
 export function ChatEmbedView({ publicId, theme, isWidget }: ChatEmbedViewProps) {
   const [composer, setComposer] = useState('');
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const scrollAnchorRef = useRef<HTMLDivElement | null>(null);
 
   const {
     messages,
@@ -88,9 +90,24 @@ export function ChatEmbedView({ publicId, theme, isWidget }: ChatEmbedViewProps)
   const composerStyle = appearance?.text_color
     ? { color: 'var(--va-chat-text)', caretColor: 'var(--va-chat-text)' }
     : undefined;
-  const composerPlaceholderClass = appearance?.helper_text_color
-    ? 'placeholder:text-[var(--va-chat-helper-text)]'
-    : '';
+  const placeholderColor = appearance?.helper_text_color
+    ? 'var(--va-chat-helper-text)'
+    : theme === 'light'
+    ? 'rgba(100, 116, 139, 0.6)'
+    : 'rgba(255, 255, 255, 0.5)';
+  const composerInlineStyle = {
+    ...composerStyle,
+    '--va-chat-placeholder': placeholderColor
+  } as CSSProperties;
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (container) {
+      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+      return;
+    }
+    scrollAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages.length, isSending, isLoadingMeta]);
 
   return (
     <div
@@ -149,7 +166,7 @@ export function ChatEmbedView({ publicId, theme, isWidget }: ChatEmbedViewProps)
         </Button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3" ref={scrollContainerRef}>
         {isLoadingMeta && (
           <div className="flex items-center gap-2 text-sm opacity-80" style={helperTextStyle}>
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -216,6 +233,7 @@ export function ChatEmbedView({ publicId, theme, isWidget }: ChatEmbedViewProps)
         {error && (
           <div className="text-xs text-rose-300">{error}</div>
         )}
+        <div ref={scrollAnchorRef} />
       </div>
 
       <div
@@ -244,11 +262,10 @@ export function ChatEmbedView({ publicId, theme, isWidget }: ChatEmbedViewProps)
             }}
             placeholder="Send a message…"
             className={cn(
-              'flex-1 bg-transparent text-sm resize-none outline-none',
-              theme === 'light' ? 'placeholder:text-slate-400 text-slate-900' : 'placeholder:text-white/40 text-white',
-              composerPlaceholderClass
+              'va-chat-input flex-1 bg-transparent text-sm resize-none outline-none',
+              theme === 'light' ? 'text-slate-900' : 'text-white'
             )}
-            style={composerStyle}
+            style={composerInlineStyle}
           />
           <Button
             size="sm"
