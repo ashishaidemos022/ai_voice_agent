@@ -43,6 +43,7 @@ export function ChatEmbedView({ publicId, theme, isWidget }: ChatEmbedViewProps)
   const [composer, setComposer] = useState('');
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const scrollAnchorRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   const {
     messages,
@@ -115,6 +116,13 @@ export function ChatEmbedView({ publicId, theme, isWidget }: ChatEmbedViewProps)
     });
     return () => window.cancelAnimationFrame(frame);
   }, [messages.length, isSending, isLoadingMeta, error]);
+
+  useEffect(() => {
+    const textarea = composerRef.current;
+    if (!textarea) return;
+    textarea.style.height = '0px';
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [composer, isWidget]);
 
   return (
     <div
@@ -259,6 +267,7 @@ export function ChatEmbedView({ publicId, theme, isWidget }: ChatEmbedViewProps)
         >
           <textarea
             rows={isWidget ? 1 : 2}
+            ref={composerRef}
             value={composer}
             onChange={(e) => setComposer(e.target.value)}
             onKeyDown={(event) => {
