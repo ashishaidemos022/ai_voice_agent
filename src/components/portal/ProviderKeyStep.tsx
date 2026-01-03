@@ -59,14 +59,68 @@ export function ProviderKeyStep() {
         }
       }
 
-      await supabase
-        .from('va_users')
-        .update({ onboarding_state: 'needs_agent' })
-        .eq('id', vaUser.id);
+      const { data: providerKeyRow, error: providerKeyError } = await supabase
+        .from('va_provider_keys')
+        .select('id')
+        .eq('user_id', vaUser.id)
+        .eq('provider', 'openai')
+        .single();
+
+      if (providerKeyError) {
+        throw providerKeyError;
+      }
+
+      if (!vaUser.default_agent_id) {
+        const { data: presetData, error: presetError } = await supabase
+          .from('va_agent_presets')
+          .select('*')
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .single();
+
+        if (presetError) {
+          throw presetError;
+        }
+
+        const { data: agent, error: agentError } = await supabase
+          .from('va_agent_configs')
+          .insert({
+            user_id: vaUser.id,
+            provider_key_id: providerKeyRow.id,
+            name: presetData.name,
+            instructions: presetData.instructions,
+            voice: presetData.voice,
+            temperature: presetData.temperature,
+            model: presetData.model,
+            max_response_output_tokens: 4096,
+            turn_detection_enabled: true,
+            turn_detection_config: presetData.turn_detection_config,
+            is_default: true
+          })
+          .select()
+          .single();
+
+        if (agentError) {
+          throw agentError;
+        }
+
+        await supabase
+          .from('va_users')
+          .update({
+            onboarding_state: 'ready',
+            default_agent_id: agent.id
+          })
+          .eq('id', vaUser.id);
+      } else {
+        await supabase
+          .from('va_users')
+          .update({ onboarding_state: 'ready' })
+          .eq('id', vaUser.id);
+      }
 
       await refreshProfile();
       setApiKey('');
-      setSuccessMessage('Key saved. Continue to create your agent.');
+      setSuccessMessage('Key saved. Taking you to the dashboard.');
     } catch (err: any) {
       console.error('Failed to save provider key', err);
       if (isConflict(err)) {
