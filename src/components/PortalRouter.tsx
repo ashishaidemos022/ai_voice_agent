@@ -3,7 +3,6 @@ import { AuthScreen } from './auth/AuthScreen';
 import { useAuth } from '../context/AuthContext';
 import { LoadingScreen } from './ui/LoadingScreen';
 import { ProviderKeyStep } from './portal/ProviderKeyStep';
-import { AgentSetupStep } from './portal/AgentSetupStep';
 import { AgentWorkspace } from './portal/AgentWorkspace';
 
 export function PortalRouter() {
@@ -37,9 +36,5 @@ export function PortalRouter() {
     return <ProviderKeyStep />;
   }
 
-  if (!vaUser.default_agent_id) {
-    return <AgentSetupStep />;
-  }
-
-  return <LoadingScreen message="Preparing your agent..." />;
+  return <AgentWorkspace />;
 }

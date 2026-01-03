@@ -8,7 +8,7 @@ import { KnowledgeBaseDrawer } from '../rag/KnowledgeBaseDrawer';
 type WorkspaceTab = 'chat' | 'voice';
 
 export function AgentWorkspace() {
-  const [tab, setTab] = useState<WorkspaceTab>('chat');
+  const [tab, setTab] = useState<WorkspaceTab>('voice');
   const [isKnowledgeDrawerOpen, setIsKnowledgeDrawerOpen] = useState(false);
   const isChat = tab === 'chat';
 

@@ -11,6 +11,23 @@ export function ProviderKeyStep() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const defaultAgentPayload = {
+    name: 'Default Voice Agent',
+    instructions:
+      'You are a helpful AI voice assistant. You can help users with various tasks, answer questions, and execute tools when needed. Be conversational and friendly.',
+    voice: 'alloy',
+    temperature: 0.8,
+    model: 'gpt-realtime',
+    max_response_output_tokens: 4096,
+    turn_detection_enabled: true,
+    turn_detection_config: {
+      type: 'server_vad',
+      threshold: 0.75,
+      prefix_padding_ms: 150,
+      silence_duration_ms: 700
+    },
+    is_default: true
+  };
 
   if (!vaUser) return null;
 
@@ -71,31 +88,12 @@ export function ProviderKeyStep() {
       }
 
       if (!vaUser.default_agent_id) {
-        const { data: presetData, error: presetError } = await supabase
-          .from('va_agent_presets')
-          .select('*')
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .single();
-
-        if (presetError) {
-          throw presetError;
-        }
-
         const { data: agent, error: agentError } = await supabase
           .from('va_agent_configs')
           .insert({
             user_id: vaUser.id,
             provider_key_id: providerKeyRow.id,
-            name: presetData.name,
-            instructions: presetData.instructions,
-            voice: presetData.voice,
-            temperature: presetData.temperature,
-            model: presetData.model,
-            max_response_output_tokens: 4096,
-            turn_detection_enabled: true,
-            turn_detection_config: presetData.turn_detection_config,
-            is_default: true
+            ...defaultAgentPayload
           })
           .select()
           .single();
@@ -120,7 +118,7 @@ export function ProviderKeyStep() {
 
       await refreshProfile();
       setApiKey('');
-      setSuccessMessage('Key saved. Taking you to the dashboard.');
+      setSuccessMessage('Key saved. Taking you to the workspace.');
     } catch (err: any) {
       console.error('Failed to save provider key', err);
       if (isConflict(err)) {
