@@ -20,7 +20,7 @@ const VOICE_OPTIONS = [
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-const ORIGIN_PLACEHOLDER = 'https://app.yourdomain.com';
+const EMBED_HOST = import.meta.env.VITE_EMBED_HOST || 'https://embed-chat-agent.vercel.app';
 
 export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelProps) {
   const {
@@ -98,7 +98,7 @@ export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelPro
     setButtonImageUrl(embed.button_image_url || '');
   }, [embed]);
 
-  const host = typeof window !== 'undefined' ? window.location.origin : ORIGIN_PLACEHOLDER;
+  const host = EMBED_HOST;
 
   const iframeSnippet = useMemo(() => {
     const slug = embed?.public_id || 'voice-public-id';
