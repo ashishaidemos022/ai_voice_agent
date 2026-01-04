@@ -18,7 +18,7 @@ const VOICE_OPTIONS = [
 ];
 
 const EMBED_HOST = import.meta.env.VITE_EMBED_HOST || 'https://embed-chat-agent.vercel.app';
-const EMBED_API_BASE = import.meta.env.VITE_EMBED_API_BASE_URL;
+const EMBED_API_BASE = import.meta.env.VITE_EMBED_API_BASE_URL || import.meta.env.VITE_SUPABASE_URL;
 
 export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelProps) {
   const {
