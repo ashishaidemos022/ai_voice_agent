@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { buildEmbedFunctionUrl, resolveEmbedApiBase } from './embed-api';
 
 export type EmbedMessage = {
   id: string;
@@ -47,26 +48,17 @@ type RagAugmentationResult = {
   guardrailTriggered?: boolean;
 };
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  throw new Error('Missing Supabase environment variables for embed widget');
-}
-
-const AGENT_CHAT_URL = `${SUPABASE_URL.replace(/\/$/, '')}/functions/v1/agent-chat`;
-const RAG_SERVICE_URL = `${SUPABASE_URL.replace(/\/$/, '')}/functions/v1/rag-service`;
-const SUPABASE_REQUEST_HEADERS = {
-  'Content-Type': 'application/json',
-  apikey: SUPABASE_ANON_KEY,
-  Authorization: `Bearer ${SUPABASE_ANON_KEY}`
+const REQUEST_HEADERS = {
+  'Content-Type': 'application/json'
 };
 
 function createStorageKey(publicId: string) {
   return `va-embed-history-${publicId}`;
 }
 
-async function runEmbedRagAugmentation(input: {
+async function runEmbedRagAugmentation(
+  apiBase: string | null,
+  input: {
   agentConfigId: string;
   query: string;
   ragMode: RagMode;
@@ -76,9 +68,13 @@ async function runEmbedRagAugmentation(input: {
   if (!input.spaceIds.length) {
     throw new Error('No knowledge spaces connected');
   }
-  const res = await fetch(RAG_SERVICE_URL, {
+  const ragServiceUrl = buildEmbedFunctionUrl(apiBase, 'rag-service');
+  if (!ragServiceUrl) {
+    throw new Error('Embed API base is missing');
+  }
+  const res = await fetch(ragServiceUrl, {
     method: 'POST',
-    headers: SUPABASE_REQUEST_HEADERS,
+    headers: REQUEST_HEADERS,
     body: JSON.stringify({
       action: 'run_query',
       agent_config_id: input.agentConfigId,
@@ -110,6 +106,11 @@ export function useEmbedChat(publicId: string, options?: { persist?: boolean }) 
   const [isLoadingMeta, setIsLoadingMeta] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const apiBase = useMemo(() => resolveEmbedApiBase(), []);
+  const agentChatUrl = useMemo(
+    () => buildEmbedFunctionUrl(apiBase, 'agent-chat'),
+    [apiBase]
+  );
 
   const storageKey = useMemo(() => (options?.persist ? createStorageKey(publicId) : null), [publicId, options?.persist]);
 
@@ -143,11 +144,14 @@ export function useEmbedChat(publicId: string, options?: { persist?: boolean }) 
   const loadMetadata = useCallback(async () => {
     setIsLoadingMeta(true);
     try {
-      const url = new URL(AGENT_CHAT_URL);
+      if (!agentChatUrl) {
+        throw new Error('Embed API base is missing');
+      }
+      const url = new URL(agentChatUrl);
       url.searchParams.set('public_id', publicId);
       const response = await fetch(url.toString(), {
         method: 'GET',
-        headers: SUPABASE_REQUEST_HEADERS
+        headers: REQUEST_HEADERS
       });
       if (!response.ok) {
         throw new Error('Embed not found');
@@ -175,7 +179,7 @@ export function useEmbedChat(publicId: string, options?: { persist?: boolean }) 
     } finally {
       setIsLoadingMeta(false);
     }
-  }, [publicId]);
+  }, [agentChatUrl, publicId]);
 
   useEffect(() => {
     loadMetadata();
@@ -207,7 +211,7 @@ export function useEmbedChat(publicId: string, options?: { persist?: boolean }) 
 
         if (shouldRunRag) {
           try {
-            const ragContext = await runEmbedRagAugmentation({
+            const ragContext = await runEmbedRagAugmentation(apiBase, {
               agentConfigId: agentMeta!.id as string,
               query: trimmed,
               ragMode: agentMeta!.ragMode || 'assist',
@@ -241,9 +245,12 @@ export function useEmbedChat(publicId: string, options?: { persist?: boolean }) 
           client_session_id: storageKey || undefined,
           messages: payloadMessages
         };
-        const response = await fetch(AGENT_CHAT_URL, {
+        if (!agentChatUrl) {
+          throw new Error('Embed API base is missing');
+        }
+        const response = await fetch(agentChatUrl, {
           method: 'POST',
-          headers: SUPABASE_REQUEST_HEADERS,
+          headers: REQUEST_HEADERS,
           body: JSON.stringify(payload)
         });
         const json = await response.json();
@@ -263,7 +270,7 @@ export function useEmbedChat(publicId: string, options?: { persist?: boolean }) 
         setIsSending(false);
       }
     },
-    [agentMeta, messages, publicId, sessionId, storageKey]
+    [agentChatUrl, agentMeta, apiBase, messages, publicId, sessionId, storageKey]
   );
 
   const resetChat = useCallback(() => {

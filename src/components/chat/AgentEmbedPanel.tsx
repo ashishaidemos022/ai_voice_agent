@@ -11,8 +11,7 @@ interface AgentEmbedPanelProps {
 }
 
 const EMBED_HOST = import.meta.env.VITE_EMBED_HOST || 'https://embed-chat-agent.vercel.app';
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const EMBED_API_BASE = import.meta.env.VITE_EMBED_API_BASE_URL;
 
 export function AgentEmbedPanel({ agentConfigId, agentName }: AgentEmbedPanelProps) {
   const {
@@ -105,14 +104,14 @@ export function AgentEmbedPanel({ agentConfigId, agentName }: AgentEmbedPanelPro
     const widthValue = widgetWidth.trim() || '360';
     const heightValue = widgetHeight.trim() || '520';
     const buttonImageValue = buttonImageUrl.trim();
-    const supabaseConfig = SUPABASE_URL
-      ? `\n    supabaseUrl: "${SUPABASE_URL.replace(/\/$/, '')}",${SUPABASE_ANON_KEY ? `\n    supabaseKey: "${SUPABASE_ANON_KEY}",` : ''}`
+    const apiBaseConfig = EMBED_API_BASE
+      ? `\n    apiBaseUrl: "${EMBED_API_BASE.replace(/\/$/, '')}",`
       : '';
     const overrideConfig = overrideWidgetSettings
       ? `\n    override: true,\n    width: "${widthValue}",\n    height: "${heightValue}",\n    buttonImage: "${buttonImageValue}",\n    buttonColor: "${buttonColor.trim() || ''}",\n    buttonTextColor: "${buttonTextColor.trim() || ''}",`
       : '';
     return `<script>
-  window.MyVoiceAgent = { publicId: "${slug}",${supabaseConfig}${overrideConfig} };
+  window.MyVoiceAgent = { publicId: "${slug}",${apiBaseConfig}${overrideConfig} };
   (function() {
     var s = document.createElement("script");
     s.src = "${host.replace(/\/$/, '')}/widget.js";

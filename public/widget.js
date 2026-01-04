@@ -2,8 +2,18 @@
   var globalConfig = window.MyVoiceAgent || window.myVoiceAgent || {};
   var scriptEl = document.currentScript;
   var baseUrl = globalConfig.baseUrl;
+  var apiBase =
+    (globalConfig.apiBaseUrl ||
+      globalConfig.apiBase ||
+      '') || '';
+  apiBase = apiBase.replace(/\/$/, '');
   var supabaseUrl = (globalConfig.supabaseUrl || '').replace(/\/$/, '');
-  var supabaseKey = globalConfig.supabaseKey;
+  if (!apiBase && supabaseUrl) {
+    apiBase = supabaseUrl;
+  }
+  if (!apiBase) {
+    apiBase = baseUrl;
+  }
   if (!baseUrl) {
     try {
       var src = scriptEl ? scriptEl.src : window.location.href;
@@ -99,7 +109,11 @@
   iframeContainer.style.zIndex = '999998';
 
   var iframe = document.createElement('iframe');
-  iframe.src = baseUrl + '/embed/agent/' + encodeURIComponent(publicId) + '?widget=1';
+  var params = new URLSearchParams({ widget: '1' });
+  if (apiBase) {
+    params.set('api_base', apiBase);
+  }
+  iframe.src = baseUrl + '/embed/agent/' + encodeURIComponent(publicId) + '?' + params.toString();
   iframe.setAttribute('allow', 'microphone');
   iframe.style.border = 'none';
   iframe.style.width = '100%';
@@ -163,15 +177,16 @@
     }
   }
 
+  function buildFunctionUrl(base, name) {
+    if (!base) return '';
+    if (base.endsWith('/functions/v1')) return base + '/' + name;
+    return base + '/functions/v1/' + name;
+  }
+
   function fetchSettings() {
-    if (!supabaseUrl) return;
-    var url = supabaseUrl + '/functions/v1/agent-chat?public_id=' + encodeURIComponent(publicId);
-    var headers = {};
-    if (supabaseKey) {
-      headers.apikey = supabaseKey;
-      headers.Authorization = 'Bearer ' + supabaseKey;
-    }
-    fetch(url, { method: 'GET', headers: headers })
+    if (!apiBase) return;
+    var url = buildFunctionUrl(apiBase, 'agent-chat') + '?public_id=' + encodeURIComponent(publicId);
+    fetch(url, { method: 'GET' })
       .then(function (res) {
         if (!res.ok) throw new Error('chat embed settings unavailable');
         return res.json();

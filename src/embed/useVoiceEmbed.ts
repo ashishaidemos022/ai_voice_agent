@@ -3,6 +3,7 @@ import { getAudioManager, AudioManager } from '../lib/audio-manager';
 import { RealtimeAPIClient, AgentState } from '../lib/realtime-client';
 import { executeTool, registerToolsFromServer } from '../lib/tools-registry';
 import type { RealtimeConfig } from '../types/voice-agent';
+import { buildEmbedFunctionUrl, resolveEmbedApiBase } from './embed-api';
 
 type TranscriptBuffers = {
   user: Record<string, string>;
@@ -62,18 +63,8 @@ export type UseVoiceEmbedResult = {
   resetConversation: () => void;
 };
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  throw new Error('Missing Supabase environment variables for voice embed widget');
-}
-
-const VOICE_EMBED_URL = `${SUPABASE_URL.replace(/\/$/, '')}/functions/v1/voice-ephemeral-key`;
 const REQUEST_HEADERS = {
-  'Content-Type': 'application/json',
-  apikey: SUPABASE_ANON_KEY,
-  Authorization: `Bearer ${SUPABASE_ANON_KEY}`
+  'Content-Type': 'application/json'
 };
 const SUPPORTED_REALTIME_VOICES = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse', 'marin', 'cedar'];
 const sanitizeVoice = (voice?: string | null) => {
@@ -111,6 +102,11 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
     activeUserId: null,
     activeAssistantId: null
   });
+  const apiBase = useMemo(() => resolveEmbedApiBase(), []);
+  const voiceEmbedUrl = useMemo(
+    () => buildEmbedFunctionUrl(apiBase, 'voice-ephemeral-key'),
+    [apiBase]
+  );
   const sessionStorageKey = useMemo(() => `va-voice-embed-session-${publicId}`, [publicId]);
   const clientSessionIdRef = useRef<string | null>(null);
   const userMicIntentRef = useRef(false);
@@ -415,7 +411,10 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
     setIsInitializing(true);
     setError(null);
     try {
-      const response = await fetch(VOICE_EMBED_URL, {
+      if (!voiceEmbedUrl) {
+        throw new Error('Embed API base is missing');
+      }
+      const response = await fetch(voiceEmbedUrl, {
         method: 'POST',
         headers: REQUEST_HEADERS,
         body: JSON.stringify({
@@ -482,7 +481,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
     } finally {
       setIsInitializing(false);
     }
-  }, [publicId, updateAgentConfigId, updateSessionId]);
+  }, [publicId, updateAgentConfigId, updateSessionId, voiceEmbedUrl]);
 
   const beginCapture = useCallback(async () => {
     if (!realtimeClientRef.current || !audioManagerRef.current) {
@@ -515,7 +514,10 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
     setIsLoadingMeta(true);
     setError(null);
     try {
-      const url = new URL(VOICE_EMBED_URL);
+      if (!voiceEmbedUrl) {
+        throw new Error('Embed API base is missing');
+      }
+      const url = new URL(voiceEmbedUrl);
       url.searchParams.set('public_id', publicId);
       const response = await fetch(url.toString(), {
         method: 'GET',
@@ -538,7 +540,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
     } finally {
       setIsLoadingMeta(false);
     }
-  }, [publicId, updateAgentConfigId]);
+  }, [publicId, updateAgentConfigId, voiceEmbedUrl]);
 
   useEffect(() => {
     fetchMetadata();

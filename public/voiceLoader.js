@@ -17,8 +17,20 @@
   }
 
   var baseUrl = resolveBaseUrl();
-  var supabaseUrl = (globalConfig.supabaseUrl || dataset.supabaseUrl || baseUrl || '').replace(/\/$/, '');
-  var supabaseKey = globalConfig.supabaseKey || dataset.supabaseKey || dataset.apikey;
+  var apiBase =
+    (globalConfig.apiBaseUrl ||
+      globalConfig.apiBase ||
+      dataset.apiBase ||
+      dataset.apiBaseUrl ||
+      '') || '';
+  apiBase = apiBase.replace(/\/$/, '');
+  var supabaseUrl = (globalConfig.supabaseUrl || dataset.supabaseUrl || '').replace(/\/$/, '');
+  if (!apiBase && supabaseUrl) {
+    apiBase = supabaseUrl;
+  }
+  if (!apiBase) {
+    apiBase = baseUrl;
+  }
   var publicId =
     globalConfig.publicId ||
     globalConfig.agent ||
@@ -130,6 +142,9 @@
   var params = new URLSearchParams();
   params.set('widget', '1');
   params.set('theme', theme);
+  if (apiBase) {
+    params.set('api_base', apiBase);
+  }
   iframe.src = baseUrl + '/embed/voice/' + encodeURIComponent(publicId) + '?' + params.toString();
   iframe.setAttribute('allow', 'microphone');
   iframe.style.border = 'none';
@@ -202,15 +217,16 @@
     }
   }
 
+  function buildFunctionUrl(base, name) {
+    if (!base) return '';
+    if (base.endsWith('/functions/v1')) return base + '/' + name;
+    return base + '/functions/v1/' + name;
+  }
+
   function fetchSettings() {
-    if (!supabaseUrl) return;
-    var url = supabaseUrl + '/functions/v1/voice-ephemeral-key?public_id=' + encodeURIComponent(publicId);
-    var headers = {};
-    if (supabaseKey) {
-      headers.apikey = supabaseKey;
-      headers.Authorization = 'Bearer ' + supabaseKey;
-    }
-    fetch(url, { method: 'GET', headers: headers })
+    if (!apiBase) return;
+    var url = buildFunctionUrl(apiBase, 'voice-ephemeral-key') + '?public_id=' + encodeURIComponent(publicId);
+    fetch(url, { method: 'GET' })
       .then(function (res) {
         if (!res.ok) throw new Error('voice embed settings unavailable');
         return res.json();

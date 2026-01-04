@@ -29,6 +29,12 @@
     dataset.publicId ||
     dataset.public_id ||
     '';
+  const apiBase =
+    (globalConfig.apiBaseUrl ||
+      globalConfig.apiBase ||
+      dataset.apiBase ||
+      dataset.apiBaseUrl ||
+      '') || '';
 
   const legacyAgentId = globalConfig.agentId || dataset.agentId || '';
   const legacyToken = globalConfig.token || dataset.userJwt || dataset.token || '';
@@ -36,6 +42,9 @@
   function buildWidgetUrl() {
     if (publicId) {
       const params = new URLSearchParams({ widget: '1', theme });
+      if (apiBase) {
+        params.set('api_base', apiBase.replace(/\/$/, ''));
+      }
       return `${baseUrl}/embed/agent/${encodeURIComponent(publicId)}?${params}`;
     }
     if (!legacyAgentId) {
@@ -48,6 +57,9 @@
       agent: legacyAgentId,
       theme
     });
+    if (apiBase) {
+      params.set('api_base', apiBase.replace(/\/$/, ''));
+    }
     if (legacyToken) {
       params.set('token', legacyToken);
     }

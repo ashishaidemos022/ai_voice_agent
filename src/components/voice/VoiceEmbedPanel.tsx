@@ -17,10 +17,8 @@ const VOICE_OPTIONS = [
   { value: 'xelos', label: 'Xelos', description: 'Energetic, expressive' }
 ];
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
 const EMBED_HOST = import.meta.env.VITE_EMBED_HOST || 'https://embed-chat-agent.vercel.app';
+const EMBED_API_BASE = import.meta.env.VITE_EMBED_API_BASE_URL;
 
 export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelProps) {
   const {
@@ -120,13 +118,13 @@ export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelPro
     const sizeAttrs = overrideLoaderSettings
       ? `\n  data-override="1"\n  data-width="${widthValue}"\n  data-height="${heightValue}"${buttonImageAttr}`
       : '';
-    const supabaseAttrs = SUPABASE_URL
-      ? `\n  data-supabase-url="${SUPABASE_URL.replace(/\/$/, '')}"${SUPABASE_ANON_KEY ? `\n  data-supabase-key="${SUPABASE_ANON_KEY}"` : ''}`
+    const apiBaseAttr = EMBED_API_BASE
+      ? `\n  data-api-base="${EMBED_API_BASE.replace(/\/$/, '')}"`
       : '';
     return `<script
   src="${host.replace(/\/$/, '')}/voiceLoader.js"
   data-agent="${slug}"
-  data-theme="dark"${supabaseAttrs}${sizeAttrs}
+  data-theme="dark"${apiBaseAttr}${sizeAttrs}
   async
 ></script>`;
   }, [buttonImageUrl, embed?.public_id, host, overrideLoaderSettings, widgetHeight, widgetWidth]);
