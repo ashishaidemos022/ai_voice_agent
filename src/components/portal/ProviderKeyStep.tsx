@@ -49,7 +49,7 @@ export function ProviderKeyStep() {
       const encoded = btoa(masked);
       const lastFour = masked.slice(-4);
 
-      const payload = {
+      const insertPayload = {
         user_id: vaUser.id,
         provider: 'openai',
         key_alias: keyAlias || 'Primary',
@@ -57,14 +57,20 @@ export function ProviderKeyStep() {
         last_four: lastFour
       };
 
-      const { error: insertError } = await supabase.from('va_provider_keys').insert(payload);
+      const { error: insertError } = await supabase.from('va_provider_keys').insert(insertPayload);
 
       if (insertError) {
         // Handle duplicate key (e.g., existing key for this user) by updating in place
         if (isConflict(insertError)) {
+          const updatePayload = {
+            provider: 'openai',
+            key_alias: keyAlias || 'Primary',
+            encrypted_key: encoded,
+            last_four: lastFour
+          };
           const { error: updateError } = await supabase
             .from('va_provider_keys')
-            .update(payload)
+            .update(updatePayload)
             .eq('user_id', vaUser.id)
             .eq('provider', 'openai');
 
