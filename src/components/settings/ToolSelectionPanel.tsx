@@ -59,7 +59,13 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
   const [isSaving, setIsSaving] = useState(false);
   const [isExpanded, setIsExpanded] = useState(true);
   const [isN8NExpanded, setIsN8NExpanded] = useState(true);
+  const [isWebSearchExpanded, setIsWebSearchExpanded] = useState(true);
   const [hasChanges, setHasChanges] = useState(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [webSearchDomains, setWebSearchDomains] = useState('');
+  const [webSearchMaxResults, setWebSearchMaxResults] = useState(5);
+  const [webSearchTimeRange, setWebSearchTimeRange] = useState('any');
+  const [webSearchSnippetsOnly, setWebSearchSnippetsOnly] = useState(true);
   const createParameterRow = (): PayloadParameterRow => ({
     id: crypto.randomUUID(),
     key: '',
@@ -175,11 +181,12 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
           tool => tool.tool_name === '__none__' || (tool.metadata as any)?.selectionCleared
         );
         const filteredTools = toolsFromConfig.filter(
-          tool => tool.tool_source === 'mcp' || tool.tool_source === 'n8n'
+          tool => tool.tool_source === 'mcp' || tool.tool_source === 'n8n' || tool.tool_source === 'client'
         );
 
         const savedMcp = filteredTools.filter(t => t.tool_source === 'mcp').map(t => t.tool_name);
         const savedN8n = filteredTools.filter(t => t.tool_source === 'n8n').map(t => t.tool_name);
+        const webSearchRow = filteredTools.find(t => t.tool_source === 'client' && t.tool_name === 'web_search');
 
         const hasDbSelection = filteredTools.length > 0 || selectionCleared;
 
@@ -196,6 +203,23 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
 
         setSelectedMcpTools(new Set(nextMcpSelection));
         setSelectedN8nTools(new Set(nextN8nSelection));
+
+        if (webSearchRow) {
+          const domains = Array.isArray(webSearchRow.metadata?.allowed_domains)
+            ? webSearchRow.metadata.allowed_domains.join('\n')
+            : '';
+          setWebSearchEnabled(true);
+          setWebSearchDomains(domains);
+          setWebSearchMaxResults(Number(webSearchRow.metadata?.max_results ?? 5));
+          setWebSearchTimeRange(String(webSearchRow.metadata?.time_range ?? 'any'));
+          setWebSearchSnippetsOnly(Boolean(webSearchRow.metadata?.snippets_only ?? true));
+        } else {
+          setWebSearchEnabled(false);
+          setWebSearchDomains('');
+          setWebSearchMaxResults(5);
+          setWebSearchTimeRange('any');
+          setWebSearchSnippetsOnly(true);
+        }
 
         const params: Record<string, PayloadParameterRow[]> = {};
         toolsFromConfig
@@ -287,6 +311,12 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
     setHasChanges(true);
   };
 
+  const parseDomains = (value: string) =>
+    value
+      .split('\n')
+      .map((domain) => domain.trim())
+      .filter(Boolean);
+
   const handleSelectAllN8n = () => {
     syncN8nSelection(new Set(n8nIntegrations.map(integration => integration.toolName)));
     setHasChanges(true);
@@ -373,6 +403,19 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
         }
       });
 
+      if (webSearchEnabled) {
+        toolsToSave.push({
+          tool_name: 'web_search',
+          tool_source: 'client',
+          metadata: {
+            allowed_domains: parseDomains(webSearchDomains),
+            max_results: webSearchMaxResults,
+            time_range: webSearchTimeRange,
+            snippets_only: webSearchSnippetsOnly
+          }
+        });
+      }
+
       console.log('[ToolSelectionPanel] Saving selection', {
         configId,
         mcpCount: toolsToSave.filter(t => t.tool_source === 'mcp').length,
@@ -402,8 +445,9 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
 
   const mcpSelectedCount = mcpTools.filter(t => selectedMcpTools.has(t.tool_name)).length;
   const n8nSelectedCount = n8nIntegrations.filter(integration => selectedN8nTools.has(integration.toolName)).length;
-  const totalSelected = mcpSelectedCount + n8nSelectedCount;
-  const totalAvailable = mcpTools.length + n8nIntegrations.length;
+  const webSearchSelectedCount = webSearchEnabled ? 1 : 0;
+  const totalSelected = mcpSelectedCount + n8nSelectedCount + webSearchSelectedCount;
+  const totalAvailable = mcpTools.length + n8nIntegrations.length + 1;
 
   return (
     <div className="space-y-4">
@@ -432,6 +476,103 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
         </div>
       ) : (
         <div className="space-y-2">
+          <Card className="bg-slate-900/40 border-white/10">
+            <CardContent className="p-0">
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setIsWebSearchExpanded(!isWebSearchExpanded)}
+                className="w-full px-4 py-3 flex items-center justify-between hover:bg-white/5 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  {isWebSearchExpanded ? (
+                    <ChevronDown className="w-4 h-4 text-white/50" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-white/50" />
+                  )}
+                  <Wrench className="w-4 h-4 text-cyan-300" />
+                  <span className="text-sm font-medium text-white">Web Search (OpenAI)</span>
+                  <Badge variant="secondary" className="bg-white/10 text-white/70 border border-white/10">
+                    {webSearchEnabled ? 'On' : 'Off'}
+                  </Badge>
+                </div>
+              </div>
+              {isWebSearchExpanded && (
+                <div className="border-t border-white/10 p-4 space-y-3">
+                  <label className="flex items-center gap-2 text-sm text-white/80">
+                    <input
+                      type="checkbox"
+                      checked={webSearchEnabled}
+                      onChange={(event) => {
+                        setWebSearchEnabled(event.target.checked);
+                        setHasChanges(true);
+                      }}
+                      className="w-4 h-4 rounded border-white/20 text-cyan-400 focus:ring-cyan-400"
+                    />
+                    Enable Web Search grounding
+                  </label>
+                  <div className="space-y-1">
+                    <label className="text-xs text-white/60">Allowed domains (one per line)</label>
+                    <textarea
+                      rows={3}
+                      value={webSearchDomains}
+                      onChange={(event) => {
+                        setWebSearchDomains(event.target.value);
+                        setHasChanges(true);
+                      }}
+                      placeholder="example.com\ndocs.example.com"
+                      className="w-full rounded-lg bg-slate-950 border border-white/10 px-3 py-2 text-xs text-white placeholder:text-white/40"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-white/60">Max results</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={webSearchMaxResults}
+                        onChange={(event) => {
+                          setWebSearchMaxResults(Number(event.target.value || 1));
+                          setHasChanges(true);
+                        }}
+                        className="mt-1 w-full rounded-lg bg-slate-950 border border-white/10 px-3 py-2 text-xs text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-white/60">Time range</label>
+                      <select
+                        value={webSearchTimeRange}
+                        onChange={(event) => {
+                          setWebSearchTimeRange(event.target.value);
+                          setHasChanges(true);
+                        }}
+                        className="mt-1 w-full rounded-lg bg-slate-950 border border-white/10 px-3 py-2 text-xs text-white"
+                      >
+                        <option value="any">Any time</option>
+                        <option value="day">Past day</option>
+                        <option value="week">Past week</option>
+                        <option value="month">Past month</option>
+                        <option value="year">Past year</option>
+                      </select>
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-2 text-xs text-white/60">
+                    <input
+                      type="checkbox"
+                      checked={webSearchSnippetsOnly}
+                      onChange={(event) => {
+                        setWebSearchSnippetsOnly(event.target.checked);
+                        setHasChanges(true);
+                      }}
+                      className="w-4 h-4 rounded border-white/20 text-cyan-400 focus:ring-cyan-400"
+                    />
+                    Return snippets only
+                  </label>
+                </div>
+              )}
+            </CardContent>
+          </Card>
           <Card className="bg-slate-900/40 border-white/10">
             <CardContent className="p-0">
               <div

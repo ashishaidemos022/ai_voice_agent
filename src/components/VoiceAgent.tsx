@@ -18,6 +18,7 @@ import { ConversationThread } from './conversation/ConversationThread';
 import { ToolsList } from './tools/ToolsList';
 import { Button } from './ui/Button';
 import { SessionHistory } from './session/SessionHistory';
+import { WebSearchSkillCard } from './settings/WebSearchSkillCard';
 import { SettingsPanel } from './panels/SettingsPanel';
 import { MCPPanel } from './panels/MCPPanel';
 import { N8NPanel } from './panels/N8NPanel';
@@ -664,6 +665,7 @@ export function VoiceAgent({
     providerKeys[0]?.id ||
     null;
   const selectedPresetId = pendingConfigId || activeConfigId || persistedConfigId || null;
+  const skillsConfigId = selectedPresetId;
   const showWorkspacePreview = isWorkspaceView && !isInitialized;
 
   return (
@@ -725,7 +727,7 @@ export function VoiceAgent({
                           </div>
                         </Card>
 
-                        <div className="grid md:grid-cols-2 gap-6">
+                        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
                           <Card className="p-6 bg-slate-900/60 border-white/10 flex flex-col gap-4">
                             <div>
                               <p className="text-xs uppercase tracking-[0.3em] text-white/40">MCP Connections</p>
@@ -751,6 +753,11 @@ export function VoiceAgent({
                               Manage n8n Webhooks
                             </Button>
                           </Card>
+
+                          <WebSearchSkillCard
+                            configId={skillsConfigId}
+                            onUpdated={refreshTools}
+                          />
                         </div>
                       </div>
                     </div>

@@ -29,7 +29,7 @@ function isRagRelationError(error: any | null) {
 
 export interface SelectedTool {
   tool_name: string;
-  tool_source: 'mcp' | 'n8n';
+  tool_source: 'mcp' | 'n8n' | 'client';
   tool_id?: string;
   connection_id?: string;
   n8n_integration_id?: string;

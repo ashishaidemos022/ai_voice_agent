@@ -9,21 +9,22 @@ export interface Tool {
   description: string;
   parameters: JSONSchema;
   execute: (params: any) => Promise<any>;
-  executionType: 'mcp' | 'webhook';
+  executionType: 'mcp' | 'webhook' | 'client';
   connectionId?: string;
-  source?: 'mcp' | 'n8n';
+  source?: 'mcp' | 'n8n' | 'client';
   metadata?: Record<string, any>;
 }
 
 export let mcpTools: Tool[] = [];
 let selectedMcpToolNames: string[] | null = null;
 let selectedWebhookToolNames: string[] | null = null;
+let selectedClientToolNames: string[] | null = null;
 
 export type SerializedToolDefinition = {
   name: string;
   description?: string | null;
   parameters?: JSONSchema | null;
-  execution_type: 'mcp' | 'webhook';
+  execution_type: 'mcp' | 'webhook' | 'client';
   connection_id?: string | null;
   metadata?: Record<string, any> | null;
   source?: 'mcp' | 'n8n' | null;
@@ -48,6 +49,80 @@ interface ToolSelectionState {
   mcpToolNames: string[] | null;
   n8nToolNames: string[] | null;
   n8nSelections: N8NSelectionInfo[];
+  clientToolNames: string[] | null;
+  clientSelections: { toolName: string; metadata?: Record<string, any> }[];
+}
+
+const WEB_SEARCH_TOOL_NAME = 'web_search';
+const WEB_SEARCH_DEFAULTS = {
+  max_results: 5,
+  time_range: 'any',
+  snippets_only: true,
+  allowed_domains: [] as string[]
+};
+
+function buildWebSearchQuery(query: string, allowedDomains: string[], timeRange?: string) {
+  const trimmed = query.trim();
+  if (!allowedDomains.length && (!timeRange || timeRange === 'any')) return trimmed;
+  const domainClause = allowedDomains.length
+    ? `(${allowedDomains.map((domain) => `site:${domain}`).join(' OR ')})`
+    : '';
+  const timeClause = timeRange && timeRange !== 'any' ? `past ${timeRange}` : '';
+  return [trimmed, domainClause, timeClause].filter(Boolean).join(' ');
+}
+
+async function executeWebSearch(params: any, defaults?: Record<string, any>) {
+  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('Missing OpenAI API key');
+  }
+
+  const mergedDefaults = { ...WEB_SEARCH_DEFAULTS, ...(defaults || {}) };
+  const query = typeof params?.query === 'string' ? params.query : '';
+  if (!query.trim()) {
+    throw new Error('Missing query for web search');
+  }
+
+  const allowedDomains = Array.isArray(params?.allowed_domains)
+    ? params.allowed_domains.filter((domain: any) => typeof domain === 'string' && domain.trim())
+    : mergedDefaults.allowed_domains;
+  const maxResults = Number.isFinite(params?.max_results) ? Number(params.max_results) : mergedDefaults.max_results;
+  const timeRange = typeof params?.time_range === 'string' ? params.time_range : mergedDefaults.time_range;
+  const snippetsOnly = typeof params?.snippets_only === 'boolean' ? params.snippets_only : mergedDefaults.snippets_only;
+
+  const searchQuery = buildWebSearchQuery(query, allowedDomains, timeRange);
+
+  const payload = {
+    model: 'gpt-4.1-mini',
+    input: `Search the web for: ${searchQuery}\nReturn the top ${maxResults} results with title, url, and snippet.`,
+    tools: [{ type: 'web_search' }],
+    tool_choice: 'auto',
+    max_output_tokens: 800
+  };
+
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || 'Web search failed');
+  }
+
+  const data = await response.json();
+  return {
+    query: searchQuery,
+    allowed_domains: allowedDomains,
+    max_results: maxResults,
+    time_range: timeRange,
+    snippets_only: snippetsOnly,
+    response: data
+  };
 }
 
 export interface ToolExecutionContext {
@@ -193,15 +268,24 @@ function filterToolsBySelection(tools: Tool[]): { tools: Tool[]; fellBack: boole
       if (selectedWebhookToolNames === null) return true;
       return selectedWebhookToolNames.includes(tool.name);
     }
+    if (tool.executionType === 'client') {
+      if (selectedClientToolNames === null) return true;
+      return selectedClientToolNames.includes(tool.name);
+    }
     return true;
   });
 
   const hasMcpSelection = Array.isArray(selectedMcpToolNames) && (selectedMcpToolNames?.length ?? 0) > 0;
   const hasWebhookSelection = Array.isArray(selectedWebhookToolNames) && (selectedWebhookToolNames?.length ?? 0) > 0;
+  const hasClientSelection = Array.isArray(selectedClientToolNames) && (selectedClientToolNames?.length ?? 0) > 0;
   const hasMcpMatch = filtered.some(tool => tool.executionType === 'mcp');
   const hasWebhookMatch = filtered.some(tool => tool.executionType === 'webhook');
+  const hasClientMatch = filtered.some(tool => tool.executionType === 'client');
 
-  const fellBack = (hasMcpSelection && !hasMcpMatch) || (hasWebhookSelection && !hasWebhookMatch);
+  const fellBack =
+    (hasMcpSelection && !hasMcpMatch) ||
+    (hasWebhookSelection && !hasWebhookMatch) ||
+    (hasClientSelection && !hasClientMatch);
   return {
     tools: fellBack ? tools : filtered,
     fellBack
@@ -232,6 +316,7 @@ export async function loadMCPTools(configId?: string, userId?: string): Promise<
     } else {
       selectedMcpToolNames = null;
       selectedWebhookToolNames = null;
+      selectedClientToolNames = null;
     }
 
     const { data: connections, error: connError } = await supabase
@@ -265,7 +350,7 @@ export async function loadMCPTools(configId?: string, userId?: string): Promise<
         parameters: resolveSchemaDefinition(mcpTool.parameters_schema),
         executionType: 'mcp',
         connectionId: mcpTool.connection_id,
-        source: 'mcp',
+        source: 'client',
         execute: async (params: any) => {
           try {
             const result = await mcpApiClient.executeTool({
@@ -299,12 +384,48 @@ export async function loadMCPTools(configId?: string, userId?: string): Promise<
       selectedWebhookToolNames = null;
     }
 
+    const webSearchSelection = selectionState?.clientSelections?.find(
+      (entry) => entry.toolName === WEB_SEARCH_TOOL_NAME
+    );
+    const webSearchDefaults = webSearchSelection?.metadata || WEB_SEARCH_DEFAULTS;
+    registeredTools = [
+      ...registeredTools,
+      {
+        name: WEB_SEARCH_TOOL_NAME,
+        description: 'Search the web for grounded answers from specific websites.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Search query' },
+            allowed_domains: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Restrict results to these domains'
+            },
+            max_results: { type: 'integer', description: 'Maximum number of results' },
+            time_range: {
+              type: 'string',
+              enum: ['any', 'day', 'week', 'month', 'year'],
+              description: 'Recency filter'
+            },
+            snippets_only: { type: 'boolean', description: 'Return snippets only' }
+          },
+          required: ['query']
+        },
+        executionType: 'client',
+        source: 'mcp',
+        metadata: webSearchDefaults,
+        execute: async (params: any) => executeWebSearch(params, webSearchDefaults)
+      }
+    ];
+
     mcpTools = registeredTools;
   } catch (error) {
     console.error('Error loading MCP tools:', error);
     mcpTools = [];
     selectedMcpToolNames = null;
     selectedWebhookToolNames = null;
+    selectedClientToolNames = null;
   }
 }
 
@@ -314,6 +435,7 @@ export function registerToolsFromServer(serialized: SerializedToolDefinition[] |
     mcpTools = [];
     selectedMcpToolNames = null;
     selectedWebhookToolNames = null;
+    selectedClientToolNames = null;
     return;
   }
 
@@ -370,6 +492,9 @@ export function registerToolsFromServer(serialized: SerializedToolDefinition[] |
   selectedWebhookToolNames = mcpTools
     .filter((tool) => tool.executionType === 'webhook')
     .map((tool) => tool.name);
+  selectedClientToolNames = mcpTools
+    .filter((tool) => tool.executionType === 'client')
+    .map((tool) => tool.name);
 }
 
 const SELECTION_SENTINEL = '__none__';
@@ -388,6 +513,7 @@ export async function loadToolSelectionForConfig(
       console.error('Failed to load tool selection:', error);
       selectedMcpToolNames = null;
       selectedWebhookToolNames = null;
+      selectedClientToolNames = null;
       return null;
     }
 
@@ -409,6 +535,7 @@ export async function loadToolSelectionForConfig(
     if (nonSentinel.length === 0) {
       selectedMcpToolNames = [];
       selectedWebhookToolNames = [];
+      selectedClientToolNames = [];
       console.log('🔧 Tool selection explicitly cleared; no tools enabled', {
         configId,
         sentinel: hasSentinel
@@ -416,19 +543,24 @@ export async function loadToolSelectionForConfig(
       return {
         mcpToolNames: [],
         n8nToolNames: [],
-        n8nSelections: []
+        n8nSelections: [],
+        clientToolNames: [],
+        clientSelections: []
       };
     }
 
     const mcpRows = nonSentinel.filter(tool => tool.tool_source === 'mcp');
     const n8nRows = nonSentinel.filter(tool => tool.tool_source === 'n8n');
+    const clientRows = nonSentinel.filter(tool => tool.tool_source === 'client');
 
     selectedMcpToolNames = mcpRows.map(tool => tool.tool_name);
     selectedWebhookToolNames = n8nRows.map(tool => tool.tool_name);
+    selectedClientToolNames = clientRows.map(tool => tool.tool_name);
 
     console.log('🔧 Loaded tool selections', {
       mcp: selectedMcpToolNames.length,
-      n8n: selectedWebhookToolNames.length
+      n8n: selectedWebhookToolNames.length,
+      client: selectedClientToolNames.length
     });
 
     return {
@@ -439,12 +571,18 @@ export async function loadToolSelectionForConfig(
         .map(tool => ({
           integrationId: tool.n8n_integration_id as string,
           metadata: tool.metadata || {}
-        }))
+        })),
+      clientToolNames: selectedClientToolNames,
+      clientSelections: clientRows.map(tool => ({
+        toolName: tool.tool_name,
+        metadata: tool.metadata || {}
+      }))
     };
   } catch (error) {
     console.error('Error loading tool selection:', error);
     selectedMcpToolNames = null;
     selectedWebhookToolNames = null;
+    selectedClientToolNames = null;
     return null;
   }
 }
