@@ -393,8 +393,8 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
 
   if (!configId) {
     return (
-      <div className="px-4 py-8 text-center text-gray-500">
-        <Wrench className="w-10 h-10 mx-auto mb-2 text-gray-300" />
+      <div className="px-4 py-8 text-center text-white/50">
+        <Wrench className="w-10 h-10 mx-auto mb-2 text-white/25" />
         <p className="text-sm">Select a configuration to manage tools</p>
       </div>
     );
@@ -409,8 +409,8 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-semibold text-gray-800">Tool Selection</h3>
-          <p className="text-xs text-gray-500 mt-1">
+          <h3 className="text-sm font-semibold text-white">Tool Selection</h3>
+          <p className="text-xs text-white/50 mt-1">
             {totalSelected} of {totalAvailable} tools selected
           </p>
         </div>
@@ -428,34 +428,36 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
 
       {isLoading ? (
         <div className="flex items-center justify-center py-8">
-          <Loader2 className="w-6 h-6 text-primary animate-spin" />
+          <Loader2 className="w-6 h-6 text-cyan-300 animate-spin" />
         </div>
       ) : (
         <div className="space-y-2">
-          <Card>
+          <Card className="bg-slate-900/40 border-white/10">
             <CardContent className="p-0">
               <div
                 role="button"
                 tabIndex={0}
                 onClick={() => setIsExpanded(!isExpanded)}
-                className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                className="w-full px-4 py-3 flex items-center justify-between hover:bg-white/5 transition-colors"
               >
                 <div className="flex items-center gap-2">
                   {isExpanded ? (
-                    <ChevronDown className="w-4 h-4 text-gray-600" />
+                    <ChevronDown className="w-4 h-4 text-white/50" />
                   ) : (
-                    <ChevronRight className="w-4 h-4 text-gray-600" />
+                    <ChevronRight className="w-4 h-4 text-white/50" />
                   )}
-                  <Wrench className="w-4 h-4 text-purple-600" />
-                  <span className="text-sm font-medium text-gray-800">MCP Tools</span>
-                  <Badge variant="secondary">{mcpSelectedCount}/{mcpTools.length}</Badge>
+                  <Wrench className="w-4 h-4 text-cyan-300" />
+                  <span className="text-sm font-medium text-white">MCP Tools</span>
+                  <Badge variant="secondary" className="bg-white/10 text-white/70 border border-white/10">
+                    {mcpSelectedCount}/{mcpTools.length}
+                  </Badge>
                 </div>
                 <div className="flex gap-1">
                   <span
                     role="button"
                     tabIndex={0}
                     onClick={(e) => { e.stopPropagation(); handleSelectAll(); }}
-                    className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded"
+                    className="px-2 py-1 text-xs text-cyan-200 hover:bg-white/5 rounded"
                   >
                     All
                   </span>
@@ -463,7 +465,7 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
                     role="button"
                     tabIndex={0}
                     onClick={(e) => { e.stopPropagation(); handleDeselectAll(); }}
-                    className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded"
+                    className="px-2 py-1 text-xs text-white/50 hover:bg-white/5 rounded"
                   >
                     None
                   </span>
@@ -471,37 +473,39 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
               </div>
 
               {isExpanded && (
-                <div className="border-t border-gray-200 p-3 space-y-2">
+                <div className="border-t border-white/10 p-3 space-y-2">
                   {mcpTools.length === 0 ? (
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-white/50">
                       No MCP tools available. Enable an MCP connection to select tools.
                     </p>
                   ) : (
                     mcpTools.map(tool => (
                       <label
                         key={tool.id}
-                        className="flex items-start gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer"
+                        className="flex items-start gap-3 p-2 hover:bg-white/5 rounded cursor-pointer"
                       >
                         <input
                           type="checkbox"
                           checked={selectedMcpTools.has(tool.tool_name)}
                           onChange={() => handleToggleTool(tool.tool_name)}
-                          className="mt-0.5 w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary"
+                          className="mt-0.5 w-4 h-4 text-cyan-400 border-white/20 rounded focus:ring-cyan-400"
                         />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <div className="text-sm font-medium text-gray-800">{tool.tool_name}</div>
+                            <div className="text-sm font-medium text-white">{tool.tool_name}</div>
                             {tool.category && (
-                              <Badge variant="default" className="text-xs">{tool.category}</Badge>
+                              <Badge variant="default" className="text-xs bg-white/10 text-white/70 border border-white/10">
+                                {tool.category}
+                              </Badge>
                             )}
                           </div>
-                          <div className="text-xs text-gray-500 line-clamp-2">{tool.description}</div>
-                          <div className="text-xs text-gray-400 mt-1">
+                          <div className="text-xs text-white/50 line-clamp-2">{tool.description}</div>
+                          <div className="text-xs text-white/40 mt-1">
                             from {tool.connection_name}
                           </div>
                         </div>
                         {selectedMcpTools.has(tool.tool_name) && (
-                          <Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
+                          <Check className="w-4 h-4 text-emerald-300 flex-shrink-0 mt-0.5" />
                         )}
                       </label>
                     ))
@@ -511,30 +515,32 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="bg-slate-900/40 border-white/10">
             <CardContent className="p-0">
               <div
                 role="button"
                 tabIndex={0}
                 onClick={() => setIsN8NExpanded(!isN8NExpanded)}
-                className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                className="w-full px-4 py-3 flex items-center justify-between hover:bg-white/5 transition-colors"
               >
                 <div className="flex items-center gap-2">
                   {isN8NExpanded ? (
-                    <ChevronDown className="w-4 h-4 text-gray-600" />
+                    <ChevronDown className="w-4 h-4 text-white/50" />
                   ) : (
-                    <ChevronRight className="w-4 h-4 text-gray-600" />
+                    <ChevronRight className="w-4 h-4 text-white/50" />
                   )}
-                  <Wrench className="w-4 h-4 text-orange-500" />
-                  <span className="text-sm font-medium text-gray-800">n8n Automations</span>
-                  <Badge variant="secondary">{n8nSelectedCount}/{n8nIntegrations.length}</Badge>
+                  <Wrench className="w-4 h-4 text-amber-300" />
+                  <span className="text-sm font-medium text-white">n8n Automations</span>
+                  <Badge variant="secondary" className="bg-white/10 text-white/70 border border-white/10">
+                    {n8nSelectedCount}/{n8nIntegrations.length}
+                  </Badge>
                 </div>
                 <div className="flex gap-1">
                   <span
                     role="button"
                     tabIndex={0}
                     onClick={(e) => { e.stopPropagation(); handleSelectAllN8n(); }}
-                    className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded"
+                    className="px-2 py-1 text-xs text-cyan-200 hover:bg-white/5 rounded"
                   >
                     All
                   </span>
@@ -542,7 +548,7 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
                     role="button"
                     tabIndex={0}
                     onClick={(e) => { e.stopPropagation(); handleDeselectAllN8n(); }}
-                    className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded"
+                    className="px-2 py-1 text-xs text-white/50 hover:bg-white/5 rounded"
                   >
                     None
                   </span>
@@ -550,9 +556,9 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
               </div>
 
               {isN8NExpanded && (
-                <div className="border-t border-gray-200 p-3 space-y-3">
+                <div className="border-t border-white/10 p-3 space-y-3">
                   {n8nIntegrations.length === 0 ? (
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-white/50">
                       No n8n webhooks are connected to this agent. Use the n8n panel to register one.
                     </p>
                   ) : (
@@ -562,36 +568,38 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
                       return (
                         <div key={integration.id} className="space-y-2">
                           <label
-                            className="flex items-start gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer"
+                            className="flex items-start gap-3 p-2 hover:bg-white/5 rounded cursor-pointer"
                           >
                             <input
                               type="checkbox"
                               checked={isSelected}
                               onChange={() => handleToggleN8n(integration.toolName)}
-                              className="mt-0.5 w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary"
+                              className="mt-0.5 w-4 h-4 text-cyan-400 border-white/20 rounded focus:ring-cyan-400"
                             />
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
-                                <div className="text-sm font-medium text-gray-800">{integration.name}</div>
-                                <Badge variant="outline" className="text-xs">{integration.toolName}</Badge>
+                                <div className="text-sm font-medium text-white">{integration.name}</div>
+                                <Badge variant="outline" className="text-xs border-white/20 text-white/70">
+                                  {integration.toolName}
+                                </Badge>
                               </div>
                               {integration.description && (
-                                <div className="text-xs text-gray-500">{integration.description}</div>
+                                <div className="text-xs text-white/50">{integration.description}</div>
                               )}
-                              <div className="text-xs text-gray-400 mt-1">
-                                Tool name: <code className="text-[10px]">{integration.toolName}</code>
+                              <div className="text-xs text-white/40 mt-1">
+                                Tool name: <code className="text-[10px] text-white/60">{integration.toolName}</code>
                               </div>
                             </div>
                             {isSelected && (
-                              <Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
+                              <Check className="w-4 h-4 text-emerald-300 flex-shrink-0 mt-0.5" />
                             )}
                           </label>
                           {isSelected && (
-                            <div className="ml-7 border border-orange-200 rounded-lg bg-orange-50/30 p-3 space-y-3">
+                            <div className="ml-7 border border-amber-400/30 rounded-lg bg-amber-500/10 p-3 space-y-3">
                               <div className="flex items-center justify-between">
                                 <div>
-                                  <p className="text-xs font-semibold text-orange-900 uppercase tracking-wide">Payload parameters</p>
-                                  <p className="text-[11px] text-orange-700">
+                                  <p className="text-xs font-semibold text-amber-200 uppercase tracking-wide">Payload parameters</p>
+                                  <p className="text-[11px] text-amber-200/80">
                                     These keys become part of the webhook request body.
                                   </p>
                                 </div>
@@ -599,27 +607,28 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
                                   variant="ghost"
                                   size="xs"
                                   onClick={() => handleAddPayloadParam(integration.id)}
+                                  className="text-amber-100 hover:text-white hover:bg-white/10"
                                 >
                                   <Plus className="w-3 h-3 mr-1" />
                                   Add key
                                 </Button>
                               </div>
                               {paramRows.length === 0 ? (
-                                <p className="text-[11px] text-gray-600">
+                                <p className="text-[11px] text-white/60">
                                   Requests will send an empty payload. Add keys if your workflow expects structured data.
                                 </p>
                               ) : (
                                 paramRows.map(row => (
-                                  <div key={row.id} className="border border-gray-200 rounded-lg bg-white p-3 space-y-2">
+                                  <div key={row.id} className="border border-white/10 rounded-lg bg-slate-900/70 p-3 space-y-2">
                                     <div className="flex items-center gap-2">
                                       <input
-                                        className="flex-1 rounded border border-gray-300 px-2 py-1 text-xs"
+                                        className="flex-1 rounded border border-white/10 bg-slate-950 px-2 py-1 text-xs text-white placeholder:text-white/40"
                                         placeholder="field_key"
                                         value={row.key}
                                         onChange={(e) => handlePayloadParamChange(integration.id, row.id, 'key', e.target.value)}
                                       />
                                       <select
-                                        className="rounded border border-gray-300 px-2 py-1 text-xs"
+                                        className="rounded border border-white/10 bg-slate-950 px-2 py-1 text-xs text-white"
                                         value={row.type}
                                         onChange={(e) => handlePayloadParamChange(integration.id, row.id, 'type', e.target.value as PayloadParamType)}
                                       >
@@ -628,18 +637,18 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
                                         <option value="integer">integer</option>
                                         <option value="boolean">boolean</option>
                                       </select>
-                                      <label className="flex items-center gap-1 text-[11px] text-gray-600">
+                                      <label className="flex items-center gap-1 text-[11px] text-white/60">
                                         <input
                                           type="checkbox"
                                           checked={row.required}
                                           onChange={(e) => handlePayloadParamChange(integration.id, row.id, 'required', e.target.checked)}
-                                          className="w-3 h-3 rounded border-gray-300 text-primary focus:ring-primary"
+                                          className="w-3 h-3 rounded border-white/20 text-cyan-400 focus:ring-cyan-400"
                                         />
                                         Required
                                       </label>
                                       <button
                                         type="button"
-                                        className="text-gray-400 hover:text-red-500 transition-colors"
+                                        className="text-white/40 hover:text-rose-300 transition-colors"
                                         onClick={() => handleRemovePayloadParam(integration.id, row.id)}
                                       >
                                         <Trash2 className="w-4 h-4" />
@@ -647,13 +656,13 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
                                     </div>
                                     <div className="grid grid-cols-2 gap-2">
                                       <input
-                                        className="rounded border border-gray-300 px-2 py-1 text-xs"
+                                        className="rounded border border-white/10 bg-slate-950 px-2 py-1 text-xs text-white placeholder:text-white/40"
                                         placeholder="Example value"
                                         value={row.example}
                                         onChange={(e) => handlePayloadParamChange(integration.id, row.id, 'example', e.target.value)}
                                       />
                                       <input
-                                        className="rounded border border-gray-300 px-2 py-1 text-xs"
+                                        className="rounded border border-white/10 bg-slate-950 px-2 py-1 text-xs text-white placeholder:text-white/40"
                                         placeholder="Description (optional)"
                                         value={row.description}
                                         onChange={(e) => handlePayloadParamChange(integration.id, row.id, 'description', e.target.value)}
@@ -676,9 +685,9 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
       )}
 
       {hasChanges && (
-        <Card className="border-2 border-orange-300 bg-orange-50">
+        <Card className="border border-amber-400/50 bg-amber-500/10">
           <CardContent className="p-3">
-            <p className="text-xs text-orange-800">
+            <p className="text-xs text-amber-100">
               You have unsaved tool selection changes. Click "Save Changes" to apply them.
             </p>
           </CardContent>

@@ -14,7 +14,11 @@ type AgentPresetTemplate = {
   turn_detection_config: any;
 };
 
-export function AgentSetupStep() {
+type AgentSetupStepProps = {
+  embedded?: boolean;
+};
+
+export function AgentSetupStep({ embedded = false }: AgentSetupStepProps) {
   const { vaUser, providerKeys, refreshProfile, signOut } = useAuth();
   const [presets, setPresets] = useState<AgentPresetTemplate[]>([]);
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
@@ -111,28 +115,31 @@ export function AgentSetupStep() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white px-6 py-12">
-      <div className="max-w-4xl mx-auto space-y-8">
+    <div className={embedded ? 'h-full text-white px-6 py-6' : 'min-h-screen bg-[#05070f] text-white px-6 py-12'}>
+      {!embedded && (
+        <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.08),_transparent_45%),radial-gradient(circle_at_20%_80%,_rgba(59,130,246,0.12),_transparent_55%)]" />
+      )}
+      <div className={embedded ? 'relative z-10 max-w-5xl mx-auto space-y-8' : 'relative z-10 max-w-5xl mx-auto space-y-8'}>
         <header className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-sm text-slate-400 uppercase mb-2 tracking-widest">Step 2</p>
-            <h1 className="text-3xl font-semibold mb-2">Create your first AI Agent</h1>
-            <p className="text-slate-400 max-w-2xl">
+            <p className="text-[11px] text-white/40 uppercase mb-2 tracking-[0.3em]">Create agent</p>
+            <h1 className="text-3xl font-semibold mb-2 font-display">Create your first AI Agent</h1>
+            <p className="text-white/60 max-w-2xl">
               Choose a preset blueprint and bind it to the OpenAI key you added. This becomes the default agent for your workspace.
             </p>
           </div>
           <button
             onClick={signOut}
-            className="text-sm text-slate-400 hover:text-white"
+            className="text-sm text-white/60 hover:text-white"
           >
             Sign out
           </button>
         </header>
 
         <div className="space-y-3">
-          <label className="text-sm text-slate-300">OpenAI key</label>
+          <label className="text-sm text-white/70">OpenAI key</label>
           <select
-            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2"
+            className="w-full bg-slate-900/80 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
             value={selectedKeyId || ''}
             onChange={(e) => setSelectedKeyId(e.target.value)}
           >
@@ -146,19 +153,19 @@ export function AgentSetupStep() {
 
         <div className="grid md:grid-cols-3 gap-4">
           {isLoading && (
-            <p className="text-slate-500 col-span-3">Loading presets...</p>
+            <p className="text-white/50 col-span-3">Loading presets...</p>
           )}
           {!isLoading && presets.map((preset) => {
             const isActive = preset.id === selectedPresetId;
             return (
               <Card
                 key={preset.id}
-                className={`p-4 bg-slate-900 border ${isActive ? 'border-blue-500' : 'border-slate-800'} cursor-pointer`}
+                className={`p-4 bg-slate-950/80 border ${isActive ? 'border-cyan-400/60 shadow-[0_0_20px_rgba(34,211,238,0.2)]' : 'border-white/10'} cursor-pointer`}
                 onClick={() => setSelectedPresetId(preset.id)}
               >
-                <h3 className="font-semibold text-lg">{preset.name}</h3>
-                <p className="text-sm text-slate-400 mt-2">{preset.description}</p>
-                <div className="mt-3 text-xs text-slate-500 space-y-1">
+                <h3 className="font-semibold text-lg text-white">{preset.name}</h3>
+                <p className="text-sm text-white/60 mt-2">{preset.description}</p>
+                <div className="mt-3 text-xs text-white/50 space-y-1">
                   <p>Voice: {preset.voice}</p>
                   <p>Model: {preset.model}</p>
                   <p>Temperature: {preset.temperature}</p>
@@ -169,13 +176,13 @@ export function AgentSetupStep() {
         </div>
 
         {error && (
-          <p className="text-sm text-red-400">{error}</p>
+          <p className="text-sm text-rose-300">{error}</p>
         )}
 
         <button
           onClick={handleCreate}
           disabled={isCreating || !selectedPresetId || !selectedKeyId}
-          className="w-full py-3 rounded-lg bg-blue-600 hover:bg-blue-500 font-semibold disabled:opacity-60"
+          className="w-full py-3 rounded-lg bg-gradient-to-r from-blue-600 via-cyan-500 to-blue-600 text-white font-semibold shadow-[0_0_25px_rgba(34,211,238,0.25)] hover:brightness-110 disabled:opacity-60"
         >
           {isCreating ? 'Creating agent...' : 'Create agent and continue'}
         </button>

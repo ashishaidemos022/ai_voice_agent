@@ -259,7 +259,7 @@ export function AuthScreen() {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="w-full py-2.5 rounded-lg bg-gradient-to-r from-blue-600 via-cyan-500 to-blue-600 text-white font-semibold shadow-[0_12px_30px_rgba(59,130,246,0.35)] hover:brightness-110 disabled:opacity-60"
+                  className="w-full py-2.5 rounded-lg bg-[#90E5E6] text-slate-950 font-semibold shadow-[0_12px_30px_rgba(144,229,230,0.35)] hover:brightness-105 disabled:opacity-60"
                 >
                   {isSubmitting
                     ? 'Please wait...'

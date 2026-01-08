@@ -39,6 +39,8 @@ interface SettingsPanelProps {
   providerKeyId: string | null;
   onPresetsRefresh?: () => Promise<void> | void;
   onToolsChanged?: () => Promise<void> | void;
+  embedded?: boolean;
+  onBack?: () => void;
 }
 
 const DEFAULT_INSTRUCTIONS =
@@ -82,7 +84,9 @@ export function SettingsPanel({
   userId,
   providerKeyId,
   onPresetsRefresh,
-  onToolsChanged
+  onToolsChanged,
+  embedded = false,
+  onBack
 }: SettingsPanelProps) {
   const [presets, setPresets] = useState<AgentConfigPreset[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -93,10 +97,10 @@ export function SettingsPanel({
   const activePreset = presets.find((p) => p.id === activeConfigId);
 
   useEffect(() => {
-    if (isOpen) {
+    if (embedded || isOpen) {
       void loadPresets();
     }
-  }, [isOpen]);
+  }, [embedded, isOpen]);
 
   useEffect(() => {
     if (activeConfigId && activePreset) {
@@ -204,70 +208,81 @@ export function SettingsPanel({
 
   const characterCount = config.instructions.length;
 
-  return (
-    <RightPanel
-      isOpen={isOpen}
-      onClose={onClose}
-      title="Agent Configuration"
-      subtitle={hasUnsavedChanges ? 'Unsaved changes' : activePreset?.name || 'New preset'}
-      width="920px"
-    >
-      <div className="h-full flex flex-col">
-        <div className="px-6 py-4 border-b border-gray-200 bg-white/90 backdrop-blur flex items-start justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-gray-500">
-              <Sparkles className="w-4 h-4" />
-              <span>Agent preset</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <h2 className="text-xl font-semibold text-gray-900">{activePreset?.name || 'New agent preset'}</h2>
-              {activePreset?.is_default && <Badge variant="secondary">Default</Badge>}
-              {hasUnsavedChanges && <Badge variant="warning">Unsaved</Badge>}
-            </div>
-            <p className="text-sm text-gray-600">
-              Configure persona, response style, voice, and automations. Changes apply after you save.
-            </p>
+  const content = (
+    <div className="h-full flex flex-col">
+      <div className="px-6 py-4 border-b border-white/10 bg-slate-950/60 backdrop-blur flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-white/50">
+            <Sparkles className="w-4 h-4" />
+            <span>Agent preset</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-semibold text-white font-display">{activePreset?.name || 'New agent preset'}</h2>
+            {activePreset?.is_default && <Badge variant="secondary">Default</Badge>}
+            {hasUnsavedChanges && <Badge variant="warning">Unsaved</Badge>}
+          </div>
+          <p className="text-sm text-white/60">
+            Configure persona, response style, voice, and automations. Changes apply after you save.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {embedded && onBack && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onBack}
+              className="text-white/70 hover:text-cyan-100 hover:bg-white/5"
+            >
+              Back to workspace
+            </Button>
+          )}
             <Button
               variant="outline"
               size="sm"
               onClick={() => {
-                onActiveConfigChange(null);
-                onConfigChange(BASE_DEFAULT_CONFIG);
-                setShowSaveDialog(true);
-                setNewPresetName('');
-                setSaveError(null);
-                setHasUnsavedChanges(true);
+              onActiveConfigChange(null);
+              onConfigChange(BASE_DEFAULT_CONFIG);
+              setShowSaveDialog(true);
+              setNewPresetName('');
+              setSaveError(null);
+              setHasUnsavedChanges(true);
               }}
               disabled={isLoading}
+              className="border-white/15 bg-transparent text-white/80 hover:border-cyan-300/60 hover:text-cyan-100 hover:bg-white/5"
             >
               <Plus className="w-3 h-3" />
               New preset
             </Button>
-            <Button variant="ghost" size="sm" onClick={handleDuplicate} disabled={isLoading || !activePreset}>
-              <Copy className="w-3 h-3" />
-              Duplicate preset
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleUpdateCurrentPreset}
-              disabled={isLoading || !activeConfigId || !hasUnsavedChanges}
-            >
-              <Save className="w-3 h-3" />
-              Save changes
-            </Button>
-          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleDuplicate}
+            disabled={isLoading || !activePreset}
+            className="text-white/70 hover:text-cyan-100 hover:bg-white/5"
+          >
+            <Copy className="w-3 h-3" />
+            Duplicate preset
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleUpdateCurrentPreset}
+            disabled={isLoading || !activeConfigId || !hasUnsavedChanges}
+            className="bg-[#90E5E6] text-slate-950 hover:brightness-105 shadow-[0_10px_30px_rgba(144,229,230,0.35)]"
+          >
+            <Save className="w-3 h-3" />
+            Save changes
+          </Button>
         </div>
+      </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-          <Card className="border-gray-200 shadow-sm">
+      <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+          <Card className="border-white/10 shadow-[0_12px_40px_rgba(3,6,15,0.5)]">
             <CardHeader className="flex flex-col gap-4">
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
-                  <p className="text-xs uppercase text-gray-500 tracking-[0.2em]">Preset lifecycle</p>
-                  <h3 className="text-lg font-semibold text-gray-900">Select or manage presets</h3>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-xs uppercase text-white/50 tracking-[0.2em]">Preset lifecycle</p>
+                  <h3 className="text-lg font-semibold text-white">Select or manage presets</h3>
+                  <p className="text-sm text-white/60">
                     Switch between saved agents or capture the current setup as a new preset.
                   </p>
                 </div>
@@ -282,7 +297,7 @@ export function SettingsPanel({
                       <Trash2 className="w-4 h-4" />
                       Delete
                     </Button>
-                    <Button size="sm" variant="outline" onClick={handleResetToDefault}>
+                    <Button size="sm" variant="outline" onClick={handleResetToDefault} className="border-white/15 bg-transparent text-white/80 hover:border-cyan-300/60 hover:text-cyan-100 hover:bg-white/5">
                       <RotateCcw className="w-4 h-4" />
                       Reset instructions
                     </Button>
@@ -291,11 +306,11 @@ export function SettingsPanel({
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div className="col-span-2 space-y-2">
-                  <label className="text-xs font-semibold text-gray-700">Active preset</label>
+                  <label className="text-xs font-semibold text-white/70">Active preset</label>
                   <select
                     value={activeConfigId || ''}
                     onChange={(e) => handlePresetSelect(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary bg-white text-sm"
+                    className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
                     disabled={isLoading}
                   >
                     <option value="">Select a preset...</option>
@@ -306,16 +321,16 @@ export function SettingsPanel({
                     ))}
                   </select>
                   {showSaveDialog && (
-                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-2">
-                      <label className="text-xs font-semibold text-gray-700">Save as new preset</label>
+                    <div className="rounded-lg border border-white/10 bg-white/5 p-3 space-y-2">
+                      <label className="text-xs font-semibold text-white/70">Save as new preset</label>
                       <input
                         value={newPresetName}
                         onChange={(e) => setNewPresetName(e.target.value)}
                         placeholder="e.g. Support Agent, Sales Concierge"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary text-sm"
+                        className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
                         disabled={isLoading}
                       />
-                      {saveError && <p className="text-xs text-red-600">{saveError}</p>}
+                      {saveError && <p className="text-xs text-rose-300">{saveError}</p>}
                       <div className="flex justify-end gap-2">
                         <Button
                           variant="ghost"
@@ -325,53 +340,54 @@ export function SettingsPanel({
                             setNewPresetName('');
                             setSaveError(null);
                           }}
+                          className="text-white/70 hover:text-white hover:bg-white/5"
                         >
                           Cancel
                         </Button>
-                        <Button size="sm" onClick={handleSaveNewPreset} disabled={isLoading}>
+                        <Button size="sm" onClick={handleSaveNewPreset} disabled={isLoading} className="bg-cyan-500/80 hover:bg-cyan-400 text-white">
                           Save preset
                         </Button>
                       </div>
                     </div>
                   )}
                 </div>
-                <div className="h-full rounded-lg border border-dashed border-gray-200 bg-white p-3">
-                  <p className="text-xs font-semibold text-gray-700 flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <div className="h-full rounded-lg border border-dashed border-white/15 bg-white/5 p-3">
+                  <p className="text-xs font-semibold text-white/70 flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-300" />
                     Snapshot
                   </p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Model: <span className="font-medium text-gray-800">{config.model}</span>
+                  <p className="text-xs text-white/50 mt-1">
+                    Model: <span className="font-medium text-white/80">{config.model}</span>
                   </p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-white/50">
                     Updated: {activePreset?.updated_at ? new Date(activePreset.updated_at).toLocaleString() : '—'}
                   </p>
-                  <p className="text-xs text-gray-500">Max tokens: {config.max_response_output_tokens}</p>
+                  <p className="text-xs text-white/50">Max tokens: {config.max_response_output_tokens}</p>
                 </div>
               </div>
             </CardHeader>
           </Card>
 
-          <Card className="border-gray-200 shadow-sm">
+          <Card className="border-white/10 shadow-[0_12px_40px_rgba(3,6,15,0.5)]">
             <CardHeader className="flex flex-col gap-4">
               <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-200 flex items-center justify-center border border-indigo-400/30">
                   <Wand2 className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="text-xs uppercase text-gray-500 tracking-[0.2em]">Behavior</p>
-                  <h3 className="text-lg font-semibold text-gray-900">Persona & tone</h3>
-                  <p className="text-sm text-gray-600">Guide the agent’s reasoning style, role, and safety posture.</p>
+                  <p className="text-xs uppercase text-white/50 tracking-[0.2em]">Behavior</p>
+                  <h3 className="text-lg font-semibold text-white">Persona & tone</h3>
+                  <p className="text-sm text-white/60">Guide the agent’s reasoning style, role, and safety posture.</p>
                 </div>
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-sm font-semibold text-gray-800">System instructions</label>
+                  <label className="text-sm font-semibold text-white/80">System instructions</label>
                   <div className="flex gap-2">
                     <Badge variant="secondary" className="text-[11px]">
                       Characters: {characterCount}
                     </Badge>
-                    <Button variant="ghost" size="sm" onClick={handleResetToDefault}>
+                    <Button variant="ghost" size="sm" onClick={handleResetToDefault} className="text-white/70 hover:text-cyan-100 hover:bg-white/5">
                       <RotateCcw className="w-3 h-3" />
                       Reset
                     </Button>
@@ -381,33 +397,33 @@ export function SettingsPanel({
                   value={config.instructions}
                   onChange={(e) => onConfigChange({ ...config, instructions: e.target.value })}
                   rows={8}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary font-mono text-xs"
+                  className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-white font-mono text-xs"
                   placeholder="Define the persona, boundaries, and style..."
                 />
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-white/50">
                   Use concise directives, add safety rules, and keep language consistent.
                 </p>
               </div>
             </CardHeader>
           </Card>
 
-          <Card className="border-gray-200 shadow-sm">
+          <Card className="border-white/10 shadow-[0_12px_40px_rgba(3,6,15,0.5)]">
             <CardHeader className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="col-span-1 flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-200 flex items-center justify-center border border-amber-400/30">
                   <SlidersHorizontal className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="text-xs uppercase text-gray-500 tracking-[0.2em]">Response controls</p>
-                  <h3 className="text-lg font-semibold text-gray-900">Model tuning</h3>
-                  <p className="text-sm text-gray-600">Balance creativity vs. determinism for this agent.</p>
+                  <p className="text-xs uppercase text-white/50 tracking-[0.2em]">Response controls</p>
+                  <h3 className="text-lg font-semibold text-white">Model tuning</h3>
+                  <p className="text-sm text-white/60">Balance creativity vs. determinism for this agent.</p>
                 </div>
               </div>
               <div className="col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-semibold text-gray-800 flex items-center justify-between">
+                  <label className="text-sm font-semibold text-white/80 flex items-center justify-between">
                     Temperature
-                    <span className="text-xs text-gray-500">{config.temperature.toFixed(1)}</span>
+                    <span className="text-xs text-white/50">{config.temperature.toFixed(1)}</span>
                   </label>
                   <input
                     type="range"
@@ -421,14 +437,14 @@ export function SettingsPanel({
                         temperature: parseFloat(e.target.value)
                       })
                     }
-                    className="w-full"
+                    className="w-full accent-cyan-300"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Higher is more creative; lower is more deterministic.</p>
+                  <p className="text-xs text-white/50 mt-1">Higher is more creative; lower is more deterministic.</p>
                 </div>
                 <div>
-                  <label className="text-sm font-semibold text-gray-800 flex items-center justify-between">
+                  <label className="text-sm font-semibold text-white/80 flex items-center justify-between">
                     Max response tokens
-                    <span className="text-xs text-gray-500">{config.max_response_output_tokens}</span>
+                    <span className="text-xs text-white/50">{config.max_response_output_tokens}</span>
                   </label>
                   <input
                     type="number"
@@ -442,33 +458,33 @@ export function SettingsPanel({
                         max_response_output_tokens: parseInt(e.target.value || '0', 10)
                       })
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary text-sm"
+                    className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Keep within model limits to avoid truncation.</p>
+                  <p className="text-xs text-white/50 mt-1">Keep within model limits to avoid truncation.</p>
                 </div>
               </div>
             </CardHeader>
           </Card>
 
-          <Card className="border-gray-200 shadow-sm">
+          <Card className="border-white/10 shadow-[0_12px_40px_rgba(3,6,15,0.5)]">
             <CardHeader className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="col-span-1 flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-200 flex items-center justify-center border border-emerald-400/30">
                   <Workflow className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="text-xs uppercase text-gray-500 tracking-[0.2em]">Voice & pacing</p>
-                  <h3 className="text-lg font-semibold text-gray-900">Voice + turn detection</h3>
-                  <p className="text-sm text-gray-600">Choose the voice and how the agent listens and responds.</p>
+                  <p className="text-xs uppercase text-white/50 tracking-[0.2em]">Voice & pacing</p>
+                  <h3 className="text-lg font-semibold text-white">Voice + turn detection</h3>
+                  <p className="text-sm text-white/60">Choose the voice and how the agent listens and responds.</p>
                 </div>
               </div>
               <div className="col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-semibold text-gray-800">Voice</label>
+                  <label className="text-sm font-semibold text-white/80">Voice</label>
                   <select
                     value={config.voice}
                     onChange={(e) => onConfigChange({ ...config, voice: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary text-sm"
+                    className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
                   >
                     {VOICE_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>
@@ -495,26 +511,26 @@ export function SettingsPanel({
                               }
                         })
                       }
-                      className="w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary"
+                      className="w-4 h-4 text-cyan-400 border-white/20 rounded focus:ring-cyan-400"
                     />
-                    <span className="text-sm font-semibold text-gray-800">Voice activity detection</span>
+                    <span className="text-sm font-semibold text-white/80">Voice activity detection</span>
                   </label>
-                  <p className="text-xs text-gray-500">Let the agent auto-respond when you pause speaking.</p>
+                  <p className="text-xs text-white/50">Let the agent auto-respond when you pause speaking.</p>
                 </div>
               </div>
             </CardHeader>
           </Card>
 
-          <Card className="border-gray-200 shadow-sm">
+          <Card className="border-white/10 shadow-[0_12px_40px_rgba(3,6,15,0.5)]">
             <CardHeader className="space-y-3">
               <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-white/10 text-white flex items-center justify-center border border-white/10">
                   <Sparkles className="w-5 h-5" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-xs uppercase text-gray-400 tracking-[0.2em]">Automations</p>
-                  <h3 className="text-lg font-semibold text-gray-900">Tools & n8n workflows</h3>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-xs uppercase text-white/50 tracking-[0.2em]">Automations</p>
+                  <h3 className="text-lg font-semibold text-white">Tools & n8n workflows</h3>
+                  <p className="text-sm text-white/60">
                     Choose which MCP tools and n8n webhooks the agent can call. Changes save immediately to the preset.
                   </p>
                 </div>
@@ -523,17 +539,36 @@ export function SettingsPanel({
             </CardHeader>
           </Card>
 
-          <div className="flex items-center justify-between text-xs text-gray-500 px-1">
+          <div className="flex items-center justify-between text-xs text-white/50 px-1">
             <span className="flex items-center gap-1">
-              <BadgeCheck className="w-4 h-4 text-emerald-600" />
+              <BadgeCheck className="w-4 h-4 text-emerald-300" />
               Provider key: {providerKeyId || 'Not set'}
             </span>
             <span>
               Created: {activePreset?.created_at ? new Date(activePreset.created_at).toLocaleString() : '—'}
             </span>
           </div>
-        </div>
       </div>
+    </div>
+  );
+
+  if (embedded) {
+    return (
+      <div className="h-full w-full bg-slate-950/40 text-white">
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <RightPanel
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Agent Configuration"
+      subtitle={hasUnsavedChanges ? 'Unsaved changes' : activePreset?.name || 'New preset'}
+      width="920px"
+    >
+      {content}
     </RightPanel>
   );
 }

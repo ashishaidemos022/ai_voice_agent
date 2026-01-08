@@ -85,7 +85,7 @@ export function SessionHistory({ onSessionSelect, selectedSessionId, currentSess
   if (isLoading) {
     return (
       <div className="px-6 py-4">
-        <div className="text-sm text-gray-500 text-center">Loading history...</div>
+        <div className="text-sm text-white/60 text-center">Loading history...</div>
       </div>
     );
   }
@@ -94,9 +94,9 @@ export function SessionHistory({ onSessionSelect, selectedSessionId, currentSess
     return (
       <div className="px-6 py-8">
         <div className="text-center">
-          <History className="w-10 h-10 text-gray-300 mx-auto mb-2" />
-          <p className="text-sm text-gray-500">No session history yet</p>
-          <p className="text-xs text-gray-400 mt-1">Past sessions will appear here</p>
+          <History className="w-10 h-10 text-white/20 mx-auto mb-2" />
+          <p className="text-sm text-white/60">No session history yet</p>
+          <p className="text-xs text-white/40 mt-1">Past sessions will appear here</p>
         </div>
       </div>
     );
@@ -104,12 +104,14 @@ export function SessionHistory({ onSessionSelect, selectedSessionId, currentSess
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-6 py-3 border-b border-gray-200 bg-gray-50">
+      <div className="px-6 py-3 border-b border-white/10 bg-white/5">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-gray-600 uppercase tracking-wide">
+          <span className="text-xs font-medium text-white/60 uppercase tracking-wide">
             Session History
           </span>
-          <Badge variant="secondary">{sessions.length}</Badge>
+          <Badge variant="secondary" className="bg-white/10 text-white/70 border border-white/10">
+            {sessions.length}
+          </Badge>
         </div>
       </div>
 
@@ -148,28 +150,30 @@ export function SessionHistory({ onSessionSelect, selectedSessionId, currentSess
               disabled={loadingSessionId === session.id || loadingSessionId !== null}
               className={`w-full text-left px-4 py-3 rounded-lg transition-all disabled:opacity-60 ${
                 selectedSessionId === session.id
-                  ? 'bg-blue-50 border border-blue-200'
-                  : 'hover:bg-gray-50 border border-transparent'
+                  ? 'bg-cyan-500/10 border border-cyan-400/30'
+                  : 'hover:bg-white/5 border border-transparent'
               }`}
             >
               <div className="flex items-start justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <Calendar className="w-3.5 h-3.5 text-gray-400" />
-                  <span className="text-xs text-gray-600 font-medium">
+                  <Calendar className="w-3.5 h-3.5 text-white/40" />
+                  <span className="text-xs text-white/60 font-medium">
                     {formatDate(session.created_at)}
                   </span>
                 </div>
                 {loadingSessionId === session.id ? (
                   <div className="flex items-center gap-1">
-                    <Loader2 className="w-3 h-3 text-blue-500 animate-spin" />
-                    <span className="text-xs text-blue-600">Loading...</span>
+                    <Loader2 className="w-3 h-3 text-cyan-300 animate-spin" />
+                    <span className="text-xs text-cyan-200">Loading...</span>
                   </div>
                 ) : selectedSessionId === session.id ? (
-                  <Badge variant="default" className="text-xs">Viewing</Badge>
+                  <Badge variant="default" className="text-xs bg-cyan-400/10 text-cyan-200 border border-cyan-400/30">
+                    Viewing
+                  </Badge>
                 ) : null}
               </div>
 
-              <div className="flex items-center gap-3 text-xs text-gray-500">
+              <div className="flex items-center gap-3 text-xs text-white/50">
                 <div className="flex items-center gap-1">
                   <MessageCircle className="w-3 h-3" />
                   <span>{session.message_count || 0}</span>

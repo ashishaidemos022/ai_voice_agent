@@ -13,14 +13,14 @@ export function StartSessionButton({ onClick, disabled, loading, children }: Sta
     <motion.button
       onClick={onClick}
       disabled={disabled || loading}
-      className="w-[280px] px-8 py-4 rounded-full bg-gradient-to-r from-blue-600 to-blue-500 text-white text-lg font-semibold shadow-[0_0_20px_rgba(37,99,235,0.35)] hover:shadow-[0_0_30px_rgba(37,99,235,0.5)] transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none flex items-center justify-center gap-3"
+      className="w-[280px] px-8 py-4 rounded-full bg-[#90E5E6] text-slate-950 text-lg font-semibold shadow-[0_0_20px_rgba(144,229,230,0.35)] hover:shadow-[0_0_30px_rgba(144,229,230,0.5)] transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none flex items-center justify-center gap-3"
       whileHover={!disabled && !loading ? { y: -2, scale: 1.02 } : {}}
       whileTap={!disabled && !loading ? { scale: 0.98 } : {}}
       animate={loading ? {
         background: [
-          'linear-gradient(to right, rgb(37, 99, 235), rgb(59, 130, 246))',
-          'linear-gradient(to right, rgb(59, 130, 246), rgb(37, 99, 235))',
-          'linear-gradient(to right, rgb(37, 99, 235), rgb(59, 130, 246))'
+          'linear-gradient(to right, rgb(144, 229, 230), rgb(144, 229, 230))',
+          'linear-gradient(to right, rgb(144, 229, 230), rgb(144, 229, 230))',
+          'linear-gradient(to right, rgb(144, 229, 230), rgb(144, 229, 230))'
         ]
       } : {}}
       transition={{

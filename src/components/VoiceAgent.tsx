@@ -11,10 +11,13 @@ import { BookOpenCheck, Loader2, Sparkles } from 'lucide-react';
 import { MainLayout } from './layout/MainLayout';
 import { Sidebar } from './layout/Sidebar';
 import { TopBar } from './layout/TopBar';
+import { WorkspaceSidePanels } from './layout/WorkspaceSidePanels';
 import { VoiceInteractionArea } from './voice/VoiceInteractionArea';
 import { VoiceEmbedPanel } from './voice/VoiceEmbedPanel';
 import { ConversationThread } from './conversation/ConversationThread';
 import { ToolsList } from './tools/ToolsList';
+import { Button } from './ui/Button';
+import { SessionHistory } from './session/SessionHistory';
 import { SettingsPanel } from './panels/SettingsPanel';
 import { MCPPanel } from './panels/MCPPanel';
 import { N8NPanel } from './panels/N8NPanel';
@@ -63,7 +66,27 @@ function mergeRealtimeConfig(prev: RealtimeConfig | null, next: RealtimeConfig):
   };
 }
 
-export function VoiceAgent() {
+type VoiceAgentProps = {
+  onNavigateChat?: () => void;
+  onOpenKnowledgeBase?: () => void;
+  showCreateAgent?: boolean;
+  onOpenCreateAgent?: () => void;
+  onCloseCreateAgent?: () => void;
+  showSkills?: boolean;
+  onOpenSkills?: () => void;
+  onCloseSkills?: () => void;
+};
+
+export function VoiceAgent({
+  onNavigateChat,
+  onOpenKnowledgeBase,
+  showCreateAgent,
+  onOpenCreateAgent,
+  onCloseCreateAgent,
+  showSkills,
+  onOpenSkills,
+  onCloseSkills
+}: VoiceAgentProps = {}) {
   const { vaUser, providerKeys, signOut } = useAuth();
   const {
     activeConfigId: persistedConfigId,
@@ -93,7 +116,7 @@ export function VoiceAgent() {
   const [isInitialized, setIsInitialized] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [isSwitchingPreset, setIsSwitchingPreset] = useState(false);
-  const [toolsCount, setToolsCount] = useState(0);
+  const [localWorkspaceView, setLocalWorkspaceView] = useState<'runtime' | 'configure' | 'skills'>('runtime');
   const [currentConfig, setCurrentConfig] = useState<RealtimeConfig>(() => ({
     ...defaultConfig,
     model: preferredModel || defaultConfig.model,
@@ -357,7 +380,6 @@ export function VoiceAgent() {
   };
 
   const updateToolsCount = () => {
-    setToolsCount(getAllTools().length);
   };
 
   const refreshTools = useCallback(async () => {
@@ -554,16 +576,72 @@ export function VoiceAgent() {
     setActivePanel('session');
   };
 
+  const isCreateAgentOpen = showCreateAgent ?? localWorkspaceView === 'configure';
+  const isSkillsOpen = showSkills ?? localWorkspaceView === 'skills';
+  const handleOpenCreateAgent = () => {
+    if (onOpenCreateAgent) {
+      onOpenCreateAgent();
+    } else {
+      setLocalWorkspaceView('configure');
+    }
+  };
+  const handleCloseCreateAgent = () => {
+    if (onCloseCreateAgent) {
+      onCloseCreateAgent();
+    } else {
+      setLocalWorkspaceView('runtime');
+    }
+  };
+  const handleOpenSkills = () => {
+    if (onOpenSkills) {
+      onOpenSkills();
+    } else {
+      setLocalWorkspaceView('skills');
+    }
+  };
+  const handleCloseSkills = () => {
+    if (onCloseSkills) {
+      onCloseSkills();
+    } else {
+      setLocalWorkspaceView('runtime');
+    }
+  };
+
   const sidebar = (
     <Sidebar
-      toolsCount={toolsCount}
       isConnected={isConnected}
-      onSessionSelect={handleSessionSelect}
-      selectedSessionId={selectedHistoricalSessionId}
-      currentSessionId={sessionId}
-    >
-      <ToolsList mcpTools={availableTools} />
-    </Sidebar>
+      activeNav={isCreateAgentOpen ? 'create' : isSkillsOpen ? 'skills' : 'voice'}
+      onNavigateVoice={() => {
+        handleCloseCreateAgent();
+        handleCloseSkills();
+      }}
+      onNavigateChat={onNavigateChat}
+      onNavigateSkills={() => {
+        handleOpenSkills();
+        handleCloseCreateAgent();
+      }}
+      onOpenKnowledgeBase={onOpenKnowledgeBase}
+      onOpenSettings={() => {
+        handleOpenCreateAgent();
+        handleCloseSkills();
+      }}
+      allowVoiceNavWhenActive={isCreateAgentOpen}
+    />
+  );
+
+  const sidePanels = (
+    <WorkspaceSidePanels
+      toolsCount={availableTools.length}
+      historyContent={
+        <SessionHistory
+          onSessionSelect={handleSessionSelect}
+          selectedSessionId={selectedHistoricalSessionId}
+          currentSessionId={sessionId}
+        />
+      }
+      toolsContent={<ToolsList mcpTools={availableTools} />}
+      showHistory={!isCreateAgentOpen && !isSkillsOpen}
+    />
   );
 
   const topBar = (
@@ -604,283 +682,399 @@ export function VoiceAgent() {
         ) : (
           <>
             <MainLayout sidebar={sidebar} topBar={topBar}>
-              <div className="flex flex-col p-6 gap-6 h-full overflow-hidden">
-                <div className="flex-1 grid grid-cols-2 gap-6 min-h-0 overflow-hidden">
-                  <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
-                    <div className="flex-1 min-h-0 overflow-hidden">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="text-xs text-gray-500">
-                          Active preset: <span className="font-medium text-gray-800">{activeConfigName || 'Custom'}</span>
-                          {isSwitchingPreset && <span className="ml-2 text-amber-600">Switching…</span>}
-                        </div>
-                        {sessionId && (
-                          <span className="text-[11px] text-gray-400">Session: {sessionId}</span>
-                        )}
-                      </div>
-                      {showWorkspacePreview ? (
-                        <Card className="p-6 space-y-5">
-                          <div>
-                            <p className="text-lg font-semibold text-slate-700">Workspace view</p>
-                            <p className="text-sm text-slate-500">
-                              You’re logged in and ready to start the agent whenever you pick a preset.
-                            </p>
+              <div className="flex h-full overflow-hidden">
+                <div className="flex-1 overflow-hidden">
+                  {isCreateAgentOpen ? (
+                    <div className="h-full overflow-hidden">
+                      <SettingsPanel
+                        embedded
+                        isOpen
+                        onClose={handleCloseCreateAgent}
+                        onBack={handleCloseCreateAgent}
+                        config={isInitialized && config ? config : currentConfig}
+                        onConfigChange={handlePanelConfigChange}
+                        activeConfigId={isInitialized ? activeConfigId : pendingConfigId}
+                        onActiveConfigChange={(configId) => {
+                          if (configId) {
+                            handlePresetChange(configId);
+                          }
+                        }}
+                        userId={vaUser?.id || ''}
+                        providerKeyId={derivedProviderKeyId}
+                        onPresetsRefresh={async () => {
+                          await refreshPresets();
+                        }}
+                        onToolsChanged={refreshTools}
+                      />
+                    </div>
+                  ) : isSkillsOpen ? (
+                    <div className="h-full overflow-hidden">
+                      <div className="h-full flex flex-col p-6 gap-6 overflow-hidden">
+                        <Card className="p-6 bg-slate-900/60 border-white/10">
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <p className="text-xs uppercase tracking-[0.3em] text-white/40">Skills</p>
+                              <h2 className="text-2xl font-semibold text-white font-display">Automation Skills</h2>
+                              <p className="text-sm text-white/60 mt-2">
+                                Manage MCP connections and n8n webhook automations for this workspace.
+                              </p>
+                            </div>
+                            <Button variant="ghost" size="sm" onClick={handleCloseSkills}>
+                              Back to workspace
+                            </Button>
                           </div>
-                          <div>
-                            <label className="text-xs text-slate-500 block mb-1">Choose a preset</label>
-                            <select
-                              value={selectedPresetId || ''}
-                              onChange={(e) => handlePresetChange(e.target.value)}
-                              className="w-full rounded-xl bg-slate-900 border border-slate-700 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300"
-                            >
-                              <option value="">Select a preset</option>
-                              {presets.map(preset => (
-                                <option key={preset.id} value={preset.id}>{preset.name}</option>
-                              ))}
-                            </select>
-                            <p className="mt-2 text-xs text-slate-400">
-                              Current: <span className="font-semibold text-cyan-200">{activeConfigName || 'None selected'}</span>
-                            </p>
-                          </div>
-                          <StartSessionButton
-                            onClick={handleStart}
-                            disabled={isInitializing || !selectedPresetId}
-                            loading={isInitializing}
-                          >
-                            {isInitializing ? 'Requesting Permissions...' : selectedPresetId ? 'Start Voice Agent' : 'Select a Preset to Continue'}
-                          </StartSessionButton>
-                          <button
-                            type="button"
-                            onClick={handleReturnToWelcome}
-                            className="text-xs text-cyan-300 underline underline-offset-2"
-                          >
-                            Return to welcome screen
-                          </button>
                         </Card>
+
+                        <div className="grid md:grid-cols-2 gap-6">
+                          <Card className="p-6 bg-slate-900/60 border-white/10 flex flex-col gap-4">
+                            <div>
+                              <p className="text-xs uppercase tracking-[0.3em] text-white/40">MCP Connections</p>
+                              <h3 className="text-lg font-semibold text-white">Custom MCP tools</h3>
+                              <p className="text-sm text-white/60 mt-2">
+                                Connect servers and expose tools to your agents.
+                              </p>
+                            </div>
+                            <Button size="sm" onClick={() => setIsMCPPanelOpen(true)}>
+                              Manage MCP Connections
+                            </Button>
+                          </Card>
+
+                          <Card className="p-6 bg-slate-900/60 border-white/10 flex flex-col gap-4">
+                            <div>
+                              <p className="text-xs uppercase tracking-[0.3em] text-white/40">n8n Automations</p>
+                              <h3 className="text-lg font-semibold text-white">Webhook workflows</h3>
+                              <p className="text-sm text-white/60 mt-2">
+                                Register n8n webhooks and enable them for agents.
+                              </p>
+                            </div>
+                            <Button size="sm" onClick={() => setIsN8NPanelOpen(true)}>
+                              Manage n8n Webhooks
+                            </Button>
+                          </Card>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col p-6 gap-6 h-full overflow-hidden">
+                      <div className="flex-1 grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-6 min-h-0 overflow-hidden">
+                        <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
+                          <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-400/30 flex items-center justify-center">
+                                <Sparkles className="w-5 h-5 text-cyan-200" />
+                              </div>
+                              <div>
+                                <p className="text-[11px] uppercase tracking-[0.3em] text-white/40">Active agent</p>
+                                <p className="text-sm font-semibold text-white">
+                                  {activeConfigName || 'Custom'}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] uppercase tracking-[0.2em] text-cyan-200 border border-cyan-400/30 bg-cyan-500/10 px-2 py-1 rounded-full">
+                                Voice
+                              </span>
+                              <span
+                                className={cn(
+                                  'text-[11px] uppercase tracking-[0.2em] border px-2 py-1 rounded-full',
+                                  isConnected
+                                    ? 'border-emerald-400/60 text-emerald-200 bg-emerald-500/10'
+                                    : 'border-white/20 text-white/50 bg-white/5'
+                                )}
+                              >
+                                {isConnected ? 'Live' : isInitialized ? 'Idle' : 'Offline'}
+                              </span>
+                            </div>
+                          </div>
+                          {sessionId && (
+                            <div className="text-[11px] text-white/30">
+                              Session: {sessionId}
+                              {isSwitchingPreset && <span className="ml-2 text-amber-300">Switching…</span>}
+                            </div>
+                          )}
+
+                          {viewMode === 'current' ? (
+                            <>
+                              {showWorkspacePreview ? (
+                                <Card className="p-6 space-y-5">
+                                  <div>
+                                    <p className="text-lg font-semibold text-white/90">Workspace view</p>
+                                    <p className="text-sm text-white/50">
+                                      You’re logged in and ready to start the agent whenever you pick a preset.
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <label className="text-xs text-white/50 block mb-1">Choose a preset</label>
+                                    <select
+                                      value={selectedPresetId || ''}
+                                      onChange={(e) => handlePresetChange(e.target.value)}
+                                      className="w-full rounded-xl bg-slate-900 border border-slate-700 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300"
+                                    >
+                                      <option value="">Select a preset</option>
+                                      {presets.map(preset => (
+                                        <option key={preset.id} value={preset.id}>{preset.name}</option>
+                                      ))}
+                                    </select>
+                                    <p className="mt-2 text-xs text-white/40">
+                                      Current: <span className="font-semibold text-cyan-200">{activeConfigName || 'None selected'}</span>
+                                    </p>
+                                  </div>
+                                  <StartSessionButton
+                                    onClick={handleStart}
+                                    disabled={isInitializing || !selectedPresetId}
+                                    loading={isInitializing}
+                                  >
+                                    {isInitializing ? 'Requesting Permissions...' : selectedPresetId ? 'Start Voice Agent' : 'Select a Preset to Continue'}
+                                  </StartSessionButton>
+                                  <button
+                                    type="button"
+                                    onClick={handleReturnToWelcome}
+                                    className="text-xs text-cyan-300 underline underline-offset-2"
+                                  >
+                                    Return to welcome screen
+                                  </button>
+                                </Card>
+                              ) : (
+                                <>
+                                  <VoiceInteractionArea
+                                    agentState={agentState}
+                                    isRecording={isRecording}
+                                    isConnected={isConnected}
+                                    liveUserTranscript={liveUserTranscript}
+                                    liveAssistantTranscript={liveAssistantTranscript}
+                                    onToggle={toggleRecording}
+                                    waveformData={waveformData}
+                                    volume={volume}
+                                  />
+
+                                  {config && config.turn_detection && (
+                                    <p className="text-center text-sm text-white/50">
+                                      Speak naturally - the AI will respond automatically
+                                    </p>
+                                  )}
+
+                                  <div className="flex-1 min-h-0 overflow-hidden">
+                                    <ConversationThread
+                                      key={viewMode === 'history' ? `history-${selectedHistoricalSessionId}` : 'current'}
+                                      messages={messages}
+                                      isProcessing={isProcessing}
+                                      liveAssistantTranscript={liveAssistantTranscript}
+                                      liveUserTranscript={liveUserTranscript}
+                                      agentState={agentState}
+                                    />
+                                  </div>
+                                </>
+                              )}
+                            </>
+                          ) : (
+                            <div className="flex-1 min-h-0 overflow-hidden">
+                              <ConversationThread
+                                key={`history-${selectedHistoricalSessionId}`}
+                                messages={historicalMessages}
+                                isProcessing={isProcessing}
+                                isHistorical
+                                isLoadingHistory={isLoadingHistory}
+                                historyError={historyError}
+                                agentState={agentState}
+                              />
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex flex-col gap-4 min-h-0 overflow-y-auto pr-1 pb-2">
+                          {viewMode === 'current' ? (
+                            <>
+                              <Card className="p-5 bg-slate-900/60 border-white/5 flex flex-col gap-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-400 to-pink-500 flex items-center justify-center">
+                                <Sparkles className="w-5 h-5 text-slate-950" />
+                              </div>
+                              <div>
+                                <p className="font-semibold text-white">Tool executions</p>
+                                <p className="text-xs text-white/50">Every MCP + workflow call this session</p>
+                              </div>
+                            </div>
+                            <div className="space-y-3 max-h-48 overflow-y-auto pr-1">
+                              {toolEvents.length === 0 ? (
+                                <p className="text-sm text-white/50">No tools called yet.</p>
+                              ) : toolEvents.map(event => {
+                                const responsePreview = event.response ? JSON.stringify(event.response) : null;
+                                return (
+                                  <div
+                                    key={event.id}
+                                    className={cn(
+                                      'rounded-2xl border px-3 py-2',
+                                      event.status === 'failed'
+                                        ? 'border-rose-400/40 bg-rose-500/10'
+                                        : event.status === 'succeeded'
+                                        ? 'border-emerald-400/40 bg-emerald-500/10'
+                                        : 'border-white/10 bg-white/5'
+                                    )}
+                                  >
+                                    <div className="flex items-center justify-between text-sm text-white/80">
+                                      <span className="font-semibold">{event.toolName}</span>
+                                      <span className="text-xs text-white/50 uppercase tracking-[0.2em]">{event.status}</span>
+                                    </div>
+                                    {event.error && (
+                                      <p className="text-xs text-rose-200 mt-1">{event.error}</p>
+                                    )}
+                                    {responsePreview && (
+                                      <p className="text-xs text-white/60 mt-1 truncate">
+                                        {responsePreview.slice(0, 80)}
+                                        {responsePreview.length > 80 ? '…' : ''}
+                                      </p>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div className="border-t border-white/10 pt-3">
+                              <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.3em] text-white/40">
+                                <span>Connected automations</span>
+                                <span>{toolSummary.total}</span>
+                              </div>
+                              {toolSummary.total === 0 ? (
+                                <p className="text-xs text-white/50 mt-2">
+                                  No MCP or n8n tools configured for this preset.
+                                </p>
+                              ) : (
+                                <>
+                                  <div className="flex gap-4 text-[11px] text-white/60 mt-3">
+                                    <span>MCP: {toolSummary.mcpCount}</span>
+                                    <span>n8n: {toolSummary.n8nCount}</span>
+                                  </div>
+                                  <div className="flex flex-wrap gap-2 mt-3">
+                                    {toolSummary.preview.map(tool => (
+                                      <span
+                                        key={tool.name}
+                                        className={cn(
+                                          'px-2 py-1 rounded-full border text-[11px]',
+                                          tool.source === 'n8n'
+                                            ? 'border-amber-400/50 text-amber-200/90 bg-amber-500/10'
+                                            : 'border-white/10 text-white/70 bg-white/5'
+                                        )}
+                                      >
+                                        {tool.name}
+                                      </span>
+                                    ))}
+                                    {toolSummary.total > toolSummary.preview.length && (
+                                      <span className="text-[11px] text-white/60">
+                                        +{toolSummary.total - toolSummary.preview.length} more
+                                      </span>
+                                    )}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </Card>
+
+                          <Card className="p-5 bg-slate-900/60 border-white/5 flex flex-col gap-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center">
+                                <BookOpenCheck className="w-5 h-5 text-slate-950" />
+                              </div>
+                              <div className="flex-1">
+                                <p className="font-semibold text-white">Knowledge grounding</p>
+                                <p className="text-xs text-white/50">Latest retrieval context + citations</p>
+                              </div>
+                              {isRagLoading && <Loader2 className="w-4 h-4 text-white/70 animate-spin" />}
+                            </div>
+                            <div className="flex items-center justify-between text-xs text-white/60">
+                              <span
+                                className={cn(
+                                  'px-2 py-0.5 rounded-full border text-[11px] uppercase tracking-[0.2em]',
+                                  ragInvoked
+                                    ? 'border-emerald-400/70 text-emerald-200'
+                                    : 'border-white/20 text-white/40'
+                                )}
+                              >
+                                {ragInvoked ? 'RAG invoked' : 'RAG idle'}
+                              </span>
+                              {ragResult && (
+                                <span className="text-[11px] text-white/40">
+                                  Updated {formatRelative(ragResult.createdAt)}
+                                </span>
+                              )}
+                            </div>
+                            {ragError && (
+                              <p className="text-xs text-rose-300">{ragError}</p>
+                            )}
+                            {ragResult ? (
+                              <div className="space-y-3">
+                                <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                                  <p className="text-[11px] uppercase tracking-[0.2em] text-white/40 mb-1">Synthesized answer</p>
+                                  <p className="text-sm text-white/80 whitespace-pre-wrap">
+                                    {ragResult.answer || 'No summary returned.'}
+                                  </p>
+                                  {ragResult.guardrailTriggered && (
+                                    <p className="text-[11px] text-amber-300 mt-2">
+                                      Guardrail enforced — insufficient citations.
+                                    </p>
+                                  )}
+                                </div>
+                                <div>
+                                  <p className="text-xs uppercase text-white/40 mb-2">Citations</p>
+                                  <div className="space-y-2">
+                                    {ragResult.citations.length === 0 && (
+                                      <p className="text-xs text-white/50">
+                                        No citations returned for the last turn.
+                                      </p>
+                                    )}
+                                    {ragResult.citations.map((citation, index) => (
+                                      <div
+                                        key={`${citation.file_id}-${index}`}
+                                        className="rounded-xl border border-white/10 bg-black/20 p-3"
+                                      >
+                                        <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.2em] text-white/40 mb-1">
+                                          <span>Ref {index + 1}</span>
+                                          {citation.title && (
+                                            <span className="text-[10px] text-white/60 normal-case">
+                                              {citation.title}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <p className="text-sm text-white/80">{citation.snippet}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-sm text-white/50">
+                                Connect knowledge spaces to this agent to see retrieved snippets every time a user speaks.
+                              </p>
+                            )}
+                          </Card>
+
+                          <VoiceEmbedPanel
+                            agentConfigId={selectedPresetId}
+                            agentName={activeConfigName}
+                          />
+                        </>
                       ) : (
-                        <ConversationThread
-                          key={viewMode === 'history' ? `history-${selectedHistoricalSessionId}` : 'current'}
-                          messages={viewMode === 'current' ? messages : historicalMessages}
-                          isProcessing={isProcessing}
-                          isHistorical={viewMode === 'history'}
-                          isLoadingHistory={isLoadingHistory}
-                          historyError={historyError}
-                          liveAssistantTranscript={liveAssistantTranscript}
-                          liveUserTranscript={liveUserTranscript}
-                          agentState={agentState}
-                        />
+                        <Card className="p-6 flex items-center justify-center">
+                          <div className="text-center">
+                            <p className="text-white/70 mb-2">Viewing session history</p>
+                            <p className="text-sm text-white/50">
+                              Use the back button to return to live runtime
+                            </p>
+                          </div>
+                        </Card>
                       )}
                     </div>
                   </div>
-
-                  <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
-                    {viewMode === 'current' ? (
-                    <>
-                      <VoiceInteractionArea
-                        agentState={agentState}
-                        isRecording={isRecording}
-                        isConnected={isConnected}
-                          liveUserTranscript={liveUserTranscript}
-                          liveAssistantTranscript={liveAssistantTranscript}
-                          onToggle={toggleRecording}
-                          waveformData={waveformData}
-                          volume={volume}
-                        />
-
-                      {config && config.turn_detection && (
-                        <p className="text-center text-sm text-gray-400">
-                          Speak naturally - the AI will respond automatically
-                        </p>
-                      )}
-
-                      <div className="flex-1 min-h-0 overflow-y-auto pr-1 pb-2 flex flex-col gap-4">
-                        <Card className="p-5 bg-slate-900/60 border-white/5 flex flex-col gap-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-400 to-pink-500 flex items-center justify-center">
-                              <Sparkles className="w-5 h-5 text-slate-950" />
-                            </div>
-                            <div>
-                              <p className="font-semibold text-white">Tool executions</p>
-                              <p className="text-xs text-white/50">Every MCP + workflow call this session</p>
-                            </div>
-                          </div>
-                          <div className="space-y-3 max-h-48 overflow-y-auto pr-1">
-                            {toolEvents.length === 0 ? (
-                              <p className="text-sm text-white/50">No tools called yet.</p>
-                            ) : toolEvents.map(event => {
-                              const responsePreview = event.response ? JSON.stringify(event.response) : null;
-                              return (
-                                <div
-                                  key={event.id}
-                                  className={cn(
-                                    'rounded-2xl border px-3 py-2',
-                                    event.status === 'failed'
-                                      ? 'border-rose-400/40 bg-rose-500/10'
-                                      : event.status === 'succeeded'
-                                      ? 'border-emerald-400/40 bg-emerald-500/10'
-                                      : 'border-white/10 bg-white/5'
-                                  )}
-                                >
-                                  <div className="flex items-center justify-between text-sm text-white/80">
-                                    <span className="font-semibold">{event.toolName}</span>
-                                    <span className="text-xs text-white/50 uppercase tracking-[0.2em]">{event.status}</span>
-                                  </div>
-                                  {event.error && (
-                                    <p className="text-xs text-rose-200 mt-1">{event.error}</p>
-                                  )}
-                                  {responsePreview && (
-                                    <p className="text-xs text-white/60 mt-1 truncate">
-                                      {responsePreview.slice(0, 80)}
-                                      {responsePreview.length > 80 ? '…' : ''}
-                                    </p>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                          <div className="border-t border-white/10 pt-3">
-                            <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.3em] text-white/40">
-                              <span>Connected automations</span>
-                              <span>{toolSummary.total}</span>
-                            </div>
-                            {toolSummary.total === 0 ? (
-                              <p className="text-xs text-white/50 mt-2">
-                                No MCP or n8n tools configured for this preset.
-                              </p>
-                            ) : (
-                              <>
-                                <div className="flex gap-4 text-[11px] text-white/60 mt-3">
-                                  <span>MCP: {toolSummary.mcpCount}</span>
-                                  <span>n8n: {toolSummary.n8nCount}</span>
-                                </div>
-                                <div className="flex flex-wrap gap-2 mt-3">
-                                  {toolSummary.preview.map(tool => (
-                                    <span
-                                      key={tool.name}
-                                      className={cn(
-                                        'px-2 py-1 rounded-full border text-[11px]',
-                                        tool.source === 'n8n'
-                                          ? 'border-amber-400/50 text-amber-200/90 bg-amber-500/10'
-                                          : 'border-white/10 text-white/70 bg-white/5'
-                                      )}
-                                    >
-                                      {tool.name}
-                                    </span>
-                                  ))}
-                                  {toolSummary.total > toolSummary.preview.length && (
-                                    <span className="text-[11px] text-white/60">
-                                      +{toolSummary.total - toolSummary.preview.length} more
-                                    </span>
-                                  )}
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        </Card>
-
-                        <Card className="p-5 bg-slate-900/60 border-white/5 flex flex-col gap-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center">
-                              <BookOpenCheck className="w-5 h-5 text-slate-950" />
-                            </div>
-                            <div className="flex-1">
-                              <p className="font-semibold text-white">Knowledge grounding</p>
-                              <p className="text-xs text-white/50">Latest retrieval context + citations</p>
-                            </div>
-                            {isRagLoading && <Loader2 className="w-4 h-4 text-white/70 animate-spin" />}
-                          </div>
-                          <div className="flex items-center justify-between text-xs text-white/60">
-                            <span
-                              className={cn(
-                                'px-2 py-0.5 rounded-full border text-[11px] uppercase tracking-[0.2em]',
-                                ragInvoked
-                                  ? 'border-emerald-400/70 text-emerald-200'
-                                  : 'border-white/20 text-white/40'
-                              )}
-                            >
-                              {ragInvoked ? 'RAG invoked' : 'RAG idle'}
-                            </span>
-                            {ragResult && (
-                              <span className="text-[11px] text-white/40">
-                                Updated {formatRelative(ragResult.createdAt)}
-                              </span>
-                            )}
-                          </div>
-                          {ragError && (
-                            <p className="text-xs text-rose-300">{ragError}</p>
-                          )}
-                          {ragResult ? (
-                            <div className="space-y-3">
-                              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-                                <p className="text-[11px] uppercase tracking-[0.2em] text-white/40 mb-1">Synthesized answer</p>
-                                <p className="text-sm text-white/80 whitespace-pre-wrap">
-                                  {ragResult.answer || 'No summary returned.'}
-                                </p>
-                                {ragResult.guardrailTriggered && (
-                                  <p className="text-[11px] text-amber-300 mt-2">
-                                    Guardrail enforced — insufficient citations.
-                                  </p>
-                                )}
-                              </div>
-                              <div>
-                                <p className="text-xs uppercase text-white/40 mb-2">Citations</p>
-                                <div className="space-y-2">
-                                  {ragResult.citations.length === 0 && (
-                                    <p className="text-xs text-white/50">
-                                      No citations returned for the last turn.
-                                    </p>
-                                  )}
-                                  {ragResult.citations.map((citation, index) => (
-                                    <div
-                                      key={`${citation.file_id}-${index}`}
-                                      className="rounded-xl border border-white/10 bg-black/20 p-3"
-                                    >
-                                      <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.2em] text-white/40 mb-1">
-                                        <span>Ref {index + 1}</span>
-                                        {citation.title && (
-                                          <span className="text-[10px] text-white/60 normal-case">
-                                            {citation.title}
-                                          </span>
-                                        )}
-                                      </div>
-                                      <p className="text-sm text-white/80">{citation.snippet}</p>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-                          ) : (
-                            <p className="text-sm text-white/50">
-                              Connect knowledge spaces to this agent to see retrieved snippets every time a user speaks.
-                            </p>
-                          )}
-                        </Card>
-
-                        <VoiceEmbedPanel
-                          agentConfigId={selectedPresetId}
-                          agentName={activeConfigName}
-                        />
-                      </div>
-
-                    </>
-                  ) : (
-                      <Card className="p-6 flex items-center justify-center h-full">
-                        <div className="text-center">
-                          <p className="text-gray-600 mb-2">Viewing session history</p>
-                          <p className="text-sm text-gray-500">
-                            Click "Back to Current Session" to return
-                          </p>
-                        </div>
-                      </Card>
-                    )}
-                  </div>
                 </div>
-              </div>
-            </MainLayout>
-      <SettingsPanel
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        config={isInitialized && config ? config : currentConfig}
-        onConfigChange={handlePanelConfigChange}
+              )}
+            </div>
+            {!isSkillsOpen && sidePanels}
+          </div>
+        </MainLayout>
+
+            <SettingsPanel
+              isOpen={isSettingsOpen}
+              onClose={() => setIsSettingsOpen(false)}
+              config={isInitialized && config ? config : currentConfig}
+              onConfigChange={handlePanelConfigChange}
               activeConfigId={isInitialized ? activeConfigId : pendingConfigId}
               onActiveConfigChange={(configId) => {
                 if (configId) {
@@ -889,10 +1083,10 @@ export function VoiceAgent() {
               }}
               userId={vaUser?.id || ''}
               providerKeyId={derivedProviderKeyId}
-        onPresetsRefresh={async () => {
-          await refreshPresets();
-        }}
-        onToolsChanged={refreshTools}
+              onPresetsRefresh={async () => {
+                await refreshPresets();
+              }}
+              onToolsChanged={refreshTools}
             />
 
             <MCPPanel

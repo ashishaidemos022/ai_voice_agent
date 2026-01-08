@@ -10,13 +10,13 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = 'default', size = 'md', loading, disabled, children, ...props }, ref) => {
-    const baseStyles = 'inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+    const baseStyles = 'inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#90E5E6]/60 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:opacity-50 disabled:cursor-not-allowed';
 
     const variants = {
-      default: 'bg-primary text-white hover:bg-primary-hover shadow-sm active:scale-[0.98]',
-      ghost: 'hover:bg-gray-100 text-gray-700 active:scale-[0.98]',
-      outline: 'border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 active:scale-[0.98]',
-      destructive: 'bg-red-500 text-white hover:bg-red-600 shadow-sm active:scale-[0.98]',
+      default: 'bg-[#90E5E6] text-slate-950 hover:brightness-105 shadow-[0_10px_30px_rgba(144,229,230,0.35)] active:scale-[0.98]',
+      ghost: 'text-[#90E5E6] hover:text-[#90E5E6] hover:bg-[#90E5E6]/10 active:scale-[0.98]',
+      outline: 'border border-[#90E5E6] bg-transparent text-[#90E5E6] hover:bg-[#90E5E6]/10 active:scale-[0.98]',
+      destructive: 'bg-[#90E5E6] text-slate-950 hover:brightness-105 shadow-[0_10px_30px_rgba(144,229,230,0.35)] active:scale-[0.98]',
     };
 
     const sizes = {

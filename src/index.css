@@ -2,9 +2,56 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  body {
+    background-color: #05070f;
+    color: #e2e8f0;
+    font-family: 'Sora', 'Space Grotesk', sans-serif;
+  }
+}
+
 @layer utilities {
+  .font-display {
+    font-family: 'Orbitron', 'Sora', sans-serif;
+  }
+
   .va-chat-input::placeholder {
     color: var(--va-chat-placeholder);
     opacity: 1;
+  }
+}
+
+@layer components {
+  .workspace-panel .bg-white {
+    background-color: rgba(3, 7, 18, 0.75) !important;
+  }
+  .workspace-panel .bg-gray-50,
+  .workspace-panel .bg-gray-100 {
+    background-color: rgba(15, 23, 42, 0.7) !important;
+  }
+  .workspace-panel .border-gray-200 {
+    border-color: rgba(255, 255, 255, 0.1) !important;
+  }
+  .workspace-panel .border-gray-300 {
+    border-color: rgba(255, 255, 255, 0.2) !important;
+  }
+  .workspace-panel .text-gray-900 {
+    color: #f8fafc !important;
+  }
+  .workspace-panel .text-gray-800 {
+    color: #e2e8f0 !important;
+  }
+  .workspace-panel .text-gray-700 {
+    color: #cbd5f5 !important;
+  }
+  .workspace-panel .text-gray-600,
+  .workspace-panel .text-gray-500 {
+    color: #94a3b8 !important;
+  }
+  .workspace-panel .text-gray-400 {
+    color: #64748b !important;
+  }
+  .workspace-panel .text-gray-300 {
+    color: #94a3b8 !important;
   }
 }

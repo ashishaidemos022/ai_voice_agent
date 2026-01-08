@@ -1,0 +1,496 @@
+here’s a pixel-tight, designer-ready Figma layout guide for the VIAANA AI Portal redesign, based on the brand theme of your website.
+
+This is written so a designer can directly implement it using:
+	•	exact spacing
+	•	grids
+	•	color tokens
+	•	typography specs
+	•	component rules
+
+No ambiguity, production-quality guidance.
+
+⸻
+
+🎨 VIAANA AI PORTAL — FIGMA LAYOUT SYSTEM
+
+⸻
+
+🧱 1) Frame & Grid
+
+Desktop artboard:
+
+1440 × 1024
+Frame: Desktop HD
+
+Grid system:
+
+12-column grid
+Column width: fluid
+Gutter: 24px
+Margins: 96px
+Layout: Center
+
+
+⸻
+
+🖤 2) Background & Canvas
+
+Global background:
+
+#000000 (pure black)
+
+No gradients
+No textures
+No noise
+
+Portal should feel:
+	•	cinematic
+	•	minimal
+	•	intentional
+
+⸻
+
+🧭 3) Top Navigation Bar
+
+Frame height:
+
+64px
+
+Background:
+
+#000000
+
+Bottom divider:
+
+1px line
+Color: rgba(154, 246, 255, 0.35)
+Length: full width
+
+
+⸻
+
+Left Section — Product Identity
+
+Text:
+
+VIAANA AI
+
+Typography:
+
+Font: Inter
+Weight: 700
+Size: 14px
+Case: Uppercase
+Color: #FFFFFF
+Letter-spacing: +2%
+
+Below it add micro-label:
+
+VOICE + CHAT AGENT WORKSPACE
+
+Typography:
+
+Size: 11px
+Weight: 500
+Color: #A8A8A8
+Tracking: +3%
+
+Spacing:
+
+Label baseline sits 4px below main title
+
+
+⸻
+
+Right Section — User Cluster
+
+Place aligned right:
+	•	Email
+	•	Settings icon
+	•	Help icon
+	•	Sign Out button
+
+Text:
+
+Color: #FFFFFF
+Size: 13px
+Weight: 500
+
+Icons:
+
+Size: 18px
+Stroke: #FFFFFF
+Opacity: 85%
+
+Spacing:
+
+Between items: 16px
+
+Sign Out = ghost button
+
+Border:
+
+1px rgba(154, 246, 255, 0.45)
+Radius: 14px
+Padding: 8px 14px
+Text Uppercase
+
+Hover: subtle cyan glow
+
+⸻
+
+🧩 4) Page Layout Regions
+
+Canvas divides into:
+	•	Left Sidebar (Navigation)
+	•	Main Workspace Panel
+	•	Right Status Column
+
+⸻
+
+📚 5) Left Sidebar Navigation
+
+Sidebar width:
+
+280px
+
+Background:
+
+#020202
+
+Padding:
+
+Top: 24px
+Left: 20px
+Right: 20px
+
+
+⸻
+
+Sidebar Section Label
+
+Text:
+
+AGENT CONSOLE
+
+Typography:
+
+Size: 11px
+Weight: 600
+Letter-spacing: +6%
+Color: #8C8C8C
+
+Margin-bottom:
+
+16px
+
+
+⸻
+
+Navigation Items
+
+Each item row:
+
+Height: 40px
+Radius: 10px
+Padding: 10px 12px
+Layout: Horizontal
+
+Default (inactive):
+
+Text: #D2D2D2
+Icon stroke: #D2D2D2
+
+Active:
+
+Background: rgba(85, 244, 255, 0.08)
+Border-left: 3px solid #9AF6FF
+Text: #FFFFFF
+Glow: 4px soft cyan spread
+
+Spacing between items:
+
+8px
+
+
+⸻
+
+🧠 6) Main Workspace Panel
+
+Panel container:
+
+Background: #0E1118
+Radius: 16px
+Padding: 28px
+Border: 1px rgba(120, 255, 255, 0.22)
+
+Drop shadow:
+
+0 0 24px rgba(120,255,255,0.06)
+
+
+⸻
+
+Section Header
+
+Text:
+
+WORKSPACE VIEW
+
+Typography:
+
+Size: 13px
+Weight: 700
+Case: Uppercase
+Color: #FFFFFF
+Letter-spacing: +4%
+
+Sub-label below:
+
+You’re logged in and ready to start the agent whenever you pick a preset.
+
+Color:
+
+#A5A5A5
+Size: 12px
+Line height: 150%
+
+Spacing after header:
+
+16px
+
+
+⸻
+
+Preset Selector
+
+Label:
+
+CHOOSE A PRESET
+
+Typography:
+
+Size: 11px
+Weight: 600
+Uppercase
+Color: #BFBFBF
+
+Dropdown field:
+
+Height: 44px
+Radius: 10px
+Background: transparent
+Border: 1px #3D4149
+Text: #FFFFFF
+
+Focus:
+
+Border: 1px #9AF6FF
+Glow: 0 0 10px rgba(154,246,255,0.45)
+
+Spacing below:
+
+20px
+
+
+⸻
+
+Primary CTA Button
+
+Text:
+
+START VOICE AGENT
+
+Button style:
+
+Height: 48px
+Radius: 28px
+Width: 240px
+
+Fill gradient:
+
+Top: #BFFBFF
+Bottom: #4DE3EC
+
+Text:
+
+Uppercase
+Bold
+Color: #041618
+
+Hover:
+
+Glow: 0 0 16px rgba(154,246,255,0.6)
+Scale: +2%
+
+Spacing below button:
+
+12px
+
+
+⸻
+
+📡 7) Right Status Column
+
+Column width:
+
+420px
+
+All cards share:
+
+Radius: 14px
+Padding: 18px
+
+Vertical spacing between cards:
+
+16px
+
+
+⸻
+
+Realtime Voice Agent Panel
+
+Background:
+
+Deep indigo gradient
+#0C1330 → #101A4A
+
+Outer halo:
+
+Soft cyan glow (8–12px)
+
+Header row:
+	•	Status badge
+	•	Model / Mic indicator
+
+Status badge chip:
+
+IDLE / LISTENING / STREAMING
+Size: 11px
+Weight: 700
+Uppercase
+Background: rgba(154,246,255,0.18)
+Border: 1px #9AF6FF
+Radius: 14px
+Padding: 6px 10px
+
+Waveform indicator:
+	•	animate only when active
+	•	20–30% opacity
+	•	No harsh movement
+
+⸻
+
+Tool Executions Panel
+
+Background:
+
+#0B0F16
+
+Left accent:
+
+2px vertical cyan bar
+
+Small label:
+
+TOOL EXECUTIONS
+Size: 11px
+Uppercase
+Color: #FFFFFF
+Letter-spacing: +4%
+
+Sub-caption:
+
+Muted gray
+Size: 11px
+
+
+⸻
+
+Knowledge Grounding Panel
+
+Label:
+
+KNOWLEDGE MEMORY + RAG CONTEXT
+
+Chip:
+
+RAG IDLE / ACTIVE
+Cyan border chip
+
+Add placeholder snippet area:
+
+Monospace
+Small text
+Faint gray box
+
+
+⸻
+
+Deployment / Embed Panel
+
+Background:
+
+#020202
+Border: 1px cyan stroke dashed
+
+Text:
+
+DEPLOY AS LIVE VOICE WIDGET
+
+Action button:
+
+CREATE VOICE EMBED TOKEN
+Rounded aqua pill
+Glow hover
+
+
+⸻
+
+🧾 8) Token System for Figma Styles
+
+Colors
+
+--black: #000000
+--charcoal: #0E1118
+--panel-midnight: #0B0F16
+
+--aqua-light: #BFFBFF
+--aqua-core: #9AF6FF
+--aqua-deep: #4DE3EC
+
+--text-white: #FFFFFF
+--text-gray: #A5A5A5
+--text-muted: #7D7D7D
+
+
+⸻
+
+Typography
+
+Family: Inter
+Base: 14px
+H1: 28px / 700
+H2: 20px / 700
+H3: 16px / 700
+Body: 14px / 500
+Label: 11px / 600
+
+All section labels → uppercase
+Tracking +2–6%
+
+⸻
+
+🎯 Final Design Goals for the Figma Build
+
+Tell the designer:
+
+✔ Space should feel calm + cinematic
+✔ Layout should read like a control system
+✔ Glow used sparingly + deliberately
+✔ Confidence > decoration
+✔ Maintain brand voice:
+
+INTELLIGENCE IN FLOW
+OUTCOMES IN MOTION
+

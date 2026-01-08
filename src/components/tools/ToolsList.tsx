@@ -33,8 +33,8 @@ export function ToolsList({ mcpTools }: ToolsListProps) {
   return (
     <div className="px-4 py-4">
       <div className="flex items-center gap-2 mb-4 px-2">
-        <Wrench className="w-4 h-4 text-gray-600" />
-        <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+        <Wrench className="w-4 h-4 text-white/60" />
+        <h3 className="text-xs font-semibold text-white/60 uppercase tracking-wide">
           Available Tools
         </h3>
       </div>
@@ -53,7 +53,7 @@ export function ToolsList({ mcpTools }: ToolsListProps) {
 
           {n8nTools.length > 0 && (
             <>
-              <Separator className="my-2" />
+              <Separator className="my-2 bg-white/10" />
               {renderToolSection({
                 label: 'n8n Automations',
                 count: n8nTools.length,
@@ -92,17 +92,19 @@ function renderToolSection({
     <>
       <button
         onClick={onToggle}
-        className="w-full flex items-center justify-between px-2 py-2 hover:bg-gray-50 rounded-lg transition-colors"
+        className="w-full flex items-center justify-between px-2 py-2 hover:bg-white/5 rounded-lg transition-colors"
       >
         <div className="flex items-center gap-2">
           {isExpanded ? (
-            <ChevronDown className="w-4 h-4 text-gray-500" />
+            <ChevronDown className="w-4 h-4 text-white/50" />
           ) : (
-            <ChevronRight className="w-4 h-4 text-gray-500" />
+            <ChevronRight className="w-4 h-4 text-white/50" />
           )}
-          <span className="text-sm font-medium text-gray-700">{label}</span>
+          <span className="text-sm font-medium text-white/80">{label}</span>
         </div>
-        <Badge variant="success">{count}</Badge>
+        <Badge variant="success" className="bg-emerald-500/15 text-emerald-200 border border-emerald-400/30">
+          {count}
+        </Badge>
       </button>
 
       <AnimatePresence>
@@ -124,7 +126,7 @@ function renderToolSection({
                 />
               ))}
               {tools.length === 0 && (
-                <p className="text-xs text-gray-500 px-2 py-4 text-center">
+                <p className="text-xs text-white/50 px-2 py-4 text-center">
                   {emptyLabel}
                 </p>
               )}
