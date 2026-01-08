@@ -734,7 +734,7 @@ export function VoiceAgent({
                                 Connect servers and expose tools to your agents.
                               </p>
                             </div>
-                            <Button size="sm" onClick={() => setIsMCPPanelOpen(true)}>
+                            <Button size="xs" className="self-start px-4" onClick={() => setIsMCPPanelOpen(true)}>
                               Manage MCP Connections
                             </Button>
                           </Card>
@@ -747,7 +747,7 @@ export function VoiceAgent({
                                 Register n8n webhooks and enable them for agents.
                               </p>
                             </div>
-                            <Button size="sm" onClick={() => setIsN8NPanelOpen(true)}>
+                            <Button size="xs" className="self-start px-4" onClick={() => setIsN8NPanelOpen(true)}>
                               Manage n8n Webhooks
                             </Button>
                           </Card>

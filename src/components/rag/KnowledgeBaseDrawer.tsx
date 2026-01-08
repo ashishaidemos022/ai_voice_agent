@@ -198,7 +198,7 @@ export function KnowledgeBaseDrawer({ isOpen, onClose }: KnowledgeBaseDrawerProp
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
-      <div className="bg-slate-950 text-white rounded-3xl shadow-2xl border border-white/10 w-full max-w-6xl h-[90vh] flex flex-col">
+      <div className="bg-slate-950 text-white rounded-3xl shadow-2xl border border-white/35 w-full max-w-6xl h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-8 py-6 border-b border-white/10">
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-white/40">Knowledge Spaces</p>
