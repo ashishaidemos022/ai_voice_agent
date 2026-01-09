@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { Card } from '../ui/Card';
@@ -11,6 +11,37 @@ type UsageDailyRow = {
   output_tokens: number;
   total_tokens: number;
   cost_usd: number;
+};
+
+type UsageEventRow = {
+  id: string;
+  source: string;
+  model: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+  metadata: Record<string, any> | null;
+  created_at: string;
+};
+
+type SessionSummary = {
+  key: string;
+  sessionId: string;
+  sessionType: 'voice' | 'chat';
+  model: string | null;
+  presetId: string | null;
+  presetName: string | null;
+  totalTokens: number;
+  costUsd: number;
+  lastAt: string;
+};
+
+type SessionMessage = {
+  id: string;
+  role: string;
+  content: string;
+  createdAt: string;
 };
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
@@ -38,8 +69,57 @@ export function UsageDashboard() {
   const { vaUser } = useAuth();
   const [rows, setRows] = useState<UsageDailyRow[]>([]);
   const [allTimeTotals, setAllTimeTotals] = useState<UsageDailyRow | null>(null);
+  const [sessionSummaries, setSessionSummaries] = useState<SessionSummary[]>([]);
+  const [selectedSession, setSelectedSession] = useState<SessionSummary | null>(null);
+  const selectedSessionKeyRef = useRef<string | null>(null);
+  const [sessionMessages, setSessionMessages] = useState<SessionMessage[]>([]);
+  const [isMessagesLoading, setIsMessagesLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const loadSessionMessages = useCallback(async (session: SessionSummary) => {
+    setIsMessagesLoading(true);
+    setSessionMessages([]);
+    try {
+      if (session.sessionType === 'chat') {
+        const { data, error: messageError } = await supabase
+          .from('va_chat_messages')
+          .select('id, sender, message, created_at')
+          .eq('session_id', session.sessionId)
+          .order('created_at', { ascending: true })
+          .limit(200);
+        if (messageError) throw messageError;
+        const mapped = (data || []).map((row) => ({
+          id: row.id,
+          role: row.sender,
+          content: row.message,
+          createdAt: row.created_at
+        }));
+        setSessionMessages(mapped);
+      } else {
+        const { data, error: messageError } = await supabase
+          .from('va_messages')
+          .select('id, role, content, timestamp')
+          .eq('session_id', session.sessionId)
+          .order('timestamp', { ascending: true })
+          .limit(200);
+        if (messageError) throw messageError;
+        const mapped = (data || []).map((row) => ({
+          id: row.id,
+          role: row.role,
+          content: row.content,
+          createdAt: row.timestamp
+        }));
+        setSessionMessages(mapped);
+      }
+    } catch (err: any) {
+      console.error('Failed to load session messages', err);
+      setSessionMessages([]);
+      setError(err.message || 'Unable to load session messages.');
+    } finally {
+      setIsMessagesLoading(false);
+    }
+  }, []);
 
   const loadUsage = useCallback(async () => {
     if (!vaUser) return;
@@ -69,17 +149,74 @@ export function UsageDashboard() {
         { usage_date: 'all-time', input_tokens: 0, output_tokens: 0, total_tokens: 0, cost_usd: 0 }
       );
       setAllTimeTotals(totals);
+
+      const { data: presets, error: presetsError } = await supabase
+        .from('va_agent_configs')
+        .select('id, name');
+      if (presetsError) throw presetsError;
+      const presetMap = new Map((presets || []).map((preset) => [preset.id, preset.name]));
+
+      const { data: events, error: eventsError } = await supabase
+        .from('va_usage_events')
+        .select('id, source, model, input_tokens, output_tokens, total_tokens, cost_usd, metadata, created_at')
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (eventsError) throw eventsError;
+      const summaries = new Map<string, SessionSummary>();
+
+      (events || []).forEach((event: UsageEventRow) => {
+        const metadata = event.metadata || {};
+        const chatSessionId = metadata.chat_session_id as string | undefined;
+        const voiceSessionId = metadata.session_id as string | undefined;
+        const sessionId = chatSessionId || voiceSessionId;
+        if (!sessionId) {
+          return;
+        }
+        const sessionType: 'chat' | 'voice' = chatSessionId ? 'chat' : 'voice';
+        const key = `${sessionType}:${sessionId}`;
+        const presetId = metadata.agent_preset_id as string | undefined;
+        const existing = summaries.get(key);
+        const nextTotals = {
+          totalTokens: (existing?.totalTokens || 0) + (event.total_tokens || 0),
+          costUsd: (existing?.costUsd || 0) + (event.cost_usd || 0)
+        };
+        const lastAt = existing?.lastAt && existing.lastAt > event.created_at ? existing.lastAt : event.created_at;
+        summaries.set(key, {
+          key,
+          sessionId,
+          sessionType,
+          model: event.model || existing?.model || null,
+          presetId: presetId || existing?.presetId || null,
+          presetName: (presetId && presetMap.get(presetId)) || existing?.presetName || null,
+          totalTokens: nextTotals.totalTokens,
+          costUsd: nextTotals.costUsd,
+          lastAt
+        });
+      });
+
+      const sorted = Array.from(summaries.values()).sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+      setSessionSummaries(sorted);
+      if (selectedSessionKeyRef.current) {
+        const refreshed = sorted.find((session) => session.key === selectedSessionKeyRef.current);
+        if (refreshed && refreshed.key !== selectedSession?.key) {
+          setSelectedSession(refreshed);
+        }
+      }
     } catch (err: any) {
       console.error('Failed to load usage', err);
       setError(err.message || 'Unable to load usage data.');
     } finally {
       setIsLoading(false);
     }
-  }, [vaUser]);
+  }, [selectedSession?.key, vaUser]);
 
   useEffect(() => {
     loadUsage();
   }, [loadUsage]);
+
+  useEffect(() => {
+    selectedSessionKeyRef.current = selectedSession?.key || null;
+  }, [selectedSession?.key]);
 
   const summary = useMemo(() => {
     const todayKey = toDateKey(new Date());
@@ -194,6 +331,101 @@ export function UsageDashboard() {
               </tbody>
             </table>
           )}
+        </div>
+      </Card>
+
+      <Card className="bg-slate-900/50 border-white/10 overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-white/40">Sessions</p>
+            <p className="text-lg font-semibold text-white">Usage by session</p>
+          </div>
+          <span className="text-xs text-white/50">Latest sessions</span>
+        </div>
+        <div className="grid md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] gap-0">
+          <div className="border-r border-white/10">
+            {sessionSummaries.length === 0 ? (
+              <div className="px-6 py-8 text-sm text-white/50">
+                {isLoading ? 'Loading sessions...' : 'No session usage recorded yet.'}
+              </div>
+            ) : (
+              <div className="divide-y divide-white/5">
+                {sessionSummaries.slice(0, 25).map((session) => {
+                  const isSelected = selectedSession?.key === session.key;
+                  return (
+                    <button
+                      key={session.key}
+                      type="button"
+                      onClick={() => {
+                        setSelectedSession(session);
+                        selectedSessionKeyRef.current = session.key;
+                        loadSessionMessages(session);
+                      }}
+                      className={cn(
+                        'w-full text-left px-6 py-4 transition',
+                        isSelected ? 'bg-cyan-500/10' : 'hover:bg-white/5'
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-white">
+                            {session.sessionType === 'chat' ? 'Chat session' : 'Voice session'}
+                          </p>
+                          <p className="text-xs text-white/50 mt-1">
+                            {session.presetName || 'Preset'} · {session.model || 'Model'}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm text-white">{formatTokens(session.totalTokens)}</p>
+                          <p className="text-xs text-white/50">{formatCost(session.costUsd)}</p>
+                        </div>
+                      </div>
+                      <p className="text-xs text-white/40 mt-2">Last update {new Date(session.lastAt).toLocaleString()}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <div className="min-h-[240px]">
+            <div className="px-6 py-4 border-b border-white/10">
+              <p className="text-sm font-semibold text-white">Session messages</p>
+              <p className="text-xs text-white/50 mt-1">
+                {selectedSession
+                  ? `${selectedSession.sessionType === 'chat' ? 'Chat' : 'Voice'} session ${selectedSession.sessionId}`
+                  : 'Select a session to view messages'}
+              </p>
+            </div>
+            <div className="max-h-[420px] overflow-y-auto px-6 py-4 space-y-3">
+              {!selectedSession ? (
+                <p className="text-sm text-white/50">Choose a session to inspect messages.</p>
+              ) : isMessagesLoading ? (
+                <p className="text-sm text-white/50">Loading messages...</p>
+              ) : sessionMessages.length === 0 ? (
+                <p className="text-sm text-white/50">No messages found for this session.</p>
+              ) : (
+                sessionMessages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={cn(
+                      'rounded-xl border px-4 py-3 text-sm',
+                      message.role === 'assistant'
+                        ? 'border-white/10 bg-white/5 text-white/80'
+                        : message.role === 'user'
+                          ? 'border-cyan-400/30 bg-cyan-500/10 text-white'
+                          : 'border-white/10 bg-slate-950/40 text-white/70'
+                    )}
+                  >
+                    <div className="flex items-center justify-between text-xs text-white/50 mb-1">
+                      <span className="uppercase tracking-[0.2em]">{message.role}</span>
+                      <span>{new Date(message.createdAt).toLocaleTimeString()}</span>
+                    </div>
+                    <p className="whitespace-pre-wrap">{message.content}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       </Card>
     </div>
