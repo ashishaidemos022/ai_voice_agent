@@ -107,11 +107,16 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
     () => buildEmbedFunctionUrl(apiBase, 'voice-ephemeral-key'),
     [apiBase]
   );
+  const embedUsageUrl = useMemo(
+    () => buildEmbedFunctionUrl(apiBase, 'embed-usage'),
+    [apiBase]
+  );
   const sessionStorageKey = useMemo(() => `va-voice-embed-session-${publicId}`, [publicId]);
   const clientSessionIdRef = useRef<string | null>(null);
   const userMicIntentRef = useRef(false);
   const sessionIdRef = useRef<string | null>(null);
   const agentConfigIdRef = useRef<string | null>(null);
+  const modelRef = useRef<string | null>(null);
   const loadedToolsConfigRef = useRef<string | null>(null);
   const lastUserTextRef = useRef<string>('');
   const agentMetaRef = useRef<UseVoiceEmbedResult['agentMeta']>(null);
@@ -340,9 +345,26 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
       setAgentState('thinking');
     });
 
-    client.on('response.done', () => {
+    client.on('response.done', async (event: any) => {
       setAgentState('idle');
       setLiveAssistantTranscript('');
+      const usage = event?.response?.usage;
+      const sessionIdValue = sessionIdRef.current;
+      if (!usage || !embedUsageUrl || !publicId || !sessionIdValue) return;
+      try {
+        await fetch(embedUsageUrl, {
+          method: 'POST',
+          headers: REQUEST_HEADERS,
+          body: JSON.stringify({
+            public_id: publicId,
+            session_id: sessionIdValue,
+            model: modelRef.current,
+            usage
+          })
+        });
+      } catch (err) {
+        console.warn('[voice-embed] failed to record usage', err);
+      }
     });
 
     client.on('function_call', async (event: any) => {
@@ -468,6 +490,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
         apiKey: json.token,
         allowInterruptions: true
       });
+      modelRef.current = realtimeConfig.model;
       audioManagerRef.current = audioManager;
       realtimeClientRef.current = realtimeClient;
       attachRealtimeHandlers(realtimeClient, audioManager);

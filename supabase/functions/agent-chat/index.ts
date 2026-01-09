@@ -38,6 +38,38 @@ type ChatMessage = {
   tool_calls?: OpenAIToolCall[];
 };
 
+type UsageTotals = {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+};
+
+type ModelPricing = {
+  inputPer1K: number;
+  outputPer1K: number;
+};
+
+const MODEL_PRICING: Record<string, ModelPricing> = {
+  'gpt-realtime': { inputPer1K: 0.005, outputPer1K: 0.015 },
+  'gpt-4o-realtime-preview-2024-12-17': { inputPer1K: 0.005, outputPer1K: 0.015 },
+  'gpt-4.1-mini': { inputPer1K: 0.00015, outputPer1K: 0.0006 }
+};
+
+function mergeUsage(base: UsageTotals, next?: Partial<UsageTotals> | null): UsageTotals {
+  if (!next) return base;
+  return {
+    prompt_tokens: base.prompt_tokens + (next.prompt_tokens || 0),
+    completion_tokens: base.completion_tokens + (next.completion_tokens || 0),
+    total_tokens: base.total_tokens + (next.total_tokens || 0)
+  };
+}
+
+function estimateUsageCost(model: string, usage: UsageTotals) {
+  const pricing = MODEL_PRICING[model];
+  if (!pricing) return 0;
+  return (usage.prompt_tokens / 1000) * pricing.inputPer1K + (usage.completion_tokens / 1000) * pricing.outputPer1K;
+}
+
 type AgentChatPayload = {
   public_id: string;
   messages: ChatMessage[];
@@ -666,6 +698,11 @@ async function runAgenticAssistant(params: {
 }) {
   const safeMaxIterations = Number.isFinite(MAX_TOOL_ITERATIONS) && MAX_TOOL_ITERATIONS > 0 ? MAX_TOOL_ITERATIONS : 4;
   let iteration = 0;
+  let usageTotals: UsageTotals = {
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0
+  };
 
   const recordAssistantMessage = (message: ChatMessage) => {
     params.chatMessages.push({
@@ -684,6 +721,7 @@ async function runAgenticAssistant(params: {
   );
 
   recordAssistantMessage(result.message);
+  usageTotals = mergeUsage(usageTotals, result.usage as Partial<UsageTotals>);
 
   while (result.message.tool_calls?.length && iteration < safeMaxIterations) {
     iteration += 1;
@@ -706,13 +744,17 @@ async function runAgenticAssistant(params: {
     );
 
     recordAssistantMessage(result.message);
+    usageTotals = mergeUsage(usageTotals, result.usage as Partial<UsageTotals>);
   }
 
   if (result.message.tool_calls?.length) {
     throw new Error('Tool execution limit reached without completion');
   }
 
-  return result.message;
+  return {
+    message: result.message,
+    usage: usageTotals
+  };
 }
 
 async function fetchEmbed(publicId: string) {
@@ -1000,7 +1042,7 @@ Deno.serve(async (req: Request) => {
     ];
     const tools = await loadAgentTools(agentConfig.id, agentConfig.user_id);
 
-    const assistantMessage = await runAgenticAssistant({
+    const assistantResult = await runAgenticAssistant({
       model,
       temperature,
       chatMessages,
@@ -1011,6 +1053,7 @@ Deno.serve(async (req: Request) => {
       userId: agentConfig.user_id
     });
 
+    const assistantMessage = assistantResult.message;
     const finalContent = assistantMessage.content;
 
     if (!finalContent) {
@@ -1052,6 +1095,32 @@ Deno.serve(async (req: Request) => {
         updated_at: new Date().toISOString()
       })
       .eq('id', sessionId);
+
+    if (assistantResult.usage) {
+      const usage = assistantResult.usage;
+      const totalTokens = usage.total_tokens || usage.prompt_tokens + usage.completion_tokens;
+      const costUsd = estimateUsageCost(model, {
+        prompt_tokens: usage.prompt_tokens || 0,
+        completion_tokens: usage.completion_tokens || 0,
+        total_tokens: totalTokens || 0
+      });
+      await adminClient.from('va_usage_events').insert({
+        user_id: agentConfig.user_id,
+        source: embed.embed_type === 'voice' ? 'embed_voice' : 'embed_chat',
+        model,
+        input_tokens: usage.prompt_tokens || 0,
+        output_tokens: usage.completion_tokens || 0,
+        total_tokens: totalTokens || 0,
+        cost_usd: costUsd,
+        metadata: {
+          session_id: sessionId,
+          embed_id: embed.id,
+          embed_public_id: embed.public_id,
+          agent_preset_id: agentConfig.id,
+          embed_type: embed.embed_type
+        }
+      });
+    }
 
     return new Response(
       JSON.stringify({

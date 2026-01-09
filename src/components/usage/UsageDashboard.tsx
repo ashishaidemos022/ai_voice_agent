@@ -159,6 +159,7 @@ export function UsageDashboard() {
       const { data: events, error: eventsError } = await supabase
         .from('va_usage_events')
         .select('id, source, model, input_tokens, output_tokens, total_tokens, cost_usd, metadata, created_at')
+        .not('source', 'in', '("embed_chat","embed_voice")')
         .order('created_at', { ascending: false })
         .limit(200);
       if (eventsError) throw eventsError;
@@ -172,7 +173,8 @@ export function UsageDashboard() {
         if (!sessionId) {
           return;
         }
-        const sessionType: 'chat' | 'voice' = chatSessionId ? 'chat' : 'voice';
+        const sessionType: 'chat' | 'voice' =
+          event.source === 'chat' || chatSessionId ? 'chat' : 'voice';
         const key = `${sessionType}:${sessionId}`;
         const presetId = metadata.agent_preset_id as string | undefined;
         const existing = summaries.get(key);

@@ -11,11 +11,13 @@ export function AgentWorkspace() {
   const [showCreateAgent, setShowCreateAgent] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
   const [showUsage, setShowUsage] = useState(false);
+  const [showEmbedUsage, setShowEmbedUsage] = useState(false);
 
   const handleNavigateVoice = () => {
     setShowCreateAgent(false);
     setShowSkills(false);
     setShowUsage(false);
+    setShowEmbedUsage(false);
     setTab('voice');
   };
 
@@ -23,6 +25,7 @@ export function AgentWorkspace() {
     setShowCreateAgent(false);
     setShowSkills(false);
     setShowUsage(false);
+    setShowEmbedUsage(false);
     setTab('chat');
   };
 
@@ -30,6 +33,7 @@ export function AgentWorkspace() {
     setShowCreateAgent(true);
     setShowSkills(false);
     setShowUsage(false);
+    setShowEmbedUsage(false);
     setTab('voice');
   };
 
@@ -37,11 +41,21 @@ export function AgentWorkspace() {
     setShowSkills(true);
     setShowCreateAgent(false);
     setShowUsage(false);
+    setShowEmbedUsage(false);
     setTab('voice');
   };
 
   const handleOpenUsage = () => {
     setShowUsage(true);
+    setShowCreateAgent(false);
+    setShowSkills(false);
+    setShowEmbedUsage(false);
+    setTab('voice');
+  };
+
+  const handleOpenEmbedUsage = () => {
+    setShowEmbedUsage(true);
+    setShowUsage(false);
     setShowCreateAgent(false);
     setShowSkills(false);
     setTab('voice');
@@ -56,6 +70,7 @@ export function AgentWorkspace() {
           onOpenSkills={handleOpenSkills}
           onOpenKnowledgeBase={() => setIsKnowledgeDrawerOpen(true)}
           onOpenUsage={handleOpenUsage}
+          onOpenEmbedUsage={handleOpenEmbedUsage}
         />
       ) : (
         <VoiceAgent
@@ -70,6 +85,9 @@ export function AgentWorkspace() {
           showUsage={showUsage}
           onOpenUsage={handleOpenUsage}
           onCloseUsage={() => setShowUsage(false)}
+          showEmbedUsage={showEmbedUsage}
+          onOpenEmbedUsage={handleOpenEmbedUsage}
+          onCloseEmbedUsage={() => setShowEmbedUsage(false)}
         />
       )}
       <KnowledgeBaseDrawer

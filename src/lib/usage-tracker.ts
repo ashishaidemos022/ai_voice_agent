@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { estimateUsageCost } from './usage-pricing';
 
-export type UsageSource = 'voice' | 'chat' | 'web_search' | 'tool' | 'unknown';
+export type UsageSource = 'voice' | 'chat' | 'web_search' | 'tool' | 'unknown' | 'embed_chat' | 'embed_voice';
 
 export type UsageCounts = {
   inputTokens: number;

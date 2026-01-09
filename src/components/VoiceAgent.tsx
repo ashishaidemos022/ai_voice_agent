@@ -24,6 +24,7 @@ import { MCPPanel } from './panels/MCPPanel';
 import { N8NPanel } from './panels/N8NPanel';
 import { Card } from './ui/Card';
 import { UsageDashboard } from './usage/UsageDashboard';
+import { EmbedUsageDashboard } from './usage/EmbedUsageDashboard';
 import { WelcomeHero } from './welcome/WelcomeHero';
 import { StartSessionButton } from './welcome/StartSessionButton';
 import { cn } from '../lib/utils';
@@ -80,6 +81,9 @@ type VoiceAgentProps = {
   showUsage?: boolean;
   onOpenUsage?: () => void;
   onCloseUsage?: () => void;
+  showEmbedUsage?: boolean;
+  onOpenEmbedUsage?: () => void;
+  onCloseEmbedUsage?: () => void;
 };
 
 export function VoiceAgent({
@@ -93,7 +97,10 @@ export function VoiceAgent({
   onCloseSkills,
   showUsage,
   onOpenUsage,
-  onCloseUsage
+  onCloseUsage,
+  showEmbedUsage,
+  onOpenEmbedUsage,
+  onCloseEmbedUsage
 }: VoiceAgentProps = {}) {
   const { vaUser, providerKeys, signOut } = useAuth();
   const {
@@ -124,7 +131,7 @@ export function VoiceAgent({
   const [isInitialized, setIsInitialized] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [isSwitchingPreset, setIsSwitchingPreset] = useState(false);
-  const [localWorkspaceView, setLocalWorkspaceView] = useState<'runtime' | 'configure' | 'skills' | 'usage'>('runtime');
+  const [localWorkspaceView, setLocalWorkspaceView] = useState<'runtime' | 'configure' | 'skills' | 'usage' | 'embed-usage'>('runtime');
   const [currentConfig, setCurrentConfig] = useState<RealtimeConfig>(() => ({
     ...defaultConfig,
     model: preferredModel || defaultConfig.model,
@@ -587,6 +594,7 @@ export function VoiceAgent({
   const isCreateAgentOpen = showCreateAgent ?? localWorkspaceView === 'configure';
   const isSkillsOpen = showSkills ?? localWorkspaceView === 'skills';
   const isUsageOpen = showUsage ?? localWorkspaceView === 'usage';
+  const isEmbedUsageOpen = showEmbedUsage ?? localWorkspaceView === 'embed-usage';
   const handleOpenCreateAgent = () => {
     if (onOpenCreateAgent) {
       onOpenCreateAgent();
@@ -629,34 +637,62 @@ export function VoiceAgent({
       setLocalWorkspaceView('runtime');
     }
   };
+  const handleOpenEmbedUsage = () => {
+    if (onOpenEmbedUsage) {
+      onOpenEmbedUsage();
+    } else {
+      setLocalWorkspaceView('embed-usage');
+    }
+  };
+  const handleCloseEmbedUsage = () => {
+    if (onCloseEmbedUsage) {
+      onCloseEmbedUsage();
+    } else {
+      setLocalWorkspaceView('runtime');
+    }
+  };
 
   const sidebar = (
     <Sidebar
       isConnected={isConnected}
-      activeNav={isCreateAgentOpen ? 'create' : isSkillsOpen ? 'skills' : isUsageOpen ? 'usage' : 'voice'}
+      activeNav={
+        isCreateAgentOpen
+          ? 'create'
+          : isSkillsOpen
+            ? 'skills'
+            : isUsageOpen
+              ? 'usage'
+              : isEmbedUsageOpen
+                ? 'embed-usage'
+                : 'voice'
+      }
       onNavigateVoice={() => {
         handleCloseCreateAgent();
         handleCloseSkills();
         handleCloseUsage();
+        handleCloseEmbedUsage();
       }}
       onNavigateChat={onNavigateChat}
       onNavigateSkills={() => {
         handleOpenSkills();
         handleCloseCreateAgent();
         handleCloseUsage();
+        handleCloseEmbedUsage();
       }}
       onOpenKnowledgeBase={onOpenKnowledgeBase}
       onOpenUsage={handleOpenUsage}
+      onOpenEmbedUsage={handleOpenEmbedUsage}
       onOpenSettings={() => {
         handleOpenCreateAgent();
         handleCloseSkills();
         handleCloseUsage();
+        handleCloseEmbedUsage();
       }}
       allowVoiceNavWhenActive={isCreateAgentOpen}
     />
   );
 
-  const showSidePanels = !isSkillsOpen && !isUsageOpen;
+  const showSidePanels = !isSkillsOpen && !isUsageOpen && !isEmbedUsageOpen;
   const sidePanels = showSidePanels ? (
     <WorkspaceSidePanels
       toolsCount={availableTools.length}
@@ -668,7 +704,7 @@ export function VoiceAgent({
         />
       }
       toolsContent={<ToolsList mcpTools={availableTools} />}
-      showHistory={!isCreateAgentOpen && !isSkillsOpen && !isUsageOpen}
+      showHistory={!isCreateAgentOpen && !isSkillsOpen && !isUsageOpen && !isEmbedUsageOpen}
     />
   ) : null;
 
@@ -791,6 +827,10 @@ export function VoiceAgent({
                   ) : isUsageOpen ? (
                     <div className="h-full overflow-hidden p-6">
                       <UsageDashboard />
+                    </div>
+                  ) : isEmbedUsageOpen ? (
+                    <div className="h-full overflow-hidden p-6">
+                      <EmbedUsageDashboard />
                     </div>
                   ) : (
                     <div className="flex flex-col p-6 gap-6 h-full overflow-hidden">

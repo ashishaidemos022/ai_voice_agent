@@ -5,12 +5,13 @@ import { cn } from '../../lib/utils';
 interface SidebarProps {
   isConnected?: boolean;
   children?: ReactNode;
-  activeNav?: 'voice' | 'chat' | 'create' | 'skills' | 'usage';
+  activeNav?: 'voice' | 'chat' | 'create' | 'skills' | 'usage' | 'embed-usage';
   onNavigateVoice?: () => void;
   onNavigateChat?: () => void;
   onNavigateSkills?: () => void;
   onOpenKnowledgeBase?: () => void;
   onOpenUsage?: () => void;
+  onOpenEmbedUsage?: () => void;
   onOpenSettings?: () => void;
   allowVoiceNavWhenActive?: boolean;
 }
@@ -24,6 +25,7 @@ export function Sidebar({
   onNavigateSkills,
   onOpenKnowledgeBase,
   onOpenUsage,
+  onOpenEmbedUsage,
   onOpenSettings,
   allowVoiceNavWhenActive = false
 }: SidebarProps) {
@@ -36,8 +38,11 @@ export function Sidebar({
           ? 'Skills'
           : activeNav === 'usage'
             ? 'Usage'
+            : activeNav === 'embed-usage'
+              ? 'Embed Usage'
           : 'Voice Agent';
-  const showConnectionStatus = activeNav !== 'create' && activeNav !== 'skills' && activeNav !== 'usage';
+  const showConnectionStatus =
+    activeNav !== 'create' && activeNav !== 'skills' && activeNav !== 'usage' && activeNav !== 'embed-usage';
 
   return (
     <aside className="w-72 bg-slate-950/70 border-r border-white/10 flex flex-col h-full">
@@ -147,6 +152,20 @@ export function Sidebar({
               )}
             >
               <span className="text-sm font-medium">Usage</span>
+            </button>
+          )}
+          {onOpenEmbedUsage && (
+            <button
+              type="button"
+              onClick={onOpenEmbedUsage}
+              className={cn(
+                'w-full flex items-center gap-3 px-3 py-2 rounded-xl border transition',
+                activeNav === 'embed-usage'
+                  ? 'border-cyan-400/60 bg-cyan-500/15 text-white'
+                  : 'border-white/5 text-white/70 hover:border-white/20 hover:bg-white/5'
+              )}
+            >
+              <span className="text-sm font-medium">Embed Usage Stats</span>
             </button>
           )}
         </div>

@@ -50,6 +50,7 @@ type ChatAgentProps = {
   onOpenCreateAgent?: () => void;
   onOpenSkills?: () => void;
   onOpenUsage?: () => void;
+  onOpenEmbedUsage?: () => void;
 };
 
 export function ChatAgent({
@@ -58,7 +59,8 @@ export function ChatAgent({
   onOpenKnowledgeBase,
   onOpenCreateAgent,
   onOpenSkills,
-  onOpenUsage
+  onOpenUsage,
+  onOpenEmbedUsage
 }: ChatAgentProps) {
   const { vaUser, providerKeys, signOut } = useAuth();
   const {
@@ -535,6 +537,7 @@ export function ChatAgent({
       onNavigateSkills={onOpenSkills}
       onOpenKnowledgeBase={onOpenKnowledgeBase}
       onOpenUsage={onOpenUsage}
+      onOpenEmbedUsage={onOpenEmbedUsage}
       onOpenSettings={onOpenCreateAgent}
     />
   );
