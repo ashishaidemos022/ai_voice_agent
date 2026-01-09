@@ -20,6 +20,7 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { runRagAugmentation } from '../lib/rag-service';
 import type { RagAugmentationResult } from '../types/rag';
+import { normalizeUsage, recordUsageEvent } from '../lib/usage-tracker';
 
 const MAX_CONTEXT_MESSAGES = 40;
 const DEFAULT_REALTIME_MODEL = 'gpt-realtime';
@@ -60,24 +61,32 @@ export function useChatAgent() {
 
   const realtimeRef = useRef<ChatRealtimeClient | null>(null);
   const sessionRef = useRef<ChatSession | null>(null);
+  const activePresetRef = useRef<AgentConfigPreset | null>(null);
   const responseStartMsRef = useRef<number | null>(null);
   const firstTokenRecordedRef = useRef(false);
 
-  useEffect(() => {
-    async function loadPresets() {
-      try {
-        const data = await getAllConfigPresets();
-        setPresets(data);
-        if (!activePresetId && data.length > 0) {
-          setActivePresetId(data[0].id);
-        }
-      } catch (err) {
-        console.error('Failed to load presets', err);
-        setError('Unable to load agent presets');
+  const refreshPresets = useCallback(async () => {
+    try {
+      const data = await getAllConfigPresets();
+      setPresets(data);
+      if (!activePresetId && data.length > 0) {
+        setActivePresetId(data[0].id);
+      } else if (activePresetId && !data.some((preset) => preset.id === activePresetId)) {
+        setActivePresetId(data[0]?.id || null);
       }
+    } catch (err) {
+      console.error('Failed to load presets', err);
+      setError('Unable to load agent presets');
     }
-    loadPresets();
   }, [activePresetId]);
+
+  useEffect(() => {
+    refreshPresets();
+  }, [refreshPresets]);
+
+  useEffect(() => {
+    activePresetRef.current = presets.find((preset) => preset.id === activePresetId) || null;
+  }, [presets, activePresetId]);
 
   const refreshHistorySessions = useCallback(async () => {
     if (!vaUser) return;
@@ -97,6 +106,15 @@ export function useChatAgent() {
     await loadMCPTools(presetId, vaUser?.id);
     return [...getAllTools()];
   }, [vaUser?.id]);
+
+  const refreshTools = useCallback(async () => {
+    if (!activePresetId || !vaUser) {
+      setAvailableTools([]);
+      return;
+    }
+    const tools = await loadToolsForPreset(activePresetId);
+    setAvailableTools(tools);
+  }, [activePresetId, loadToolsForPreset, vaUser]);
 
   useEffect(() => {
     if (!activePresetId || !vaUser) {
@@ -226,6 +244,22 @@ export function useChatAgent() {
     client.on('response.started', () => {
       setIsStreaming(true);
     });
+    client.on('usage.reported', async (evt) => {
+      const usage = normalizeUsage(evt.usage);
+      if (!usage || !vaUser) return;
+      const preset = activePresetRef.current;
+      const model = evt.model || (preset ? resolveChatRealtimeModel(preset) : DEFAULT_REALTIME_MODEL);
+      await recordUsageEvent({
+        userId: vaUser.id,
+        source: 'chat',
+        model,
+        usage,
+        metadata: {
+          chat_session_id: sessionRef.current?.id || null,
+          agent_preset_id: activePresetRef.current?.id || activePresetId || null
+        }
+      });
+    });
     client.on('function_call', async (event) => {
       if (!sessionRef.current) return;
       let parsedArgs: Record<string, any> = {};
@@ -264,7 +298,7 @@ export function useChatAgent() {
         client.sendToolOutput(event.call.id, { error: message });
       }
     });
-  }, [handleAssistantCompleted, handleAssistantDelta]);
+  }, [handleAssistantCompleted, handleAssistantDelta, vaUser, activePresetId]);
 
   const startSession = useCallback(async () => {
     if (!vaUser) {
@@ -452,6 +486,7 @@ export function useChatAgent() {
     presets,
     activePresetId,
     setActivePresetId,
+    refreshPresets,
     session,
     messages,
     historySessions,
@@ -474,6 +509,7 @@ export function useChatAgent() {
     ragInvoked,
     ragError,
     isRagLoading,
-    availableTools
+    availableTools,
+    refreshTools
   };
 }

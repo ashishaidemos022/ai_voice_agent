@@ -13,6 +13,7 @@ import {
   UserRound
 } from 'lucide-react';
 import { useChatAgent } from '../../hooks/useChatAgent';
+import { useAuth } from '../../context/AuthContext';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { ChatMessage } from '../../types/chat';
@@ -22,6 +23,12 @@ import { MainLayout } from '../layout/MainLayout';
 import { Sidebar } from '../layout/Sidebar';
 import { WorkspaceSidePanels } from '../layout/WorkspaceSidePanels';
 import { ToolsList } from '../tools/ToolsList';
+import { TopBar } from '../layout/TopBar';
+import { MCPPanel } from '../panels/MCPPanel';
+import { N8NPanel } from '../panels/N8NPanel';
+import { SettingsPanel } from '../panels/SettingsPanel';
+import { configPresetToRealtimeConfig } from '../../lib/config-service';
+import type { RealtimeConfig } from '../../types/voice-agent';
 
 const formatRelative = (dateString?: string | null) => {
   if (!dateString) return 'moments ago';
@@ -42,6 +49,7 @@ type ChatAgentProps = {
   onOpenKnowledgeBase?: () => void;
   onOpenCreateAgent?: () => void;
   onOpenSkills?: () => void;
+  onOpenUsage?: () => void;
 };
 
 export function ChatAgent({
@@ -49,12 +57,15 @@ export function ChatAgent({
   onNavigateVoice,
   onOpenKnowledgeBase,
   onOpenCreateAgent,
-  onOpenSkills
+  onOpenSkills,
+  onOpenUsage
 }: ChatAgentProps) {
+  const { vaUser, providerKeys, signOut } = useAuth();
   const {
     presets,
     activePresetId,
     setActivePresetId,
+    refreshPresets,
     availableTools,
     session,
     messages,
@@ -77,11 +88,17 @@ export function ChatAgent({
     ragResult,
     ragInvoked,
     ragError,
-    isRagLoading
+    isRagLoading,
+    refreshTools
   } = useChatAgent();
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isMCPPanelOpen, setIsMCPPanelOpen] = useState(false);
+  const [isN8NPanelOpen, setIsN8NPanelOpen] = useState(false);
+  const [chatConfig, setChatConfig] = useState<RealtimeConfig | null>(null);
   const [composerValue, setComposerValue] = useState('');
   const [viewMode, setViewMode] = useState<'current' | 'history'>('current');
   const activePreset = useMemo(() => presets.find((p) => p.id === activePresetId), [presets, activePresetId]);
+  const providerKeyId = activePreset?.provider_key_id || providerKeys[0]?.id || null;
 
   const visibleMessages = useMemo<ChatMessage[]>(() => {
     return viewMode === 'current' ? messages : historicalMessages;
@@ -112,6 +129,14 @@ export function ChatAgent({
     if (!conversationRef.current) return;
     conversationRef.current.scrollTop = conversationRef.current.scrollHeight;
   }, [visibleMessages, liveAssistantText, showHistoryDetail]);
+
+  useEffect(() => {
+    if (!activePreset) {
+      setChatConfig(null);
+      return;
+    }
+    setChatConfig(configPresetToRealtimeConfig(activePreset));
+  }, [activePreset]);
 
   const mainContent = (
     <div className="flex-1 flex flex-col min-h-0 relative z-10">
@@ -509,12 +534,31 @@ export function ChatAgent({
       onNavigateChat={() => setViewMode('current')}
       onNavigateSkills={onOpenSkills}
       onOpenKnowledgeBase={onOpenKnowledgeBase}
+      onOpenUsage={onOpenUsage}
       onOpenSettings={onOpenCreateAgent}
     />
   );
 
+  const topBar = (
+    <TopBar
+      isInitialized={Boolean(session)}
+      activeConfigName={activePreset?.name}
+      onSettingsClick={() => setIsSettingsOpen(true)}
+      onMCPClick={() => setIsMCPPanelOpen(true)}
+      onIntegrationsClick={() => setIsN8NPanelOpen(true)}
+      onEndSession={endSession}
+      viewMode={viewMode}
+      onBackToCurrent={() => {
+        setViewMode('current');
+        clearHistorySelection();
+      }}
+      onSignOut={signOut}
+      userEmail={vaUser?.email}
+    />
+  );
+
   return (
-    <MainLayout sidebar={sidebar} topBar={null}>
+    <MainLayout sidebar={sidebar} topBar={topBar}>
       <div className="flex h-full overflow-hidden">
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           {mainContent}
@@ -526,6 +570,37 @@ export function ChatAgent({
           historyContent={historyContent}
         />
       </div>
+      {chatConfig && (
+        <SettingsPanel
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          config={chatConfig}
+          onConfigChange={setChatConfig}
+          activeConfigId={activePresetId}
+          onActiveConfigChange={(configId) => {
+            if (configId) {
+              setActivePresetId(configId);
+              setViewMode('current');
+              clearHistorySelection();
+            }
+          }}
+          userId={vaUser?.id || ''}
+          providerKeyId={providerKeyId}
+          onPresetsRefresh={refreshPresets}
+          onToolsChanged={refreshTools}
+        />
+      )}
+      <MCPPanel
+        isOpen={isMCPPanelOpen}
+        onClose={() => setIsMCPPanelOpen(false)}
+        onConnectionsChanged={refreshTools}
+      />
+      <N8NPanel
+        isOpen={isN8NPanelOpen}
+        onClose={() => setIsN8NPanelOpen(false)}
+        configId={activePresetId}
+        onIntegrationsChanged={refreshTools}
+      />
     </MainLayout>
   );
 }

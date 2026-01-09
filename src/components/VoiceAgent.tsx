@@ -23,6 +23,7 @@ import { SettingsPanel } from './panels/SettingsPanel';
 import { MCPPanel } from './panels/MCPPanel';
 import { N8NPanel } from './panels/N8NPanel';
 import { Card } from './ui/Card';
+import { UsageDashboard } from './usage/UsageDashboard';
 import { WelcomeHero } from './welcome/WelcomeHero';
 import { StartSessionButton } from './welcome/StartSessionButton';
 import { cn } from '../lib/utils';
@@ -76,6 +77,9 @@ type VoiceAgentProps = {
   showSkills?: boolean;
   onOpenSkills?: () => void;
   onCloseSkills?: () => void;
+  showUsage?: boolean;
+  onOpenUsage?: () => void;
+  onCloseUsage?: () => void;
 };
 
 export function VoiceAgent({
@@ -86,7 +90,10 @@ export function VoiceAgent({
   onCloseCreateAgent,
   showSkills,
   onOpenSkills,
-  onCloseSkills
+  onCloseSkills,
+  showUsage,
+  onOpenUsage,
+  onCloseUsage
 }: VoiceAgentProps = {}) {
   const { vaUser, providerKeys, signOut } = useAuth();
   const {
@@ -117,7 +124,7 @@ export function VoiceAgent({
   const [isInitialized, setIsInitialized] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [isSwitchingPreset, setIsSwitchingPreset] = useState(false);
-  const [localWorkspaceView, setLocalWorkspaceView] = useState<'runtime' | 'configure' | 'skills'>('runtime');
+  const [localWorkspaceView, setLocalWorkspaceView] = useState<'runtime' | 'configure' | 'skills' | 'usage'>('runtime');
   const [currentConfig, setCurrentConfig] = useState<RealtimeConfig>(() => ({
     ...defaultConfig,
     model: preferredModel || defaultConfig.model,
@@ -579,6 +586,7 @@ export function VoiceAgent({
 
   const isCreateAgentOpen = showCreateAgent ?? localWorkspaceView === 'configure';
   const isSkillsOpen = showSkills ?? localWorkspaceView === 'skills';
+  const isUsageOpen = showUsage ?? localWorkspaceView === 'usage';
   const handleOpenCreateAgent = () => {
     if (onOpenCreateAgent) {
       onOpenCreateAgent();
@@ -607,30 +615,49 @@ export function VoiceAgent({
       setLocalWorkspaceView('runtime');
     }
   };
+  const handleOpenUsage = () => {
+    if (onOpenUsage) {
+      onOpenUsage();
+    } else {
+      setLocalWorkspaceView('usage');
+    }
+  };
+  const handleCloseUsage = () => {
+    if (onCloseUsage) {
+      onCloseUsage();
+    } else {
+      setLocalWorkspaceView('runtime');
+    }
+  };
 
   const sidebar = (
     <Sidebar
       isConnected={isConnected}
-      activeNav={isCreateAgentOpen ? 'create' : isSkillsOpen ? 'skills' : 'voice'}
+      activeNav={isCreateAgentOpen ? 'create' : isSkillsOpen ? 'skills' : isUsageOpen ? 'usage' : 'voice'}
       onNavigateVoice={() => {
         handleCloseCreateAgent();
         handleCloseSkills();
+        handleCloseUsage();
       }}
       onNavigateChat={onNavigateChat}
       onNavigateSkills={() => {
         handleOpenSkills();
         handleCloseCreateAgent();
+        handleCloseUsage();
       }}
       onOpenKnowledgeBase={onOpenKnowledgeBase}
+      onOpenUsage={handleOpenUsage}
       onOpenSettings={() => {
         handleOpenCreateAgent();
         handleCloseSkills();
+        handleCloseUsage();
       }}
       allowVoiceNavWhenActive={isCreateAgentOpen}
     />
   );
 
-  const sidePanels = (
+  const showSidePanels = !isSkillsOpen && !isUsageOpen;
+  const sidePanels = showSidePanels ? (
     <WorkspaceSidePanels
       toolsCount={availableTools.length}
       historyContent={
@@ -641,9 +668,9 @@ export function VoiceAgent({
         />
       }
       toolsContent={<ToolsList mcpTools={availableTools} />}
-      showHistory={!isCreateAgentOpen && !isSkillsOpen}
+      showHistory={!isCreateAgentOpen && !isSkillsOpen && !isUsageOpen}
     />
-  );
+  ) : null;
 
   const topBar = (
     <TopBar
@@ -760,6 +787,10 @@ export function VoiceAgent({
                           />
                         </div>
                       </div>
+                    </div>
+                  ) : isUsageOpen ? (
+                    <div className="h-full overflow-hidden p-6">
+                      <UsageDashboard />
                     </div>
                   ) : (
                     <div className="flex flex-col p-6 gap-6 h-full overflow-hidden">

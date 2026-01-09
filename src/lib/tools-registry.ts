@@ -3,6 +3,7 @@ import { mcpApiClient } from './mcp-api-client';
 import { normalizeMCPArguments, JSONSchema, resolveSchemaDefinition } from './mcp-normalizer';
 import { triggerN8NWebhook } from './n8n-service';
 import { buildN8NToolName, normalizeIdentifier } from './tool-utils';
+import { normalizeUsage, recordUsageEvent } from './usage-tracker';
 
 export interface Tool {
   name: string;
@@ -115,6 +116,23 @@ async function executeWebSearch(params: any, defaults?: Record<string, any>) {
   }
 
   const data = await response.json();
+  const usage = normalizeUsage(data?.usage);
+  if (usage) {
+    const { data: authData } = await supabase.auth.getUser();
+    await recordUsageEvent({
+      userId: authData?.user?.id,
+      source: 'web_search',
+      model: data?.model || 'gpt-4.1-mini',
+      usage,
+      metadata: {
+        tool_name: WEB_SEARCH_TOOL_NAME,
+        max_results: maxResults,
+        time_range: timeRange,
+        snippets_only: snippetsOnly,
+        allowed_domains: allowedDomains
+      }
+    });
+  }
   return {
     query: searchQuery,
     allowed_domains: allowedDomains,

@@ -8,6 +8,7 @@ import { runRagAugmentation } from '../lib/rag-service';
 import type { RagAugmentationResult, RagMode } from '../types/rag';
 import { configPresetToRealtimeConfig, getConfigPresetById } from '../lib/config-service';
 import { useAuth } from '../context/AuthContext';
+import { normalizeUsage, recordUsageEvent } from '../lib/usage-tracker';
 
 type LiveTranscripts = {
   user: Record<string, string>;
@@ -41,6 +42,7 @@ export function useVoiceAgent() {
   const realtimeClientRef = useRef<RealtimeAPIClient | null>(null);
   const audioIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const configRef = useRef<RealtimeConfig | null>(null);
   const transcriptsRef = useRef<LiveTranscripts>({
     user: {},
     assistant: {},
@@ -152,6 +154,10 @@ export function useVoiceAgent() {
     setLiveUserTranscript('');
     setLiveAssistantTranscript('');
   }, []);
+
+  useEffect(() => {
+    configRef.current = config;
+  }, [config]);
 
   const mergeRealtimeConfig = useCallback((prev: RealtimeConfig | null, next: RealtimeConfig): RealtimeConfig => {
     const fallback = prev ?? next;
@@ -431,10 +437,23 @@ export function useVoiceAgent() {
       setLiveAssistantTranscript('');
     });
 
-    client.on('response.done', () => {
+    client.on('response.done', async (event: any) => {
       setIsProcessing(false);
       setAgentState('idle');
       setLiveAssistantTranscript('');
+      const usage = normalizeUsage(event?.response?.usage);
+      if (usage && vaUser?.id) {
+        await recordUsageEvent({
+          userId: vaUser.id,
+          source: 'voice',
+          model: configRef.current?.model || null,
+          usage,
+          metadata: {
+            session_id: sessionIdRef.current,
+            agent_preset_id: activeConfigIdRef.current
+          }
+        });
+      }
     });
 
     client.on('interruption', () => {
@@ -496,7 +515,7 @@ export function useVoiceAgent() {
         setIsProcessing(false);
       }
     });
-  }, [persistMessage, resetTranscripts]);
+  }, [persistMessage, resetTranscripts, vaUser?.id]);
 
   const startRecording = useCallback(async () => {
     if (!audioManagerRef.current || !realtimeClientRef.current) return;

@@ -8,7 +8,8 @@ export type ChatRealtimeEvent =
   | { type: 'response.delta'; delta: string }
   | { type: 'response.completed'; text: string }
   | { type: 'response.started' }
-  | { type: 'function_call'; call: { id: string; name: string; arguments: string } };
+  | { type: 'function_call'; call: { id: string; name: string; arguments: string } }
+  | { type: 'usage.reported'; usage: any; model?: string };
 
 export interface ChatRealtimeConfig {
   model: string;
@@ -213,6 +214,13 @@ export class ChatRealtimeClient {
       case 'close':
       case 'response.completed':
       case 'response.done':
+        if (message.response?.usage) {
+          this.emit({
+            type: 'usage.reported',
+            usage: message.response.usage,
+            model: message.response?.model
+          });
+        }
         if (message.response?.output) {
           const finalText = message.response.output
             .filter((item: any) => item.content)

@@ -1,15 +1,16 @@
 import { ReactNode } from 'react';
-import { MessageSquare, Mic, Wrench } from 'lucide-react';
+import { BarChart3, MessageSquare, Mic, Wrench } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 interface SidebarProps {
   isConnected?: boolean;
   children?: ReactNode;
-  activeNav?: 'voice' | 'chat' | 'create' | 'skills';
+  activeNav?: 'voice' | 'chat' | 'create' | 'skills' | 'usage';
   onNavigateVoice?: () => void;
   onNavigateChat?: () => void;
   onNavigateSkills?: () => void;
   onOpenKnowledgeBase?: () => void;
+  onOpenUsage?: () => void;
   onOpenSettings?: () => void;
   allowVoiceNavWhenActive?: boolean;
 }
@@ -22,6 +23,7 @@ export function Sidebar({
   onNavigateChat,
   onNavigateSkills,
   onOpenKnowledgeBase,
+  onOpenUsage,
   onOpenSettings,
   allowVoiceNavWhenActive = false
 }: SidebarProps) {
@@ -32,8 +34,10 @@ export function Sidebar({
         ? 'Create Agent'
         : activeNav === 'skills'
           ? 'Skills'
+          : activeNav === 'usage'
+            ? 'Usage'
           : 'Voice Agent';
-  const showConnectionStatus = activeNav !== 'create' && activeNav !== 'skills';
+  const showConnectionStatus = activeNav !== 'create' && activeNav !== 'skills' && activeNav !== 'usage';
 
   return (
     <aside className="w-72 bg-slate-950/70 border-r border-white/10 flex flex-col h-full">
@@ -44,6 +48,8 @@ export function Sidebar({
               <MessageSquare className="w-5 h-5 text-slate-950" />
             ) : activeNav === 'create' || activeNav === 'skills' ? (
               <Wrench className="w-5 h-5 text-slate-950" />
+            ) : activeNav === 'usage' ? (
+              <BarChart3 className="w-5 h-5 text-slate-950" />
             ) : (
               <Mic className="w-5 h-5 text-slate-950" />
             )}
@@ -127,6 +133,20 @@ export function Sidebar({
               className="w-full flex items-center gap-3 px-3 py-2 rounded-xl border border-white/5 text-white/70 hover:border-white/20 hover:bg-white/5 transition"
             >
               <span className="text-sm font-medium">Knowledge Base</span>
+            </button>
+          )}
+          {onOpenUsage && (
+            <button
+              type="button"
+              onClick={onOpenUsage}
+              className={cn(
+                'w-full flex items-center gap-3 px-3 py-2 rounded-xl border transition',
+                activeNav === 'usage'
+                  ? 'border-cyan-400/60 bg-cyan-500/15 text-white'
+                  : 'border-white/5 text-white/70 hover:border-white/20 hover:bg-white/5'
+              )}
+            >
+              <span className="text-sm font-medium">Usage</span>
             </button>
           )}
         </div>

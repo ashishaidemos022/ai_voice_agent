@@ -10,28 +10,40 @@ export function AgentWorkspace() {
   const [isKnowledgeDrawerOpen, setIsKnowledgeDrawerOpen] = useState(false);
   const [showCreateAgent, setShowCreateAgent] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
+  const [showUsage, setShowUsage] = useState(false);
 
   const handleNavigateVoice = () => {
     setShowCreateAgent(false);
     setShowSkills(false);
+    setShowUsage(false);
     setTab('voice');
   };
 
   const handleNavigateChat = () => {
     setShowCreateAgent(false);
     setShowSkills(false);
+    setShowUsage(false);
     setTab('chat');
   };
 
   const handleOpenCreateAgent = () => {
     setShowCreateAgent(true);
     setShowSkills(false);
+    setShowUsage(false);
     setTab('voice');
   };
 
   const handleOpenSkills = () => {
     setShowSkills(true);
     setShowCreateAgent(false);
+    setShowUsage(false);
+    setTab('voice');
+  };
+
+  const handleOpenUsage = () => {
+    setShowUsage(true);
+    setShowCreateAgent(false);
+    setShowSkills(false);
     setTab('voice');
   };
 
@@ -43,6 +55,7 @@ export function AgentWorkspace() {
           onOpenCreateAgent={handleOpenCreateAgent}
           onOpenSkills={handleOpenSkills}
           onOpenKnowledgeBase={() => setIsKnowledgeDrawerOpen(true)}
+          onOpenUsage={handleOpenUsage}
         />
       ) : (
         <VoiceAgent
@@ -54,6 +67,9 @@ export function AgentWorkspace() {
           showSkills={showSkills}
           onOpenSkills={handleOpenSkills}
           onCloseSkills={() => setShowSkills(false)}
+          showUsage={showUsage}
+          onOpenUsage={handleOpenUsage}
+          onCloseUsage={() => setShowUsage(false)}
         />
       )}
       <KnowledgeBaseDrawer
