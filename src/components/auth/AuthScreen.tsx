@@ -80,6 +80,8 @@ export function AuthScreen() {
         setConfirmPassword('');
         if (typeof window !== 'undefined') {
           window.history.replaceState({}, document.title, window.location.pathname);
+          window.dispatchEvent(new PopStateEvent('popstate'));
+          window.dispatchEvent(new HashChangeEvent('hashchange'));
         }
       }
     } catch (err: any) {
