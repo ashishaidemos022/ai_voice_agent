@@ -1,17 +1,29 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChatAgent } from '../chat/ChatAgent';
 import { VoiceAgent } from '../VoiceAgent';
 import { KnowledgeBaseDrawer } from '../rag/KnowledgeBaseDrawer';
+import { useAuth } from '../../context/AuthContext';
 
 type WorkspaceTab = 'chat' | 'voice';
 
 export function AgentWorkspace() {
+  const { vaUser } = useAuth();
   const [tab, setTab] = useState<WorkspaceTab>('voice');
   const [isKnowledgeDrawerOpen, setIsKnowledgeDrawerOpen] = useState(false);
   const [showCreateAgent, setShowCreateAgent] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
   const [showUsage, setShowUsage] = useState(false);
   const [showEmbedUsage, setShowEmbedUsage] = useState(false);
+  const didAutoOpenCreateRef = useRef(false);
+
+  useEffect(() => {
+    if (!vaUser || didAutoOpenCreateRef.current) return;
+    if (!vaUser.default_agent_id) {
+      setShowCreateAgent(true);
+      setTab('voice');
+      didAutoOpenCreateRef.current = true;
+    }
+  }, [vaUser]);
 
   const handleNavigateVoice = () => {
     setShowCreateAgent(false);

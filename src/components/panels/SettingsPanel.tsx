@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { PostgrestError } from '@supabase/supabase-js';
 import {
   BadgeCheck,
   Copy,
@@ -22,6 +23,7 @@ import {
   saveConfigPreset,
   updateConfigPreset
 } from '../../lib/config-service';
+import { supabase } from '../../lib/supabase';
 import { RightPanel } from '../layout/RightPanel';
 import { Button } from '../ui/Button';
 import { Card, CardHeader } from '../ui/Card';
@@ -39,6 +41,7 @@ interface SettingsPanelProps {
   providerKeyId: string | null;
   onPresetsRefresh?: () => Promise<void> | void;
   onToolsChanged?: () => Promise<void> | void;
+  onProfileRefresh?: () => Promise<void> | void;
   embedded?: boolean;
   onBack?: () => void;
 }
@@ -85,6 +88,7 @@ export function SettingsPanel({
   providerKeyId,
   onPresetsRefresh,
   onToolsChanged,
+  onProfileRefresh,
   embedded = false,
   onBack
 }: SettingsPanelProps) {
@@ -94,13 +98,24 @@ export function SettingsPanel({
   const [newPresetName, setNewPresetName] = useState('');
   const [saveError, setSaveError] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [localProviderKeyId, setLocalProviderKeyId] = useState<string | null>(providerKeyId);
+  const [keyAlias, setKeyAlias] = useState('Primary');
+  const [apiKey, setApiKey] = useState('');
+  const [isSavingKey, setIsSavingKey] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
+  const [keySuccessMessage, setKeySuccessMessage] = useState<string | null>(null);
   const activePreset = presets.find((p) => p.id === activeConfigId);
+  const effectiveProviderKeyId = localProviderKeyId ?? providerKeyId;
 
   useEffect(() => {
     if (embedded || isOpen) {
       void loadPresets();
     }
   }, [embedded, isOpen]);
+
+  useEffect(() => {
+    setLocalProviderKeyId(providerKeyId);
+  }, [providerKeyId]);
 
   useEffect(() => {
     if (activeConfigId && activePreset) {
@@ -137,7 +152,7 @@ export function SettingsPanel({
       setSaveError('Please enter a preset name');
       return;
     }
-    if (!providerKeyId) {
+    if (!effectiveProviderKeyId) {
       setSaveError('Add an OpenAI API key before saving presets.');
       return;
     }
@@ -145,8 +160,25 @@ export function SettingsPanel({
     setIsLoading(true);
     setSaveError(null);
     try {
-      const presetData = realtimeConfigToPreset(config, newPresetName.trim());
-      const savedPreset = await saveConfigPreset(presetData, userId, providerKeyId);
+      const isFirstPreset = presets.length === 0;
+      const presetData = {
+        ...realtimeConfigToPreset(config, newPresetName.trim()),
+        is_default: isFirstPreset
+      };
+      const savedPreset = await saveConfigPreset(presetData, userId, effectiveProviderKeyId);
+      if (isFirstPreset) {
+        const { error: profileError } = await supabase
+          .from('va_users')
+          .update({
+            onboarding_state: 'ready',
+            default_agent_id: savedPreset.id
+          })
+          .eq('id', userId);
+        if (profileError) {
+          throw profileError;
+        }
+        await onProfileRefresh?.();
+      }
       await loadPresets();
       await onPresetsRefresh?.();
       onActiveConfigChange(savedPreset.id);
@@ -158,6 +190,85 @@ export function SettingsPanel({
       setSaveError('Failed to save preset. Please try again.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSaveProviderKey = async () => {
+    if (!apiKey.trim()) {
+      setKeyError('Please provide your OpenAI API key');
+      return;
+    }
+
+    setIsSavingKey(true);
+    setKeyError(null);
+    setKeySuccessMessage(null);
+
+    const isConflict = (dbError?: Pick<PostgrestError, 'code'> | null) => dbError?.code === '23505';
+
+    try {
+      const masked = apiKey.trim();
+      const encoded = btoa(masked);
+      const lastFour = masked.slice(-4);
+
+      const insertPayload = {
+        user_id: userId,
+        provider: 'openai',
+        key_alias: keyAlias || 'Primary',
+        encrypted_key: encoded,
+        last_four: lastFour
+      };
+
+      const { error: insertError } = await supabase.from('va_provider_keys').insert(insertPayload);
+
+      if (insertError) {
+        if (isConflict(insertError)) {
+          const updatePayload = {
+            provider: 'openai',
+            key_alias: keyAlias || 'Primary',
+            encrypted_key: encoded,
+            last_four: lastFour
+          };
+          const { error: updateError } = await supabase
+            .from('va_provider_keys')
+            .update(updatePayload)
+            .eq('user_id', userId)
+            .eq('provider', 'openai')
+            .eq('key_alias', keyAlias || 'Primary');
+
+          if (updateError) {
+            throw updateError;
+          }
+        } else {
+          throw insertError;
+        }
+      }
+
+      const { data: providerKeyRow, error: providerKeyError } = await supabase
+        .from('va_provider_keys')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('provider', 'openai')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (providerKeyError) {
+        throw providerKeyError;
+      }
+
+      setLocalProviderKeyId(providerKeyRow.id);
+      setApiKey('');
+      setKeySuccessMessage('Key saved. You can finish creating your agent.');
+      await onProfileRefresh?.();
+    } catch (error: any) {
+      console.error('Failed to save provider key:', error);
+      if (isConflict(error)) {
+        setKeyError('A key with this label already exists. Update it by saving again.');
+      } else {
+        setKeyError(error.message || 'Failed to save key');
+      }
+    } finally {
+      setIsSavingKey(false);
     }
   };
 
@@ -276,6 +387,61 @@ export function SettingsPanel({
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+          {!effectiveProviderKeyId && (
+            <Card className="border-amber-400/30 bg-amber-500/5 shadow-[0_12px_40px_rgba(3,6,15,0.4)]">
+              <CardHeader className="flex flex-col gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-200 flex items-center justify-center border border-amber-400/30">
+                    <BadgeCheck className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase text-amber-200/70 tracking-[0.2em]">Required</p>
+                    <h3 className="text-lg font-semibold text-white">Add your OpenAI API key</h3>
+                    <p className="text-sm text-white/60">
+                      Your key is required to create and run agents. Save it once to continue.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-white/70">Key label</label>
+                    <input
+                      value={keyAlias}
+                      onChange={(e) => setKeyAlias(e.target.value)}
+                      placeholder="Primary, Production, etc."
+                      className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-amber-400/60 focus:border-amber-300 bg-slate-900 text-sm text-white"
+                      disabled={isSavingKey}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-white/70">OpenAI API key</label>
+                    <input
+                      type="password"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder="sk-..."
+                      className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-amber-400/60 focus:border-amber-300 bg-slate-900 text-sm text-white font-mono"
+                      disabled={isSavingKey}
+                      required
+                    />
+                    <p className="text-xs text-white/50">Stored encrypted (base64) and masked after saving.</p>
+                  </div>
+                </div>
+                {keyError && <p className="text-xs text-rose-300">{keyError}</p>}
+                {keySuccessMessage && <p className="text-xs text-emerald-200">{keySuccessMessage}</p>}
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    onClick={handleSaveProviderKey}
+                    disabled={isSavingKey}
+                    className="bg-amber-400/90 text-slate-950 hover:bg-amber-300"
+                  >
+                    {isSavingKey ? 'Saving key...' : 'Save API key'}
+                  </Button>
+                </div>
+              </CardHeader>
+            </Card>
+          )}
           <Card className="border-white/10 shadow-[0_12px_40px_rgba(3,6,15,0.5)]">
             <CardHeader className="flex flex-col gap-4">
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">

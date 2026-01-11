@@ -62,7 +62,7 @@ export function ChatAgent({
   onOpenUsage,
   onOpenEmbedUsage
 }: ChatAgentProps) {
-  const { vaUser, providerKeys, signOut } = useAuth();
+  const { vaUser, providerKeys, refreshProfile, signOut } = useAuth();
   const {
     presets,
     activePresetId,
@@ -589,6 +589,7 @@ export function ChatAgent({
           }}
           userId={vaUser?.id || ''}
           providerKeyId={providerKeyId}
+          onProfileRefresh={refreshProfile}
           onPresetsRefresh={refreshPresets}
           onToolsChanged={refreshTools}
         />

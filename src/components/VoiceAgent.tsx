@@ -102,7 +102,7 @@ export function VoiceAgent({
   onOpenEmbedUsage,
   onCloseEmbedUsage
 }: VoiceAgentProps = {}) {
-  const { vaUser, providerKeys, signOut } = useAuth();
+  const { vaUser, providerKeys, refreshProfile, signOut } = useAuth();
   const {
     activeConfigId: persistedConfigId,
     setActiveConfigId: persistActiveConfigId,
@@ -445,6 +445,12 @@ export function VoiceAgent({
   }, [isWorkspaceView]);
 
   useEffect(() => {
+    if (showCreateAgent) {
+      setIsWorkspaceView(true);
+    }
+  }, [showCreateAgent]);
+
+  useEffect(() => {
     if (!isInitialized || !config) return;
     const presetId = activeConfigId || pendingConfigId || null;
     if (!presetId) return;
@@ -766,6 +772,7 @@ export function VoiceAgent({
                         }}
                         userId={vaUser?.id || ''}
                         providerKeyId={derivedProviderKeyId}
+                        onProfileRefresh={refreshProfile}
                         onPresetsRefresh={async () => {
                           await refreshPresets();
                         }}
@@ -1161,6 +1168,7 @@ export function VoiceAgent({
               }}
               userId={vaUser?.id || ''}
               providerKeyId={derivedProviderKeyId}
+              onProfileRefresh={refreshProfile}
               onPresetsRefresh={async () => {
                 await refreshPresets();
               }}
