@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>You're invited to VIAANA</title>
+  </head>
+  <body style="margin: 0; padding: 0; background-color: #05070f; font-family: 'Sora', 'Space Grotesk', Arial, sans-serif; color: #e2e8f0;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #05070f; padding: 32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width: 600px; width: 100%; background: #0b1220; border-radius: 20px; overflow: hidden; border: 1px solid #1e293b;">
+            <tr>
+              <td style="padding: 32px 32px 20px; background: radial-gradient(circle at top, rgba(34,211,238,0.15), transparent 55%);">
+                <div style="font-size: 12px; letter-spacing: 0.3em; text-transform: uppercase; color: #64748b;">VIAANA AI</div>
+                <h1 style="margin: 16px 0 8px; font-size: 28px; color: #a5f3fc; font-weight: 600;">
+                  You're invited to VIAANA
+                </h1>
+                <p style="margin: 0; color: #cbd5f5; font-size: 16px; line-height: 1.6;">
+                  Build and orchestrate real-time AI voice and chat agents with your team.
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 0 32px 24px;">
+                <p style="margin: 16px 0 0; font-size: 15px; line-height: 1.6; color: #cbd5f5;">
+                  {{ if .Data.invited_by_email }}{{ .Data.invited_by_email }} invited you to join their VIAANA workspace.{{ else }}You've been invited to join VIAANA.{{ end }}
+                </p>
+                <p style="margin: 16px 0 0; font-size: 15px; line-height: 1.6; color: #94a3b8;">
+                  Click below to accept the invitation and create your account.
+                </p>
+                <div style="margin: 28px 0 20px;">
+                  <a
+                    href="{{ .ConfirmationURL }}"
+                    style="display: inline-block; padding: 12px 24px; background: #90e5e6; color: #0b1220; text-decoration: none; border-radius: 999px; font-weight: 600; font-size: 15px;"
+                  >
+                    Accept invitation
+                  </a>
+                </div>
+                <p style="margin: 0 0 16px; font-size: 13px; color: #64748b;">
+                  If the button doesn't work, copy and paste this link into your browser:
+                </p>
+                <p style="word-break: break-all; margin: 0; font-size: 12px; color: #7dd3fc;">
+                  {{ .ConfirmationURL }}
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 24px 32px; background: #0a0f1d; border-top: 1px solid #1e293b;">
+                <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 1.5;">
+                  This invitation is intended for {{ .Email }}. If you did not expect this invite, you can ignore this email.
+                </p>
+                <p style="margin: 12px 0 0; font-size: 12px; color: #64748b;">
+                  © VIAANA AI
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

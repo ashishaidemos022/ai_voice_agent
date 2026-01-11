@@ -23,6 +23,7 @@ import {
   saveConfigPreset,
   updateConfigPreset
 } from '../../lib/config-service';
+import { inviteUserByEmail } from '../../lib/invite-service';
 import { supabase } from '../../lib/supabase';
 import { RightPanel } from '../layout/RightPanel';
 import { Button } from '../ui/Button';
@@ -104,6 +105,10 @@ export function SettingsPanel({
   const [isSavingKey, setIsSavingKey] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
   const [keySuccessMessage, setKeySuccessMessage] = useState<string | null>(null);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteSuccessMessage, setInviteSuccessMessage] = useState<string | null>(null);
+  const [isInviting, setIsInviting] = useState(false);
   const activePreset = presets.find((p) => p.id === activeConfigId);
   const effectiveProviderKeyId = localProviderKeyId ?? providerKeyId;
 
@@ -269,6 +274,26 @@ export function SettingsPanel({
       }
     } finally {
       setIsSavingKey(false);
+    }
+  };
+
+  const handleInvite = async () => {
+    if (!inviteEmail.trim()) {
+      setInviteError('Please enter an email address.');
+      return;
+    }
+    setIsInviting(true);
+    setInviteError(null);
+    setInviteSuccessMessage(null);
+    try {
+      await inviteUserByEmail(inviteEmail);
+      setInviteSuccessMessage(`Invitation sent to ${inviteEmail.trim()}.`);
+      setInviteEmail('');
+    } catch (error: any) {
+      console.error('Failed to send invite:', error);
+      setInviteError(error.message || 'Failed to send invite.');
+    } finally {
+      setIsInviting(false);
     }
   };
 
@@ -442,6 +467,48 @@ export function SettingsPanel({
               </CardHeader>
             </Card>
           )}
+          <Card className="border-white/10 shadow-[0_12px_40px_rgba(3,6,15,0.5)]">
+            <CardHeader className="flex flex-col gap-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-cyan-500/10 text-cyan-200 flex items-center justify-center border border-cyan-400/30">
+                  <BadgeCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs uppercase text-white/50 tracking-[0.2em]">Invite</p>
+                  <h3 className="text-lg font-semibold text-white">Invite teammates</h3>
+                  <p className="text-sm text-white/60">
+                    Send a VIAANA invite link so teammates can join your workspace.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col md:flex-row gap-3">
+                <input
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => {
+                    setInviteEmail(e.target.value);
+                    if (inviteError) setInviteError(null);
+                  }}
+                  placeholder="teammate@company.com"
+                  className="flex-1 px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
+                  disabled={isInviting}
+                />
+                <Button
+                  size="sm"
+                  onClick={handleInvite}
+                  disabled={isInviting}
+                  className="bg-cyan-500/80 hover:bg-cyan-400 text-white"
+                >
+                  {isInviting ? 'Sending...' : 'Send invite'}
+                </Button>
+              </div>
+              {inviteError && <p className="text-xs text-rose-300">{inviteError}</p>}
+              {inviteSuccessMessage && <p className="text-xs text-emerald-200">{inviteSuccessMessage}</p>}
+              <p className="text-xs text-white/40">
+                Invite links expire automatically. Ask teammates to accept promptly.
+              </p>
+            </CardHeader>
+          </Card>
           <Card className="border-white/10 shadow-[0_12px_40px_rgba(3,6,15,0.5)]">
             <CardHeader className="flex flex-col gap-4">
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
