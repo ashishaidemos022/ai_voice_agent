@@ -5,7 +5,7 @@ import { LoadingScreen } from './ui/LoadingScreen';
 import { AgentWorkspace } from './portal/AgentWorkspace';
 
 export function PortalRouter() {
-  const { session, vaUser, isLoading } = useAuth();
+  const { session, vaUser } = useAuth();
   const [isRecoveryFlow, setIsRecoveryFlow] = useState(false);
 
   useEffect(() => {
@@ -37,7 +37,7 @@ export function PortalRouter() {
     return <AuthScreen />;
   }
 
-  if (isLoading || !vaUser) {
+  if (!vaUser) {
     return <LoadingScreen message="Loading your workspace..." />;
   }
 
