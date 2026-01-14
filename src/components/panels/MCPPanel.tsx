@@ -431,49 +431,49 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
     >
       <div className="p-6 space-y-6">
         {showAddForm ? (
-          <Card>
+          <Card className="bg-slate-950/80 border border-white/10">
             <CardHeader>
-              <h3 className="text-lg font-semibold text-gray-800">Add New Connection</h3>
+              <h3 className="text-lg font-semibold text-white">Add New Connection</h3>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-slate-200 mb-2">
                   Connection Name <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary text-sm"
+                  className="w-full px-3 py-2 border border-white/15 rounded-lg bg-slate-900/70 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 text-sm"
                   placeholder="e.g., Production Database Tools"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-slate-200 mb-2">
                   Server HTTPS URL <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="url"
                   value={formData.server_url}
                   onChange={(e) => setFormData({ ...formData, server_url: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary text-sm"
+                  className="w-full px-3 py-2 border border-white/15 rounded-lg bg-slate-900/70 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 text-sm"
                   placeholder="https://your-mcp-server.com/api/mcp"
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  Must start with <code className="bg-gray-100 px-1 rounded">https://</code>
+                <p className="text-xs text-white/50 mt-1">
+                  Must start with <code className="bg-white/10 px-1 rounded">https://</code>
                 </p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  API Key <span className="text-gray-400">(optional)</span>
+                <label className="block text-sm font-medium text-slate-200 mb-2">
+                  API Key <span className="text-white/50">(optional)</span>
                 </label>
                 <input
                   type="password"
                   value={formData.api_key}
                   onChange={(e) => setFormData({ ...formData, api_key: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary text-sm"
+                  className="w-full px-3 py-2 border border-white/15 rounded-lg bg-slate-900/70 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 text-sm"
                   placeholder="Enter API key if required"
                 />
               </div>
@@ -481,12 +481,12 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
               {testStatus && (
                 <div className={`px-4 py-3 rounded-lg text-sm flex items-center gap-2 ${
                   testStatus.type === 'success'
-                    ? 'bg-green-50 border border-green-200 text-green-700'
+                    ? 'bg-emerald-500/10 border border-emerald-400/30 text-emerald-200'
                     : testStatus.type === 'error'
-                      ? 'bg-red-50 border border-red-200 text-red-700'
+                      ? 'bg-rose-500/10 border border-rose-400/30 text-rose-200'
                       : testStatus.type === 'warning'
-                        ? 'bg-amber-50 border border-amber-200 text-amber-700'
-                        : 'bg-blue-50 border border-blue-200 text-blue-700'
+                        ? 'bg-amber-500/10 border border-amber-400/30 text-amber-200'
+                        : 'bg-cyan-500/10 border border-cyan-400/30 text-cyan-200'
                 }`}>
                   {testStatus.type === 'testing' && <Loader2 className="w-4 h-4 animate-spin" />}
                   {testStatus.type === 'success' && <Check className="w-4 h-4" />}
@@ -497,7 +497,7 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
               )}
 
               {formError && (
-                <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2">
+                <div className="px-4 py-3 bg-rose-500/10 border border-rose-400/30 rounded-lg text-rose-200 text-sm flex items-center gap-2">
                   <AlertCircle className="w-4 h-4" />
                   {formError}
                 </div>
@@ -536,20 +536,20 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
         ) : (
           <button
             onClick={() => setShowAddForm(true)}
-            className="w-full px-4 py-6 border-2 border-dashed border-gray-300 rounded-xl hover:border-primary hover:bg-blue-50 transition-all flex items-center justify-center gap-2 text-gray-600 hover:text-primary group"
+            className="w-full px-4 py-6 border-2 border-dashed border-white/15 rounded-xl hover:border-cyan-400/60 hover:bg-cyan-500/10 transition-all flex items-center justify-center gap-2 text-white/70 hover:text-white group"
           >
             <Plus className="w-5 h-5 group-hover:scale-110 transition-transform" />
             <span className="font-medium">Add New MCP Connection</span>
           </button>
         )}
 
-        <Card className="bg-blue-50 border-blue-200">
+        <Card className="bg-slate-900/60 border border-white/10">
           <CardContent className="pt-4">
             <div className="flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
-              <div className="text-sm text-blue-800">
-                <p className="font-semibold mb-1">About MCP Connections</p>
-                <p className="text-xs">
+              <AlertCircle className="w-5 h-5 text-cyan-300 mt-0.5 flex-shrink-0" />
+              <div className="text-sm text-slate-200">
+                <p className="font-semibold mb-1 text-white">About MCP Connections</p>
+                <p className="text-xs text-white/60">
                   MCP servers expose tools via HTTPS APIs. Your API keys are encrypted and handled securely.
                 </p>
               </div>
@@ -563,9 +563,9 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
           </div>
         ) : connections.length === 0 ? (
           <div className="text-center py-12">
-            <Hammer className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500 font-medium">No MCP connections configured</p>
-            <p className="text-sm text-gray-400 mt-1">
+            <Hammer className="w-12 h-12 text-white/40 mx-auto mb-3" />
+            <p className="text-white/70 font-medium">No MCP connections configured</p>
+            <p className="text-sm text-white/50 mt-1">
               Add your first connection to enable external tools
             </p>
           </div>
@@ -579,15 +579,15 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
                       <div className="flex items-center gap-3 mb-2">
                         <button
                           onClick={() => handleToggleExpand(connection.id)}
-                          className="p-1 hover:bg-gray-100 rounded transition-colors"
+                          className="p-1 hover:bg-white/10 rounded transition-colors"
                         >
                           {expandedConnectionId === connection.id ? (
-                            <ChevronDown className="w-4 h-4 text-gray-600" />
+                            <ChevronDown className="w-4 h-4 text-white/70" />
                           ) : (
-                            <ChevronRight className="w-4 h-4 text-gray-600" />
+                            <ChevronRight className="w-4 h-4 text-white/70" />
                           )}
                         </button>
-                        <h3 className="text-base font-semibold text-gray-900">{connection.name}</h3>
+                        <h3 className="text-base font-semibold text-white">{connection.name}</h3>
                         <Badge variant={getStatusVariant(connection.status)}>
                           {getStatusLabel(connection.status)}
                         </Badge>
@@ -596,21 +596,21 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
                         )}
                       </div>
 
-                      <p className="text-xs text-gray-600 mb-2 ml-9 font-mono">{connection.server_url}</p>
+                      <p className="text-xs text-white/60 mb-2 ml-9 font-mono">{connection.server_url}</p>
 
                       {connection.status === 'error' && connection.error_message && (
-                        <div className="px-3 py-2 bg-red-50 border border-red-200 rounded text-xs text-red-700 mb-2 ml-9">
+                        <div className="px-3 py-2 bg-rose-500/10 border border-rose-400/30 rounded text-xs text-rose-200 mb-2 ml-9">
                           {connection.error_message}
                         </div>
                       )}
                       {connection.status === 'pending' && (
-                        <div className="px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800 mb-2 ml-9">
+                        <div className="px-3 py-2 bg-amber-500/10 border border-amber-400/30 rounded text-xs text-amber-200 mb-2 ml-9">
                           Connection is waiting for the MCP server to come online. Click <strong>Refresh Connection</strong> once your endpoint responds to finish syncing tools.
                         </div>
                       )}
 
-                      <div className="flex items-center gap-4 text-xs text-gray-500 ml-9">
-                        <span className="font-medium">{connection.toolCount || 0} tool(s)</span>
+                      <div className="flex items-center gap-4 text-xs text-white/50 ml-9">
+                        <span className="font-medium text-white/70">{connection.toolCount || 0} tool(s)</span>
                         {connection.last_health_check && (
                           <span>
                             Last checked: {new Date(connection.last_health_check).toLocaleString()}
@@ -635,7 +635,7 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
                         variant="ghost"
                         size="sm"
                         onClick={() => handleToggleConnection(connection)}
-                        className={connection.is_enabled ? 'text-green-600' : 'text-gray-400'}
+                        className={connection.is_enabled ? 'text-emerald-300' : 'text-white/40'}
                         title={connection.is_enabled ? 'Disable' : 'Enable'}
                       >
                         <Power className="w-4 h-4" />
@@ -645,7 +645,7 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
                         variant="ghost"
                         size="sm"
                         onClick={() => handleDeleteConnection(connection.id)}
-                        className="text-red-600 hover:bg-red-50"
+                        className="text-rose-300 hover:bg-rose-500/10"
                         title="Delete"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -657,9 +657,9 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
                     <>
                       <Separator className="my-3" />
                       <div>
-                        <h4 className="text-sm font-semibold text-gray-700 mb-3">Available Tools</h4>
+                        <h4 className="text-sm font-semibold text-white/80 mb-3">Available Tools</h4>
                         {connectionTools[connection.id].length === 0 ? (
-                          <p className="text-sm text-gray-500">No tools found</p>
+                          <p className="text-sm text-white/50">No tools found</p>
                         ) : (
                           <div className="grid grid-cols-2 gap-2">
                             {connectionTools[connection.id].map((tool) => {
@@ -667,13 +667,13 @@ export function MCPPanel({ isOpen, onClose, onConnectionsChanged }: MCPPanelProp
                               return (
                                 <div
                                   key={tool.id}
-                                  className="px-3 py-2 bg-gray-50 rounded-lg border border-gray-200"
+                                  className="px-3 py-2 bg-white/5 rounded-lg border border-white/10"
                                 >
                                   <div className="flex items-start gap-2">
-                                    <IconComponent className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                                    <IconComponent className="w-4 h-4 text-cyan-300 mt-0.5 flex-shrink-0" />
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-medium text-gray-800 truncate">{tool.tool_name}</p>
-                                      <p className="text-xs text-gray-500 truncate">{tool.description}</p>
+                                      <p className="text-sm font-medium text-white truncate">{tool.tool_name}</p>
+                                      <p className="text-xs text-white/50 truncate">{tool.description}</p>
                                       {tool.category && (
                                         <Badge variant="default" className="mt-1">
                                           {tool.category}
