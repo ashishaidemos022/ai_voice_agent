@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "../../my-agent-embed"
+		},
+		{
+			"path": "../../voice-agent-mcp"
 		}
 	],
 	"settings": {}
