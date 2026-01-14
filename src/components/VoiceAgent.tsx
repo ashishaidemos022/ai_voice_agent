@@ -56,6 +56,11 @@ const formatRelative = (dateString?: string | null) => {
   return `${diffDay}d ago`;
 };
 
+const isActiveMcpStatus = (status?: string | null) => {
+  if (!status) return false;
+  return status === 'active' || status === 'connected';
+};
+
 function mergeRealtimeConfig(prev: RealtimeConfig | null, next: RealtimeConfig): RealtimeConfig {
   const fallback = prev ?? next;
   return {
@@ -84,6 +89,14 @@ type VoiceAgentProps = {
   showEmbedUsage?: boolean;
   onOpenEmbedUsage?: () => void;
   onCloseEmbedUsage?: () => void;
+};
+
+type MCPConnectionSummary = {
+  id: string;
+  name: string;
+  status?: string | null;
+  toolCount: number;
+  tools: string[];
 };
 
 export function VoiceAgent({
@@ -149,6 +162,8 @@ export function VoiceAgent({
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem('va-workspace-view') === 'true';
   });
+  const [mcpConnectionSummary, setMcpConnectionSummary] = useState<MCPConnectionSummary[]>([]);
+  const [isMcpSummaryLoading, setIsMcpSummaryLoading] = useState(false);
   const resumeSessionRef = useRef<{ config: RealtimeConfig; presetId: string | null } | null>(null);
   const applyPreferencesToConfig = useCallback((baseConfig: RealtimeConfig) => {
     const nextConfig = { ...baseConfig };
@@ -394,16 +409,72 @@ export function VoiceAgent({
     setIsLoadingHistory(false);
   };
 
-  const updateToolsCount = () => {
-  };
+  const loadMcpConnectionSummary = useCallback(async () => {
+    if (!vaUser?.id) {
+      setMcpConnectionSummary([]);
+      return;
+    }
+
+    setIsMcpSummaryLoading(true);
+    try {
+      const { data: connections, error } = await supabase
+        .from('va_mcp_connections')
+        .select('id,name,status,created_at')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const activeConnections = (connections || []).filter((connection) => isActiveMcpStatus(connection.status));
+      const connectionIds = activeConnections.map((connection) => connection.id);
+
+      if (connectionIds.length === 0) {
+        setMcpConnectionSummary([]);
+        return;
+      }
+
+      const { data: tools, error: toolsError } = await supabase
+        .from('va_mcp_tools')
+        .select('connection_id,tool_name,is_enabled')
+        .in('connection_id', connectionIds)
+        .eq('is_enabled', true)
+        .order('tool_name');
+
+      if (toolsError) throw toolsError;
+
+      const toolsByConnection = (tools || []).reduce<Record<string, string[]>>((acc, tool) => {
+        if (!acc[tool.connection_id]) {
+          acc[tool.connection_id] = [];
+        }
+        acc[tool.connection_id].push(tool.tool_name);
+        return acc;
+      }, {});
+
+      const summary = activeConnections.map((connection) => {
+        const toolNames = toolsByConnection[connection.id] || [];
+        return {
+          id: connection.id,
+          name: connection.name,
+          status: connection.status,
+          toolCount: toolNames.length,
+          tools: toolNames
+        };
+      });
+
+      setMcpConnectionSummary(summary);
+    } catch (error) {
+      console.error('Failed to load MCP connection summary:', error);
+    } finally {
+      setIsMcpSummaryLoading(false);
+    }
+  }, [vaUser?.id]);
 
   const refreshTools = useCallback(async () => {
     const targetConfigId = isInitialized
       ? activeConfigId
       : (pendingConfigId || persistedConfigId);
     await loadMCPTools(targetConfigId || undefined, vaUser?.id);
-    updateToolsCount();
-  }, [isInitialized, activeConfigId, pendingConfigId, persistedConfigId]);
+    await loadMcpConnectionSummary();
+  }, [isInitialized, activeConfigId, pendingConfigId, persistedConfigId, vaUser?.id, loadMcpConnectionSummary]);
 
   useEffect(() => {
     refreshTools();
@@ -805,6 +876,53 @@ export function VoiceAgent({
                               <p className="text-sm text-white/60 mt-2">
                                 Connect servers and expose tools to your agents.
                               </p>
+                            </div>
+                            <div className="rounded-xl border border-white/10 bg-slate-950/40 p-3">
+                              <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.2em] text-white/40">
+                                <span>Active connections</span>
+                                <span className="text-white/60">{mcpConnectionSummary.length}</span>
+                              </div>
+                              {isMcpSummaryLoading ? (
+                                <div className="mt-3 flex items-center gap-2 text-xs text-white/50">
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  Loading MCP tools...
+                                </div>
+                              ) : mcpConnectionSummary.length === 0 ? (
+                                <p className="mt-3 text-xs text-white/50">No active MCP connections yet.</p>
+                              ) : (
+                                <div className="mt-3 space-y-2">
+                                  {mcpConnectionSummary.map((connection) => (
+                                    <div
+                                      key={connection.id}
+                                      className="rounded-lg border border-white/10 bg-white/5 px-3 py-2"
+                                    >
+                                      <div className="flex items-center justify-between text-sm">
+                                        <span className="font-semibold text-white/90">{connection.name}</span>
+                                        <span className="text-xs text-white/50">{connection.toolCount} tools</span>
+                                      </div>
+                                      {connection.tools.length > 0 ? (
+                                        <div className="mt-2 flex flex-wrap gap-1.5">
+                                          {connection.tools.slice(0, 4).map((tool) => (
+                                            <span
+                                              key={tool}
+                                              className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2 py-0.5 text-[11px] text-cyan-100"
+                                            >
+                                              {tool}
+                                            </span>
+                                          ))}
+                                          {connection.tools.length > 4 && (
+                                            <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-white/60">
+                                              +{connection.tools.length - 4} more
+                                            </span>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <p className="mt-2 text-xs text-white/40">No enabled tools yet.</p>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                             <Button size="xs" className="self-start px-4" onClick={() => setIsMCPPanelOpen(true)}>
                               Manage MCP Connections
