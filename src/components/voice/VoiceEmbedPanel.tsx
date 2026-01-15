@@ -19,7 +19,7 @@ const VOICE_OPTIONS = [
 
 const EMBED_HOST = import.meta.env.VITE_EMBED_HOST || 'https://embed-chat-agent.vercel.app';
 const EMBED_API_BASE = import.meta.env.VITE_EMBED_API_BASE_URL || import.meta.env.VITE_SUPABASE_URL;
-const EMBED_USAGE_BASE = import.meta.env.VITE_EMBED_USAGE_BASE_URL;
+const EMBED_USAGE_BASE = import.meta.env.VITE_EMBED_USAGE_BASE_URL || 'https://ai-voice-agent-sage.vercel.app';
 
 export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelProps) {
   const {
@@ -131,7 +131,7 @@ export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelPro
   data-theme="dark"${apiBaseAttr}${usageBaseAttr}${sizeAttrs}
   async
 ></script>`;
-  }, [buttonImageUrl, embed?.public_id, host, overrideLoaderSettings, widgetHeight, widgetWidth]);
+  }, [buttonImageUrl, embed?.public_id, host, overrideLoaderSettings, widgetHeight, widgetWidth, EMBED_USAGE_BASE]);
 
   const parsedOrigins = useMemo(() => {
     if (!originsInput.trim()) return [];
