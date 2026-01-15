@@ -23,7 +23,8 @@ export function resolveEmbedApiBase(): string | null {
     win.MyVoiceAgent?.apiBaseUrl ||
     win.myVoiceAgent?.apiBaseUrl;
   const envBase = import.meta.env.VITE_EMBED_API_BASE_URL as string | undefined;
-  const base = queryBase || globalBase || envBase || window.location.origin;
+  const supabaseBase = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+  const base = queryBase || globalBase || envBase || supabaseBase || window.location.origin;
   return base ? base.replace(/\/$/, '') : null;
 }
 
