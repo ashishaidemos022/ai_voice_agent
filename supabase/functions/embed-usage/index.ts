@@ -90,11 +90,22 @@ function estimateUsageCost(model: string | null | undefined, inputTokens: number
   return (inputTokens / 1000) * pricing.inputPer1K + (outputTokens / 1000) * pricing.outputPer1K;
 }
 
-function normalizeUsage(usage?: UsagePayload['usage']) {
+function normalizeUsage(usage?: UsagePayload['usage'] & Record<string, any>) {
   if (!usage) return null;
-  const inputTokens = Number(usage.prompt_tokens ?? usage.input_tokens ?? 0) || 0;
-  const outputTokens = Number(usage.completion_tokens ?? usage.output_tokens ?? 0) || 0;
-  const totalTokens = Number(usage.total_tokens ?? usage.totalTokens ?? inputTokens + outputTokens) || 0;
+  let inputTokens = Number(usage.prompt_tokens ?? usage.input_tokens ?? 0) || 0;
+  let outputTokens = Number(usage.completion_tokens ?? usage.output_tokens ?? 0) || 0;
+  let totalTokens = Number(usage.total_tokens ?? usage.totalTokens ?? inputTokens + outputTokens) || 0;
+  const inputDetail = usage.input_token_details || usage.inputTokenDetails;
+  const outputDetail = usage.output_token_details || usage.outputTokenDetails;
+  const inputDetailTokens = Number(inputDetail?.text_tokens ?? 0)
+    + Number(inputDetail?.audio_tokens ?? 0)
+    + Number(inputDetail?.cached_tokens ?? 0);
+  const outputDetailTokens = Number(outputDetail?.text_tokens ?? 0)
+    + Number(outputDetail?.audio_tokens ?? 0)
+    + Number(outputDetail?.cached_tokens ?? 0);
+  if (!inputTokens && inputDetailTokens) inputTokens = inputDetailTokens;
+  if (!outputTokens && outputDetailTokens) outputTokens = outputDetailTokens;
+  if (!totalTokens && (inputTokens || outputTokens)) totalTokens = inputTokens + outputTokens;
   if (!inputTokens && !outputTokens && !totalTokens) return null;
   return {
     inputTokens,
