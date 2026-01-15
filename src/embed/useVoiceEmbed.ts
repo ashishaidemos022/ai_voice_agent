@@ -120,6 +120,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
   const loadedToolsConfigRef = useRef<string | null>(null);
   const lastUserTextRef = useRef<string>('');
   const agentMetaRef = useRef<UseVoiceEmbedResult['agentMeta']>(null);
+  const usageHandledRef = useRef(false);
 
   const updateSessionId = useCallback((value: string | null) => {
     sessionIdRef.current = value;
@@ -343,14 +344,14 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
 
     client.on('response.created', () => {
       setAgentState('thinking');
+      usageHandledRef.current = false;
     });
 
-    client.on('response.done', async (event: any) => {
-      setAgentState('idle');
-      setLiveAssistantTranscript('');
-      const usage = event?.response?.usage;
+    const reportUsage = async (usage: any) => {
+      if (usageHandledRef.current) return;
       const sessionIdValue = sessionIdRef.current;
       if (!usage || !embedUsageUrl || !publicId || !sessionIdValue) return;
+      usageHandledRef.current = true;
       try {
         await fetch(embedUsageUrl, {
           method: 'POST',
@@ -365,6 +366,16 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
       } catch (err) {
         console.warn('[voice-embed] failed to record usage', err);
       }
+    };
+
+    client.on('response.done', (event: any) => {
+      setAgentState('idle');
+      setLiveAssistantTranscript('');
+      reportUsage(event?.response?.usage);
+    });
+
+    client.on('usage.reported', (event: any) => {
+      reportUsage(event?.usage);
     });
 
     client.on('function_call', async (event: any) => {

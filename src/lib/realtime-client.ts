@@ -15,6 +15,7 @@ export type RealtimeEvent =
   | { type: 'transcript.reset'; role: 'user' | 'assistant'; itemId?: string }
   | { type: 'response.created'; id?: string }
   | { type: 'response.done'; response: any }
+  | { type: 'usage.reported'; usage: any; response?: any }
   | { type: 'interruption' }
   | { type: 'function_call'; call: { id: string; name: string; arguments: string } }
   | { type: 'conversation.item.created'; item: any }
@@ -373,11 +374,16 @@ export class RealtimeAPIClient {
         this.bufferedSamples = 0;
         break;
 
-      case 'response.done':
+      case 'response.done': {
         this.markResponseFinished();
         this.setAgentState('idle');
-        this.emit({ type: 'response.done', response: message.response ?? message });
+        const response = message.response ?? message;
+        this.emit({ type: 'response.done', response });
+        if (response?.usage) {
+          this.emit({ type: 'usage.reported', usage: response.usage, response });
+        }
         break;
+      }
 
       case 'conversation.item.created':
         this.emit({ type: 'conversation.item.created', item: message.item });
