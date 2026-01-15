@@ -121,6 +121,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
   const lastUserTextRef = useRef<string>('');
   const agentMetaRef = useRef<UseVoiceEmbedResult['agentMeta']>(null);
   const usageHandledRef = useRef(false);
+  const usageBaseWarnedRef = useRef(false);
 
   const updateSessionId = useCallback((value: string | null) => {
     sessionIdRef.current = value;
@@ -351,6 +352,24 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
       if (usageHandledRef.current) return;
       const sessionIdValue = sessionIdRef.current;
       if (!usage || !embedUsageUrl || !publicId || !sessionIdValue) return;
+      if (!usageBaseWarnedRef.current) {
+        const supabaseBase = (import.meta.env.VITE_SUPABASE_URL as string | undefined) || '';
+        if (supabaseBase) {
+          try {
+            const usageOrigin = new URL(embedUsageUrl).origin;
+            const supabaseOrigin = new URL(supabaseBase).origin;
+            if (usageOrigin !== supabaseOrigin) {
+              usageBaseWarnedRef.current = true;
+              console.warn('[voice-embed] embed-usage URL does not match Supabase origin', {
+                usageOrigin,
+                supabaseOrigin
+              });
+            }
+          } catch {
+            // ignore malformed URLs
+          }
+        }
+      }
       usageHandledRef.current = true;
       try {
         await fetch(embedUsageUrl, {
