@@ -374,6 +374,7 @@ export class RealtimeAPIClient {
         this.bufferedSamples = 0;
         break;
 
+      case 'response.completed':
       case 'response.done': {
         this.markResponseFinished();
         this.setAgentState('idle');
