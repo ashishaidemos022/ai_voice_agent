@@ -103,7 +103,10 @@ function normalizeUsage(usage?: UsagePayload['usage']) {
   };
 }
 
-async function fetchEmbed(publicId: string): Promise<{ embed: EmbedRecord; embedType: 'chat' | 'voice' } | null> {
+async function fetchEmbed(
+  publicId: string,
+  preferredType?: 'chat' | 'voice'
+): Promise<{ embed: EmbedRecord; embedType: 'chat' | 'voice' } | null> {
   const baseSelect = `
     id,
     public_id,
@@ -111,6 +114,38 @@ async function fetchEmbed(publicId: string): Promise<{ embed: EmbedRecord; embed
     agent_config_id,
     agent_config:va_agent_configs(id, user_id)
   `;
+
+  if (preferredType === 'chat') {
+    const { data, error } = await adminClient
+      .from('va_agent_embeds')
+      .select(baseSelect)
+      .eq('public_id', publicId)
+      .eq('is_enabled', true)
+      .maybeSingle();
+    if (data) {
+      return { embed: data as EmbedRecord, embedType: 'chat' };
+    }
+    if (error && error.code !== 'PGRST116') {
+      throw error;
+    }
+    return null;
+  }
+
+  if (preferredType === 'voice') {
+    const { data, error } = await adminClient
+      .from('va_voice_embeds')
+      .select(baseSelect)
+      .eq('public_id', publicId)
+      .eq('is_enabled', true)
+      .maybeSingle();
+    if (data) {
+      return { embed: data as EmbedRecord, embedType: 'voice' };
+    }
+    if (error && error.code !== 'PGRST116') {
+      throw error;
+    }
+    return null;
+  }
 
   const { data: chatEmbed, error: chatError } = await adminClient
     .from('va_agent_embeds')
@@ -166,7 +201,35 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const embedRecord = await fetchEmbed(body.public_id);
+    const sessionId = body.session_id || null;
+    let sessionInfo: { id: string; agent_id: string; session_metadata: Record<string, any> | null } | null = null;
+    let preferredType: 'chat' | 'voice' | undefined;
+    let publicId = body.public_id;
+
+    if (sessionId) {
+      const { data } = await adminClient
+        .from('va_sessions')
+        .select('id, agent_id, session_metadata')
+        .eq('id', sessionId)
+        .maybeSingle();
+      if (data?.id) {
+        sessionInfo = data;
+        const metadata = data.session_metadata || {};
+        if (
+          metadata.source === 'voice-embed' ||
+          metadata.voice_embed_id ||
+          metadata.voice_embed_public_id
+        ) {
+          preferredType = 'voice';
+          publicId = metadata.voice_embed_public_id || publicId;
+        } else if (metadata.source === 'embed' || metadata.embed_id || metadata.embed_public_id) {
+          preferredType = 'chat';
+          publicId = metadata.embed_public_id || publicId;
+        }
+      }
+    }
+
+    const embedRecord = await fetchEmbed(publicId, preferredType);
     if (!embedRecord) {
       return new Response(JSON.stringify({ error: 'Embed not found' }), {
         status: 404,
@@ -189,13 +252,8 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    if (body.session_id) {
-      const { data: sessionData } = await adminClient
-        .from('va_sessions')
-        .select('id, agent_id')
-        .eq('id', body.session_id)
-        .maybeSingle();
-
+    if (sessionId) {
+      const sessionData = sessionInfo;
       if (!sessionData?.id || sessionData.agent_id !== embedRecord.embed.agent_config_id) {
         return new Response(JSON.stringify({ error: 'Session mismatch' }), {
           status: 400,
@@ -224,7 +282,7 @@ Deno.serve(async (req: Request) => {
       total_tokens: usage.totalTokens,
       cost_usd: costUsd,
       metadata: {
-        session_id: body.session_id || null,
+        session_id: sessionId,
         embed_id: embedRecord.embed.id,
         embed_public_id: embedRecord.embed.public_id,
         agent_preset_id: embedRecord.embed.agent_config_id,
