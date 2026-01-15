@@ -28,6 +28,24 @@ export function resolveEmbedApiBase(): string | null {
   return base ? base.replace(/\/$/, '') : null;
 }
 
+export function resolveEmbedUsageBase(): string | null {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  const queryBase =
+    params.get('usage_base') ||
+    params.get('usageBase') ||
+    params.get('usageBaseUrl');
+  const win = window as EmbedWindow;
+  const globalBase =
+    win.VoiceAgentEmbed?.usageBaseUrl ||
+    win.AgenticChat?.usageBaseUrl ||
+    win.MyVoiceAgent?.usageBaseUrl ||
+    win.myVoiceAgent?.usageBaseUrl;
+  const envBase = import.meta.env.VITE_EMBED_USAGE_BASE_URL as string | undefined;
+  const base = queryBase || globalBase || envBase;
+  return base ? base.replace(/\/$/, '') : null;
+}
+
 export function buildEmbedFunctionUrl(base: string | null, functionName: string): string | null {
   if (!base) return null;
   const normalized = base.replace(/\/$/, '');

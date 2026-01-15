@@ -3,7 +3,7 @@ import { getAudioManager, AudioManager } from '../lib/audio-manager';
 import { RealtimeAPIClient, AgentState } from '../lib/realtime-client';
 import { executeTool, registerToolsFromServer } from '../lib/tools-registry';
 import type { RealtimeConfig } from '../types/voice-agent';
-import { buildEmbedFunctionUrl, resolveEmbedApiBase } from './embed-api';
+import { buildEmbedFunctionUrl, resolveEmbedApiBase, resolveEmbedUsageBase } from './embed-api';
 
 type TranscriptBuffers = {
   user: Record<string, string>;
@@ -107,9 +107,10 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
     () => buildEmbedFunctionUrl(apiBase, 'voice-ephemeral-key'),
     [apiBase]
   );
+  const usageBase = useMemo(() => resolveEmbedUsageBase(), []);
   const embedUsageUrl = useMemo(
-    () => buildEmbedFunctionUrl(apiBase, 'embed-usage'),
-    [apiBase]
+    () => buildEmbedFunctionUrl(usageBase || apiBase, 'embed-usage'),
+    [apiBase, usageBase]
   );
   const sessionStorageKey = useMemo(() => `va-voice-embed-session-${publicId}`, [publicId]);
   const clientSessionIdRef = useRef<string | null>(null);

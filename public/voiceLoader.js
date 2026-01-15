@@ -24,6 +24,13 @@
       dataset.apiBaseUrl ||
       '') || '';
   apiBase = apiBase.replace(/\/$/, '');
+  var usageBase =
+    (globalConfig.usageBaseUrl ||
+      globalConfig.usageBase ||
+      dataset.usageBase ||
+      dataset.usageBaseUrl ||
+      '') || '';
+  usageBase = usageBase.replace(/\/$/, '');
   var supabaseUrl = (globalConfig.supabaseUrl || dataset.supabaseUrl || '').replace(/\/$/, '');
   if (!apiBase && supabaseUrl) {
     apiBase = supabaseUrl;
@@ -144,6 +151,9 @@
   params.set('theme', theme);
   if (apiBase) {
     params.set('api_base', apiBase);
+  }
+  if (usageBase) {
+    params.set('usage_base', usageBase);
   }
   iframe.src = baseUrl + '/embed/voice/' + encodeURIComponent(publicId) + '?' + params.toString();
   iframe.setAttribute('allow', 'microphone');

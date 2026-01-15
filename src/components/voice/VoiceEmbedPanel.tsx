@@ -17,8 +17,9 @@ const VOICE_OPTIONS = [
   { value: 'xelos', label: 'Xelos', description: 'Energetic, expressive' }
 ];
 
-const EMBED_HOST = import.meta.env.VITE_EMBED_HOST || 'https://ai-voice-agent-sage.vercel.app';
+const EMBED_HOST = import.meta.env.VITE_EMBED_HOST || 'https://embed-chat-agent.vercel.app';
 const EMBED_API_BASE = import.meta.env.VITE_EMBED_API_BASE_URL || import.meta.env.VITE_SUPABASE_URL;
+const EMBED_USAGE_BASE = import.meta.env.VITE_EMBED_USAGE_BASE_URL;
 
 export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelProps) {
   const {
@@ -121,10 +122,13 @@ export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelPro
     const apiBaseAttr = EMBED_API_BASE
       ? `\n  data-api-base="${EMBED_API_BASE.replace(/\/$/, '')}"`
       : '';
+    const usageBaseAttr = EMBED_USAGE_BASE
+      ? `\n  data-usage-base="${EMBED_USAGE_BASE.replace(/\/$/, '')}"`
+      : '';
     return `<script
   src="${host.replace(/\/$/, '')}/voiceLoader.js"
   data-public-id="${slug}"
-  data-theme="dark"${apiBaseAttr}${sizeAttrs}
+  data-theme="dark"${apiBaseAttr}${usageBaseAttr}${sizeAttrs}
   async
 ></script>`;
   }, [buttonImageUrl, embed?.public_id, host, overrideLoaderSettings, widgetHeight, widgetWidth]);
