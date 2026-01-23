@@ -51,6 +51,10 @@ export interface RealtimeConfig {
   instructions: string;
   temperature: number;
   max_response_output_tokens: number;
+  voice_provider?: 'openai_realtime' | 'personaplex';
+  voice_persona_prompt?: string | null;
+  voice_id?: string | null;
+  voice_sample_rate_hz?: number | null;
   turn_detection?: {
     type: 'server_vad';
     threshold?: number;

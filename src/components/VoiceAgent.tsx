@@ -32,6 +32,10 @@ import { cn } from '../lib/utils';
 const defaultConfig: RealtimeConfig = {
   model: 'gpt-realtime',
   voice: 'alloy',
+  voice_provider: 'openai_realtime',
+  voice_persona_prompt: null,
+  voice_id: null,
+  voice_sample_rate_hz: null,
   instructions: 'You are a helpful AI voice assistant. You can help users with various tasks, answer questions, and execute tools when needed. Be conversational and friendly.',
   temperature: 0.8,
   max_response_output_tokens: 4096,
@@ -66,6 +70,10 @@ function mergeRealtimeConfig(prev: RealtimeConfig | null, next: RealtimeConfig):
   return {
     ...fallback,
     ...next,
+    voice_provider: next.voice_provider ?? fallback?.voice_provider ?? 'openai_realtime',
+    voice_persona_prompt: next.voice_persona_prompt ?? fallback?.voice_persona_prompt ?? null,
+    voice_id: next.voice_id ?? fallback?.voice_id ?? null,
+    voice_sample_rate_hz: next.voice_sample_rate_hz ?? fallback?.voice_sample_rate_hz ?? null,
     rag_enabled: next.rag_enabled ?? fallback?.rag_enabled ?? false,
     rag_mode: next.rag_mode ?? fallback?.rag_mode,
     rag_default_model: next.rag_default_model ?? fallback?.rag_default_model ?? null,

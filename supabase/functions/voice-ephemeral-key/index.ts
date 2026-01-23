@@ -60,6 +60,10 @@ type VoiceEmbedRecord = {
     summary?: string | null;
     instructions?: string | null;
     voice?: string | null;
+    voice_provider?: string | null;
+    voice_persona_prompt?: string | null;
+    voice_id?: string | null;
+    voice_sample_rate_hz?: number | null;
     model?: string | null;
     chat_model?: string | null;
     temperature?: number | null;
@@ -167,6 +171,10 @@ async function fetchVoiceEmbed(publicId: string): Promise<VoiceEmbedRecord | nul
           summary,
           instructions,
           voice,
+          voice_provider,
+          voice_persona_prompt,
+          voice_id,
+          voice_sample_rate_hz,
           model,
           chat_model,
           temperature,
@@ -776,6 +784,10 @@ Deno.serve(async (req: Request) => {
             name: agentConfig?.name || 'Voice Agent',
             summary: agentConfig?.summary || null,
             voice: sanitizeVoice(embed.tts_voice || agentConfig?.voice || null),
+            voice_provider: agentConfig?.voice_provider || 'openai_realtime',
+            voice_persona_prompt: agentConfig?.voice_persona_prompt || null,
+            voice_id: agentConfig?.voice_id || null,
+            voice_sample_rate_hz: agentConfig?.voice_sample_rate_hz || null,
             rag_enabled: agentConfig?.rag_enabled ?? false,
             rag_mode: agentConfig?.rag_mode || 'assist',
             rag_default_model: agentConfig?.rag_default_model || null,
@@ -850,7 +862,10 @@ Deno.serve(async (req: Request) => {
     }
 
     const tools = await loadEmbedTools(agentConfig.id, agentConfig.user_id);
-    const session = await createEphemeralSession(embed, originHeader, tools);
+    const provider = agentConfig.voice_provider || 'openai_realtime';
+    const session = provider === 'personaplex'
+      ? { token: null, expires_at: null, session: null }
+      : await createEphemeralSession(embed, originHeader, tools);
     const metadata = {
       source: 'voice-embed',
       voice_embed_id: embed.id,
@@ -871,6 +886,10 @@ Deno.serve(async (req: Request) => {
           name: agentConfig.name,
           summary: agentConfig.summary,
           voice: sanitizeVoice(embed.tts_voice || agentConfig.voice),
+          voice_provider: provider,
+          voice_persona_prompt: agentConfig.voice_persona_prompt || null,
+          voice_id: agentConfig.voice_id || null,
+          voice_sample_rate_hz: agentConfig.voice_sample_rate_hz || null,
           model: agentConfig.model || agentConfig.chat_model || 'gpt-4o-realtime-preview',
           instructions: agentConfig.instructions || '',
           rag_enabled: agentConfig.rag_enabled ?? false,

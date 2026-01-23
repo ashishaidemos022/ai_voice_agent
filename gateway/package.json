@@ -1,0 +1,15 @@
+{
+  "name": "personaplex-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
+    "jsonwebtoken": "^9.0.2",
+    "ws": "^8.17.0"
+  }
+}

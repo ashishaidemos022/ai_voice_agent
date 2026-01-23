@@ -64,9 +64,47 @@ const VOICE_OPTIONS = [
   { value: 'cedar', label: 'Cedar (premium)', description: 'Premium: warm and grounded' }
 ];
 
+const VOICE_PROVIDERS = [
+  {
+    value: 'openai_realtime',
+    label: 'OpenAI Realtime',
+    description: 'Low-latency realtime voice with tool calling.'
+  },
+  {
+    value: 'personaplex',
+    label: 'NVIDIA PersonaPlex',
+    description: 'Full-duplex speech-to-speech at 24kHz (hosted endpoint required).'
+  }
+];
+
+const PERSONAPLEX_VOICE_OPTIONS = [
+  { value: 'NATF0', label: 'NATF0', description: 'Natural female 0' },
+  { value: 'NATF1', label: 'NATF1', description: 'Natural female 1' },
+  { value: 'NATF2', label: 'NATF2', description: 'Natural female 2' },
+  { value: 'NATF3', label: 'NATF3', description: 'Natural female 3' },
+  { value: 'NATM0', label: 'NATM0', description: 'Natural male 0' },
+  { value: 'NATM1', label: 'NATM1', description: 'Natural male 1' },
+  { value: 'NATM2', label: 'NATM2', description: 'Natural male 2' },
+  { value: 'NATM3', label: 'NATM3', description: 'Natural male 3' },
+  { value: 'VARF0', label: 'VARF0', description: 'Varied female 0' },
+  { value: 'VARF1', label: 'VARF1', description: 'Varied female 1' },
+  { value: 'VARF2', label: 'VARF2', description: 'Varied female 2' },
+  { value: 'VARF3', label: 'VARF3', description: 'Varied female 3' },
+  { value: 'VARF4', label: 'VARF4', description: 'Varied female 4' },
+  { value: 'VARM0', label: 'VARM0', description: 'Varied male 0' },
+  { value: 'VARM1', label: 'VARM1', description: 'Varied male 1' },
+  { value: 'VARM2', label: 'VARM2', description: 'Varied male 2' },
+  { value: 'VARM3', label: 'VARM3', description: 'Varied male 3' },
+  { value: 'VARM4', label: 'VARM4', description: 'Varied male 4' }
+];
+
 const BASE_DEFAULT_CONFIG: RealtimeConfig = {
   model: 'gpt-realtime',
   voice: 'alloy',
+  voice_provider: 'openai_realtime',
+  voice_persona_prompt: null,
+  voice_id: null,
+  voice_sample_rate_hz: null,
   instructions: DEFAULT_INSTRUCTIONS,
   temperature: 0.8,
   max_response_output_tokens: 4096,
@@ -111,6 +149,8 @@ export function SettingsPanel({
   const [isInviting, setIsInviting] = useState(false);
   const activePreset = presets.find((p) => p.id === activeConfigId);
   const effectiveProviderKeyId = localProviderKeyId ?? providerKeyId;
+  const resolvedProvider = config.voice_provider ?? 'openai_realtime';
+  const isPersonaPlex = resolvedProvider === 'personaplex';
 
   useEffect(() => {
     if (embedded || isOpen) {
@@ -157,7 +197,7 @@ export function SettingsPanel({
       setSaveError('Please enter a preset name');
       return;
     }
-    if (!effectiveProviderKeyId) {
+    if (!effectiveProviderKeyId && !isPersonaPlex) {
       setSaveError('Add an OpenAI API key before saving presets.');
       return;
     }
@@ -170,7 +210,7 @@ export function SettingsPanel({
         ...realtimeConfigToPreset(config, newPresetName.trim()),
         is_default: isFirstPreset
       };
-      const savedPreset = await saveConfigPreset(presetData, userId, effectiveProviderKeyId);
+      const savedPreset = await saveConfigPreset(presetData, userId, effectiveProviderKeyId ?? undefined);
       if (isFirstPreset) {
         const { error: profileError } = await supabase
           .from('va_users')
@@ -700,57 +740,121 @@ export function SettingsPanel({
           </Card>
 
           <Card className="border-white/10 shadow-[0_12px_40px_rgba(3,6,15,0.5)]">
-            <CardHeader className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="col-span-1 flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-200 flex items-center justify-center border border-emerald-400/30">
-                  <Workflow className="w-5 h-5" />
+            <CardHeader className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="col-span-1 flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-200 flex items-center justify-center border border-emerald-400/30">
+                    <Workflow className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase text-white/50 tracking-[0.2em]">Voice & pacing</p>
+                    <h3 className="text-lg font-semibold text-white">Voice + turn detection</h3>
+                    <p className="text-sm text-white/60">Choose the voice provider and how the agent listens and responds.</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-xs uppercase text-white/50 tracking-[0.2em]">Voice & pacing</p>
-                  <h3 className="text-lg font-semibold text-white">Voice + turn detection</h3>
-                  <p className="text-sm text-white/60">Choose the voice and how the agent listens and responds.</p>
-                </div>
-              </div>
-              <div className="col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-semibold text-white/80">Voice</label>
-                  <select
-                    value={config.voice}
-                    onChange={(e) => onConfigChange({ ...config, voice: e.target.value })}
-                    className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
-                  >
-                    {VOICE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label} — {option.description}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={config.turn_detection !== null}
-                      onChange={() =>
+                <div className="col-span-2 grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="text-sm font-semibold text-white/80">Voice provider</label>
+                    <select
+                      value={resolvedProvider}
+                      onChange={(e) => {
+                        const nextProvider = e.target.value as 'openai_realtime' | 'personaplex';
                         onConfigChange({
                           ...config,
-                          turn_detection: config.turn_detection
-                            ? null
-                            : {
-                                type: 'server_vad',
-                                threshold: 0.5,
-                                prefix_padding_ms: 300,
-                                silence_duration_ms: 500
-                              }
-                        })
-                      }
-                      className="w-4 h-4 text-cyan-400 border-white/20 rounded focus:ring-cyan-400"
-                    />
-                    <span className="text-sm font-semibold text-white/80">Voice activity detection</span>
-                  </label>
-                  <p className="text-xs text-white/50">Let the agent auto-respond when you pause speaking.</p>
+                          voice_provider: nextProvider,
+                          voice_sample_rate_hz: nextProvider === 'personaplex'
+                            ? (config.voice_sample_rate_hz ?? 24000)
+                            : (config.voice_sample_rate_hz ?? null),
+                          voice_id: nextProvider === 'personaplex'
+                            ? (config.voice_id ?? 'NATF0')
+                            : (config.voice_id ?? null)
+                        });
+                      }}
+                      className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
+                    >
+                      {VOICE_PROVIDERS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label} — {option.description}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-white/80">
+                      {isPersonaPlex ? 'PersonaPlex voice ID' : 'Voice'}
+                    </label>
+                    <select
+                      value={isPersonaPlex ? (config.voice_id ?? 'NATF0') : config.voice}
+                      onChange={(e) => {
+                        if (isPersonaPlex) {
+                          onConfigChange({ ...config, voice_id: e.target.value });
+                        } else {
+                          onConfigChange({ ...config, voice: e.target.value });
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
+                    >
+                      {(isPersonaPlex ? PERSONAPLEX_VOICE_OPTIONS : VOICE_OPTIONS).map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label} — {option.description}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={config.turn_detection !== null}
+                        onChange={() =>
+                          onConfigChange({
+                            ...config,
+                            turn_detection: config.turn_detection
+                              ? null
+                              : {
+                                  type: 'server_vad',
+                                  threshold: 0.5,
+                                  prefix_padding_ms: 300,
+                                  silence_duration_ms: 500
+                                }
+                          })
+                        }
+                        className="w-4 h-4 text-cyan-400 border-white/20 rounded focus:ring-cyan-400"
+                      />
+                      <span className="text-sm font-semibold text-white/80">Voice activity detection</span>
+                    </label>
+                    <p className="text-xs text-white/50">Let the agent auto-respond when you pause speaking.</p>
+                  </div>
                 </div>
               </div>
+              {isPersonaPlex && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-semibold text-white/80">Persona / role prompt</label>
+                    <textarea
+                      value={config.voice_persona_prompt ?? ''}
+                      onChange={(e) =>
+                        onConfigChange({
+                          ...config,
+                          voice_persona_prompt: e.target.value
+                        })
+                      }
+                      rows={4}
+                      placeholder="Describe the persona, role, and context PersonaPlex should adopt."
+                      className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white resize-none"
+                    />
+                    <p className="text-xs text-white/50 mt-1">Used as the PersonaPlex text prompt (streaming speech-to-speech).</p>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-white/80">
+                      Sample rate: {config.voice_sample_rate_hz ?? 24000} Hz
+                    </div>
+                    <p className="text-xs text-white/50">
+                      PersonaPlex runs at 24kHz mono audio. Your gateway should enforce resampling before streaming.
+                    </p>
+                  </div>
+                </div>
+              )}
             </CardHeader>
           </Card>
 

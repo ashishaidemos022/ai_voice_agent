@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AudioManager, getAudioManager } from '../lib/audio-manager';
 import { AgentState, RealtimeAPIClient } from '../lib/realtime-client';
+import { PersonaPlexVoiceAdapter } from '../lib/voice-adapters/personaplex-adapter';
+import type { VoiceAdapter } from '../lib/voice-adapters/types';
 import { supabase } from '../lib/supabase';
 import { executeTool, loadMCPTools } from '../lib/tools-registry';
 import { Message, RealtimeConfig, VoiceToolEvent } from '../types/voice-agent';
@@ -9,6 +11,7 @@ import type { RagAugmentationResult, RagMode } from '../types/rag';
 import { configPresetToRealtimeConfig, getConfigPresetById } from '../lib/config-service';
 import { useAuth } from '../context/AuthContext';
 import { normalizeUsage, recordUsageEvent } from '../lib/usage-tracker';
+import { requestPersonaPlexGatewayToken } from '../lib/personaplex-gateway';
 
 type LiveTranscripts = {
   user: Record<string, string>;
@@ -39,7 +42,7 @@ export function useVoiceAgent() {
   const [isRagLoading, setIsRagLoading] = useState(false);
 
   const audioManagerRef = useRef<AudioManager | null>(null);
-  const realtimeClientRef = useRef<RealtimeAPIClient | null>(null);
+  const realtimeClientRef = useRef<VoiceAdapter | null>(null);
   const audioIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const configRef = useRef<RealtimeConfig | null>(null);
@@ -164,6 +167,10 @@ export function useVoiceAgent() {
     return {
       ...fallback,
       ...next,
+      voice_provider: next.voice_provider ?? fallback?.voice_provider ?? 'openai_realtime',
+      voice_persona_prompt: next.voice_persona_prompt ?? fallback?.voice_persona_prompt ?? null,
+      voice_id: next.voice_id ?? fallback?.voice_id ?? null,
+      voice_sample_rate_hz: next.voice_sample_rate_hz ?? fallback?.voice_sample_rate_hz ?? null,
       rag_enabled: next.rag_enabled ?? fallback?.rag_enabled ?? false,
       rag_mode: next.rag_mode ?? fallback?.rag_mode ?? 'assist',
       rag_default_model: next.rag_default_model ?? fallback?.rag_default_model ?? null,
@@ -518,20 +525,30 @@ export function useVoiceAgent() {
   }, [persistMessage, resetTranscripts, vaUser?.id]);
 
   const startRecording = useCallback(async () => {
-    if (!audioManagerRef.current || !realtimeClientRef.current) return;
+    if (!realtimeClientRef.current) return;
     if (isRecording || micStartedRef.current) return;
 
     try {
-      await audioManagerRef.current.startCapture((audioData: Int16Array) => {
-        realtimeClientRef.current?.sendAudio(audioData);
-      });
+      if (typeof realtimeClientRef.current.startCapture === 'function') {
+        await realtimeClientRef.current.startCapture();
+      } else {
+        if (!audioManagerRef.current) {
+          audioManagerRef.current = getAudioManager();
+        }
+        await audioManagerRef.current.startCapture((audioData: Int16Array) => {
+          realtimeClientRef.current?.sendAudio(audioData);
+        });
+      }
 
       setIsRecording(true);
 
       audioIntervalRef.current = setInterval(() => {
-        if (!audioManagerRef.current) return;
-        const waveform = audioManagerRef.current.getWaveformData();
-        const vol = audioManagerRef.current.getVolume();
+        const waveform = realtimeClientRef.current?.getWaveformData
+          ? realtimeClientRef.current.getWaveformData()
+          : audioManagerRef.current?.getWaveformData();
+        const vol = realtimeClientRef.current?.getVolume
+          ? realtimeClientRef.current.getVolume()
+          : audioManagerRef.current?.getVolume() ?? 0;
         if (waveform) {
           setWaveformData(new Uint8Array(waveform));
           setVolume(vol);
@@ -545,8 +562,12 @@ export function useVoiceAgent() {
   }, [isRecording]);
 
   const stopRecording = useCallback(() => {
-    if (!audioManagerRef.current) return;
-    audioManagerRef.current.stopCapture();
+    if (realtimeClientRef.current?.stopCapture) {
+      realtimeClientRef.current.stopCapture();
+    } else {
+      if (!audioManagerRef.current) return;
+      audioManagerRef.current.stopCapture();
+    }
     setIsRecording(false);
     micStartedRef.current = false;
 
@@ -626,11 +647,28 @@ export function useVoiceAgent() {
           }
         }
 
+        let gatewaySession: { token: string; gateway_ws_url: string } | null = null;
+        const provider = hydratedConfig.voice_provider ?? 'openai_realtime';
+        if (provider === 'personaplex') {
+          gatewaySession = await requestPersonaPlexGatewayToken({
+            agentId: configId,
+            sessionId: sid,
+            origin: window.location.origin
+          });
+        }
+
         if (realtimeClientRef.current) {
           console.log('[useVoiceAgent] disposing previous realtime client instance');
           realtimeClientRef.current.disconnect();
         }
-        realtimeClientRef.current = new RealtimeAPIClient(hydratedConfig);
+        realtimeClientRef.current = provider === 'personaplex'
+          ? new PersonaPlexVoiceAdapter(hydratedConfig, {
+              gatewayUrl: gatewaySession?.gateway_ws_url || '',
+              token: gatewaySession?.token || '',
+              agentId: configId,
+              sessionId: sid
+            })
+          : new RealtimeAPIClient(hydratedConfig);
 
         attachRealtimeHandlers();
         await realtimeClientRef.current.connect();

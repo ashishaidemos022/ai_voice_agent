@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAudioManager, AudioManager } from '../lib/audio-manager';
 import { RealtimeAPIClient, AgentState } from '../lib/realtime-client';
+import { PersonaPlexVoiceAdapter } from '../lib/voice-adapters/personaplex-adapter';
+import type { VoiceAdapter } from '../lib/voice-adapters/types';
 import { executeTool, registerToolsFromServer } from '../lib/tools-registry';
 import type { RealtimeConfig } from '../types/voice-agent';
 import { buildEmbedFunctionUrl, resolveEmbedApiBase, resolveEmbedUsageBase } from './embed-api';
+import { requestPersonaPlexEmbedToken } from './personaplex-gateway';
 
 type TranscriptBuffers = {
   user: Record<string, string>;
@@ -41,6 +44,7 @@ export type UseVoiceEmbedResult = {
     name: string;
     summary?: string | null;
     voice?: string | null;
+    voice_provider?: 'openai_realtime' | 'personaplex' | null;
   } | null;
   isLoadingMeta: boolean;
   isInitializing: boolean;
@@ -94,7 +98,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
   const [appearance, setAppearance] = useState<VoiceEmbedAppearance | null>(null);
 
   const audioManagerRef = useRef<AudioManager | null>(null);
-  const realtimeClientRef = useRef<RealtimeAPIClient | null>(null);
+  const realtimeClientRef = useRef<VoiceAdapter | null>(null);
   const waveformIntervalRef = useRef<number | null>(null);
   const transcriptsRef = useRef<TranscriptBuffers>({
     user: {},
@@ -169,8 +173,13 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
         reason: options?.reason
       });
 
-      if (audioManagerRef.current) {
+      if (realtimeClientRef.current?.stopCapture) {
+        realtimeClientRef.current.stopCapture();
+      } else if (audioManagerRef.current) {
         audioManagerRef.current.stopCapture();
+      }
+
+      if (audioManagerRef.current) {
         audioManagerRef.current.stopPlayback();
         audioManagerRef.current.close();
       }
@@ -208,7 +217,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
     updateSessionId(null);
   }, [resetTranscripts, updateSessionId]);
 
-  function attachRealtimeHandlers(client: RealtimeAPIClient, audioManager: AudioManager) {
+  function attachRealtimeHandlers(client: VoiceAdapter, audioManager: AudioManager) {
     client.on('connected', () => {
       console.debug(EMBED_LOG_PREFIX, 'Realtime connected');
       setIsConnected(true);
@@ -436,8 +445,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
           sessionId: currentSessionId
         });
         const result = await executeTool(toolName, parsedArgs, {
-          sessionId: currentSessionId,
-          source: 'voice-embed'
+          sessionId: currentSessionId
         });
         client.sendFunctionCallOutput(callId || crypto.randomUUID(), result);
       } catch (toolError: any) {
@@ -491,20 +499,30 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
       }
       setRtcEnabled(Boolean(json?.settings?.rtc_enabled ?? true));
       setAppearance((json?.settings?.appearance as VoiceEmbedAppearance) || null);
+      const provider = json?.agent?.voice_provider || 'openai_realtime';
+      const resolvedVoice = provider === 'personaplex'
+        ? (json?.agent?.voice_id || null)
+        : sanitizeVoice(json?.agent?.voice || null);
       setAgentMeta((prev) => ({
         name: json?.agent?.name || prev?.name || 'Voice Agent',
         summary: json?.agent?.summary || prev?.summary || null,
-        voice: sanitizeVoice(json?.agent?.voice || prev?.voice || null)
+        voice: resolvedVoice || prev?.voice || null,
+        voice_provider: provider
       }));
       agentMetaRef.current = {
         name: json?.agent?.name || 'Voice Agent',
         summary: json?.agent?.summary || null,
-        voice: sanitizeVoice(json?.agent?.voice || null)
+        voice: resolvedVoice,
+        voice_provider: provider
       };
 
       const realtimeConfig: RealtimeConfig = {
         model: json?.agent?.model || 'gpt-4o-realtime-preview',
         voice: sanitizeVoice(json?.agent?.voice),
+        voice_provider: provider,
+        voice_persona_prompt: json?.agent?.voice_persona_prompt ?? null,
+        voice_id: json?.agent?.voice_id ?? null,
+        voice_sample_rate_hz: json?.agent?.voice_sample_rate_hz ?? null,
         instructions: json?.agent?.instructions || 'You are a helpful AI voice assistant.',
         temperature: 0.8,
         max_response_output_tokens: 1024,
@@ -517,10 +535,25 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
       };
 
       const audioManager = getAudioManager();
-      const realtimeClient = new RealtimeAPIClient(realtimeConfig, {
-        apiKey: json.token,
-        allowInterruptions: true
-      });
+      let realtimeClient: VoiceAdapter;
+      if (provider === 'personaplex') {
+        const gateway = await requestPersonaPlexEmbedToken({
+          publicId,
+          sessionId: json.session_id,
+          origin: window.location.origin
+        });
+        realtimeClient = new PersonaPlexVoiceAdapter(realtimeConfig, {
+          gatewayUrl: gateway.gateway_ws_url,
+          token: gateway.token,
+          agentId: nextConfigId || '',
+          sessionId: json.session_id
+        });
+      } else {
+        realtimeClient = new RealtimeAPIClient(realtimeConfig, {
+          apiKey: json.token,
+          allowInterruptions: true
+        });
+      }
       modelRef.current = realtimeConfig.model;
       audioManagerRef.current = audioManager;
       realtimeClientRef.current = realtimeClient;
@@ -546,15 +579,23 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
     }
     console.debug(EMBED_LOG_PREFIX, 'Starting capture');
     await audioManagerRef.current.initialize();
-    await audioManagerRef.current.startCapture((data: Int16Array) => {
-      realtimeClientRef.current?.sendAudio(data);
-    });
+    if (typeof realtimeClientRef.current.startCapture === 'function') {
+      await realtimeClientRef.current.startCapture();
+    } else {
+      await audioManagerRef.current.startCapture((data: Int16Array) => {
+        realtimeClientRef.current?.sendAudio(data);
+      });
+    }
     setIsRecording(true);
     cleanupWaveformInterval();
     waveformIntervalRef.current = window.setInterval(() => {
       if (!audioManagerRef.current) return;
-      const waveform = audioManagerRef.current.getWaveformData();
-      const currentVolume = audioManagerRef.current.getVolume();
+      const waveform = realtimeClientRef.current?.getWaveformData
+        ? realtimeClientRef.current.getWaveformData()
+        : audioManagerRef.current.getWaveformData();
+      const currentVolume = realtimeClientRef.current?.getVolume
+        ? realtimeClientRef.current.getVolume()
+        : audioManagerRef.current.getVolume();
       if (waveform) {
         setWaveformData(new Uint8Array(waveform));
         setVolume(currentVolume);
@@ -581,11 +622,18 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
       if (!response.ok) {
         throw new Error(json?.error || 'Unable to load voice embed');
       }
-      setAgentMeta((prev) => ({
-        name: json?.agent?.name || prev?.name || 'Voice Agent',
-        summary: json?.agent?.summary || prev?.summary || null,
-        voice: sanitizeVoice(json?.agent?.voice || prev?.voice || null)
-      }));
+      const provider = json?.agent?.voice_provider || 'openai_realtime';
+      setAgentMeta((prev) => {
+        const resolvedVoice = provider === 'personaplex'
+          ? (json?.agent?.voice_id || prev?.voice || null)
+          : sanitizeVoice(json?.agent?.voice || prev?.voice || null);
+        return {
+          name: json?.agent?.name || prev?.name || 'Voice Agent',
+          summary: json?.agent?.summary || prev?.summary || null,
+          voice: resolvedVoice,
+          voice_provider: provider
+        };
+      });
       updateAgentConfigId(json?.agent?.id || null);
       setRtcEnabled(Boolean(json?.settings?.rtc_enabled ?? true));
       setAppearance((json?.settings?.appearance as VoiceEmbedAppearance) || null);

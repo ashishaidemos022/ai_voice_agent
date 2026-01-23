@@ -47,6 +47,10 @@ export interface AgentConfigPreset {
   chat_model?: string | null;
   chat_theme?: Record<string, any> | null;
   voice: string;
+  voice_provider?: 'openai_realtime' | 'personaplex' | null;
+  voice_persona_prompt?: string | null;
+  voice_id?: string | null;
+  voice_sample_rate_hz?: number | null;
   temperature: number;
   model: string;
   max_response_output_tokens: number;
@@ -98,6 +102,10 @@ export function configPresetToRealtimeConfig(preset: AgentConfigPreset): Realtim
     instructions: preset.instructions,
     temperature: preset.temperature,
     max_response_output_tokens: preset.max_response_output_tokens,
+    voice_provider: preset.voice_provider ?? 'openai_realtime',
+    voice_persona_prompt: preset.voice_persona_prompt ?? null,
+    voice_id: preset.voice_id ?? null,
+    voice_sample_rate_hz: preset.voice_sample_rate_hz ?? null,
     turn_detection: preset.turn_detection_enabled ? preset.turn_detection_config : null,
     rag_mode: preset.rag_mode,
     rag_enabled: preset.rag_enabled,
@@ -112,6 +120,10 @@ export function realtimeConfigToPreset(config: RealtimeConfig, name: string): Pa
     name,
     instructions: config.instructions,
     voice: config.voice,
+    voice_provider: config.voice_provider ?? 'openai_realtime',
+    voice_persona_prompt: config.voice_persona_prompt ?? null,
+    voice_id: config.voice_id ?? null,
+    voice_sample_rate_hz: config.voice_sample_rate_hz ?? null,
     temperature: config.temperature,
     model: config.model,
     max_response_output_tokens: config.max_response_output_tokens,
