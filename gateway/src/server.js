@@ -4,7 +4,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import jwt from 'jsonwebtoken';
 import { createClient } from '@supabase/supabase-js';
 
-const PORT = Number(process.env.PORT || 8787);
+const PORT = Number(process.env.PORT || 8080);
 const JWT_SECRET = process.env.PERSONAPLEX_GATEWAY_JWT_SECRET;
 const PERSONAPLEX_WS_URL = process.env.PERSONAPLEX_WS_URL;
 const HEALTH_INTERVAL_MS = Number(process.env.PERSONAPLEX_HEALTH_INTERVAL_MS || 60000);
@@ -66,7 +66,37 @@ const buildPersonaPlexUrl = (tokenPayload) => {
   return url;
 };
 
-const server = http.createServer();
+const server = http.createServer((req, res) => {
+  if (!req.url) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'error', message: 'Missing URL' }));
+    return;
+  }
+
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  if (req.method === 'GET' && url.pathname === '/healthz') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ok' }));
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/readyz') {
+    const missing = [];
+    if (!JWT_SECRET) missing.push('PERSONAPLEX_GATEWAY_JWT_SECRET');
+    if (!PERSONAPLEX_WS_URL) missing.push('PERSONAPLEX_WS_URL');
+    if (missing.length > 0) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'not_ready', missing }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ready' }));
+    return;
+  }
+
+  res.writeHead(404, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ status: 'not_found' }));
+});
 const wss = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (req, socket, head) => {
