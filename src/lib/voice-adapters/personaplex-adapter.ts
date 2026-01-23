@@ -83,7 +83,7 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
         this.connected = false;
         handshakeTimeout = window.setTimeout(() => {
           if (!this.connected) {
-            this.ws?.close(1008, 'handshake-timeout');
+            this.ws?.close(4000, 'handshake-timeout');
             failConnect('handshake-timeout');
           }
         }, 5000);

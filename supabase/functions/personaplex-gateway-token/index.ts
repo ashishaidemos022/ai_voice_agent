@@ -179,6 +179,19 @@ Deno.serve(async (req: Request) => {
         });
       }
 
+      const { data: vaUser, error: vaUserError } = await adminClient
+        .from('va_users')
+        .select('id')
+        .eq('auth_user_id', user.id)
+        .maybeSingle();
+
+      if (vaUserError || !vaUser?.id) {
+        return new Response(JSON.stringify({ error: 'User profile not found' }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+
       const { data: config, error: configError } = await adminClient
         .from('va_agent_configs')
         .select('id, user_id, instructions, voice_provider, voice_persona_prompt, voice_id')
@@ -191,7 +204,7 @@ Deno.serve(async (req: Request) => {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       }
-      if (config.user_id && config.user_id !== user.id) {
+      if (config.user_id && config.user_id !== vaUser.id) {
         return new Response(JSON.stringify({ error: 'Forbidden' }), {
           status: 403,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -199,7 +212,7 @@ Deno.serve(async (req: Request) => {
       }
       allowedOrigins = [origin];
       agentConfig = config;
-      subject = user.id;
+      subject = vaUser.id;
     }
 
     if (!agentConfig || agentConfig.voice_provider !== 'personaplex') {
