@@ -671,7 +671,22 @@ export function useVoiceAgent() {
           : new RealtimeAPIClient(hydratedConfig);
 
         attachRealtimeHandlers();
-        await realtimeClientRef.current.connect();
+        const connectTimeoutMs = 15000;
+        let connectTimeout: number | null = null;
+        const connectPromise = realtimeClientRef.current.connect();
+        const timeoutPromise = new Promise<void>((_, reject) => {
+          connectTimeout = window.setTimeout(() => {
+            reject(new Error('Realtime connection timeout'));
+          }, connectTimeoutMs);
+        });
+        try {
+          await Promise.race([connectPromise, timeoutPromise]);
+        } finally {
+          if (connectTimeout) {
+            window.clearTimeout(connectTimeout);
+            connectTimeout = null;
+          }
+        }
         console.log('[useVoiceAgent] realtime socket connected');
         setAgentState('idle');
       } catch (err: any) {

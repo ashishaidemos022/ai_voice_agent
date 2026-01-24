@@ -10,6 +10,7 @@ const PERSONAPLEX_WS_URL = process.env.PERSONAPLEX_WS_URL;
 const HEALTH_INTERVAL_MS = Number(process.env.PERSONAPLEX_HEALTH_INTERVAL_MS || 60000);
 const HEALTH_VOICE_PROMPT = process.env.PERSONAPLEX_HEALTH_VOICE_PROMPT || 'NATF0.pt';
 const HEALTH_TEXT_PROMPT = process.env.PERSONAPLEX_HEALTH_TEXT_PROMPT || '';
+const UPSTREAM_TIMEOUT_MS = Number(process.env.PERSONAPLEX_UPSTREAM_TIMEOUT_MS || 15000);
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -159,10 +160,16 @@ wss.on('connection', (client, req) => {
   }));
 
   let upstream;
+  let upstreamTimeout;
+  let upstreamTimedOut = false;
   try {
     const upstreamUrl = buildPersonaPlexUrl(payload);
     upstream = new WebSocket(upstreamUrl.toString());
     upstream.binaryType = 'arraybuffer';
+    upstreamTimeout = setTimeout(() => {
+      upstreamTimedOut = true;
+      closeAll(1011, 'upstream-timeout');
+    }, UPSTREAM_TIMEOUT_MS);
   } catch (err) {
     client.close(1011, 'PersonaPlex URL error');
     return;
@@ -179,6 +186,10 @@ wss.on('connection', (client, req) => {
 
   upstream.on('open', () => {
     // Ready to proxy
+    if (upstreamTimeout) {
+      clearTimeout(upstreamTimeout);
+      upstreamTimeout = null;
+    }
   });
 
   upstream.on('message', (data) => {
@@ -189,10 +200,19 @@ wss.on('connection', (client, req) => {
   });
 
   upstream.on('close', (code, reason) => {
+    if (upstreamTimeout) {
+      clearTimeout(upstreamTimeout);
+      upstreamTimeout = null;
+    }
     closeAll(code, reason?.toString());
   });
 
   upstream.on('error', () => {
+    if (upstreamTimeout) {
+      clearTimeout(upstreamTimeout);
+      upstreamTimeout = null;
+    }
+    if (upstreamTimedOut) return;
     closeAll(1011, 'PersonaPlex error');
   });
 
@@ -203,6 +223,10 @@ wss.on('connection', (client, req) => {
   });
 
   client.on('close', () => {
+    if (upstreamTimeout) {
+      clearTimeout(upstreamTimeout);
+      upstreamTimeout = null;
+    }
     closeAll(1000, 'client-closed');
     const durationMs = Date.now() - startTime;
     console.log(JSON.stringify({
@@ -273,7 +297,7 @@ const checkHealth = async () => {
       ws.close();
       reportHealth('down', null, 'health-check-timeout');
       resolve();
-    }, 5000);
+    }, UPSTREAM_TIMEOUT_MS);
 
     ws.on('message', (data) => {
       const bytes = new Uint8Array(data);
