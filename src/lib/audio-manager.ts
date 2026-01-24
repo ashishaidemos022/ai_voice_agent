@@ -246,7 +246,7 @@ export class AudioManager {
         const audioBuffer = this.audioContext.createBuffer(
           1,
           float32Array.length,
-          24000
+          this.audioContext.sampleRate
         );
         audioBuffer.getChannelData(0).set(float32Array);
 
