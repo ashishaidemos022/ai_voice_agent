@@ -193,9 +193,9 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
 
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
         channelCount: 1
       },
       video: false
@@ -349,8 +349,9 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
 
   private handleDecodedAudio(samples: Float32Array): void {
     const int16 = new Int16Array(samples.length);
+    const gain = 0.6;
     for (let i = 0; i < samples.length; i++) {
-      const s = Math.max(-1, Math.min(1, samples[i]));
+      const s = Math.max(-1, Math.min(1, samples[i] * gain));
       int16[i] = s < 0 ? s * 32768 : s * 32767;
     }
     const base64 = this.arrayBufferToBase64(int16.buffer);

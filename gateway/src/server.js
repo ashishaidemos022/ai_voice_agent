@@ -98,7 +98,7 @@ const server = http.createServer((req, res) => {
   res.writeHead(404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ status: 'not_found' }));
 });
-const wss = new WebSocketServer({ noServer: true });
+const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
 
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url || '/', `http://${req.headers.host}`);
@@ -164,7 +164,7 @@ wss.on('connection', (client, req) => {
   let upstreamTimedOut = false;
   try {
     const upstreamUrl = buildPersonaPlexUrl(payload);
-    upstream = new WebSocket(upstreamUrl.toString());
+    upstream = new WebSocket(upstreamUrl.toString(), { perMessageDeflate: false });
     upstream.binaryType = 'arraybuffer';
     upstreamTimeout = setTimeout(() => {
       upstreamTimedOut = true;
@@ -192,10 +192,10 @@ wss.on('connection', (client, req) => {
     }
   });
 
-  upstream.on('message', (data) => {
+  upstream.on('message', (data, isBinary) => {
     if (client.readyState === WebSocket.OPEN) {
       bytesIn += data.byteLength || data.length || 0;
-      client.send(data);
+      client.send(data, { binary: isBinary });
     }
   });
 
@@ -216,10 +216,10 @@ wss.on('connection', (client, req) => {
     closeAll(1011, 'PersonaPlex error');
   });
 
-  client.on('message', (data) => {
+  client.on('message', (data, isBinary) => {
     if (!upstream || upstream.readyState !== WebSocket.OPEN) return;
     bytesOut += data.byteLength || data.length || 0;
-    upstream.send(data);
+    upstream.send(data, { binary: isBinary });
   });
 
   client.on('close', () => {

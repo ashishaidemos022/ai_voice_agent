@@ -84,8 +84,8 @@ export class AudioManager {
             audio: {
               channelCount: 1,
               sampleRate: this.targetSampleRate,
-              echoCancellation: true,
-              noiseSuppression: true,
+              echoCancellation: false,
+              noiseSuppression: false,
               autoGainControl: false
             },
           }),
@@ -303,7 +303,7 @@ export class AudioManager {
       };
 
       const now = this.audioContext.currentTime;
-      const startTime = Math.max(this.nextPlaybackTime, now + 0.05);
+      const startTime = Math.max(this.nextPlaybackTime, now + 0.1);
       this.nextPlaybackTime = startTime + buffer.duration;
       source.start(startTime);
     } catch (error) {
