@@ -223,7 +223,7 @@ export class AudioManager {
     return Math.sqrt(sum / dataArray.length);
   }
 
-  async playAudioData(base64Audio: string): Promise<void> {
+  async playAudioData(base64Audio: string, sourceSampleRate = 24000): Promise<void> {
     return new Promise((resolve) => {
       try {
         if (!this.audioContext || this.audioContext.state === 'closed') {
@@ -244,12 +244,29 @@ export class AudioManager {
           float32Array[i] = int16Array[i] / 32768.0;
         }
 
+        let playbackSamples = float32Array;
+        const targetSampleRate = this.audioContext.sampleRate;
+        if (sourceSampleRate !== targetSampleRate) {
+          const ratio = targetSampleRate / sourceSampleRate;
+          const outLength = Math.max(1, Math.round(float32Array.length * ratio));
+          const resampled = new Float32Array(outLength);
+          for (let i = 0; i < outLength; i++) {
+            const srcPos = i / ratio;
+            const idx = Math.floor(srcPos);
+            const frac = srcPos - idx;
+            const a = float32Array[idx] ?? 0;
+            const b = float32Array[idx + 1] ?? a;
+            resampled[i] = a + (b - a) * frac;
+          }
+          playbackSamples = resampled;
+        }
+
         const audioBuffer = this.audioContext.createBuffer(
           1,
-          float32Array.length,
+          playbackSamples.length,
           this.audioContext.sampleRate
         );
-        audioBuffer.getChannelData(0).set(float32Array);
+        audioBuffer.getChannelData(0).set(playbackSamples);
 
         this.audioQueue.push({ buffer: audioBuffer, resolve });
 

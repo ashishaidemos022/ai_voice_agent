@@ -338,7 +338,8 @@ export function useVoiceAgent() {
     client.on('audio.delta', async (event: any) => {
       console.debug('[useVoiceAgent] audio.delta received');
       if (audioManager) {
-        await audioManager.playAudioData(event.delta);
+        const sampleRate = typeof event.sampleRate === 'number' ? event.sampleRate : 24000;
+        await audioManager.playAudioData(event.delta, sampleRate);
       }
     });
 

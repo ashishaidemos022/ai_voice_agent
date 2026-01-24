@@ -245,12 +245,13 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
       }
     });
 
-    client.on('audio.delta', async (event: { delta: string }) => {
+    client.on('audio.delta', async (event: { delta: string; sampleRate?: number }) => {
       try {
         console.debug(EMBED_LOG_PREFIX, 'Audio delta received', {
           chunkBytes: event.delta?.length || 0
         });
-        await audioManager.playAudioData(event.delta);
+        const sampleRate = typeof event.sampleRate === 'number' ? event.sampleRate : 24000;
+        await audioManager.playAudioData(event.delta, sampleRate);
       } catch (playError) {
         console.warn('[voice-embed] failed to play audio chunk', playError);
       }
