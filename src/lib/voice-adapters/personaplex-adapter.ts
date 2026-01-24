@@ -73,6 +73,7 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
     return new Promise((resolve, reject) => {
       if (!this.ws) return reject(new Error('WebSocket not created'));
       let handshakeTimeout: number | null = null;
+      let resolved = false;
       const failConnect = (message: string) => {
         const error = 'PersonaPlex unavailable. Try again or switch to OpenAI Realtime.';
         this.emit({ type: 'error', error });
@@ -100,14 +101,15 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
       };
 
       this.ws.onmessage = (event) => {
-        this.handleMessage(event.data);
-        if (!this.connected) {
+        if (!resolved) {
+          resolved = true;
           if (handshakeTimeout) {
             window.clearTimeout(handshakeTimeout);
             handshakeTimeout = null;
           }
           resolve();
         }
+        this.handleMessage(event.data);
       };
     });
   }
