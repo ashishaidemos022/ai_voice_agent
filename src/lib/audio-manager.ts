@@ -13,6 +13,7 @@ export class AudioManager {
   private audioQueue: Array<{ buffer: AudioBuffer; resolve: () => void }> = [];
   private isPlayingAudio = false;
   private currentSource: AudioBufferSourceNode | null = null;
+  private nextPlaybackTime = 0;
   private workletReady = false;
   private readonly targetSampleRate = 24000;
 
@@ -284,7 +285,10 @@ export class AudioManager {
         this.processAudioQueue();
       };
 
-      source.start();
+      const now = this.audioContext.currentTime;
+      const startTime = Math.max(this.nextPlaybackTime, now + 0.05);
+      this.nextPlaybackTime = startTime + buffer.duration;
+      source.start(startTime);
     } catch (error) {
       console.error('Failed to play audio chunk:', error);
       this.currentSource = null;
@@ -296,6 +300,7 @@ export class AudioManager {
   stopPlayback(): void {
     this.audioQueue = [];
     this.isPlayingAudio = false;
+    this.nextPlaybackTime = 0;
     if (this.currentSource) {
       try {
         this.currentSource.stop();
