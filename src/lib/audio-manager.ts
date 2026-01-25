@@ -56,9 +56,9 @@ export class AudioManager {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
 
       try {
-        this.audioContext = new AudioContextClass({ sampleRate: this.targetSampleRate });
+        this.audioContext = new AudioContextClass();
       } catch (sampleRateError) {
-        console.warn('Failed to create AudioContext with 24kHz, using default sample rate:', sampleRateError);
+        console.warn('Failed to create AudioContext with default sample rate, retrying:', sampleRateError);
         this.audioContext = new AudioContextClass();
       }
 
