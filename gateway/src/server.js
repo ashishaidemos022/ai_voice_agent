@@ -150,6 +150,8 @@ wss.on('connection', (client, req) => {
   let bytesIn = 0;
   let bytesOut = 0;
   const connectionId = randomUUID();
+  let upstreamAudioBuffer = Buffer.alloc(0);
+  let clientAudioBuffer = Buffer.alloc(0);
 
   console.log(JSON.stringify({
     event: 'gateway_session_start',
@@ -184,6 +186,49 @@ wss.on('connection', (client, req) => {
     }
   };
 
+  const toBuffer = (data) => {
+    if (Buffer.isBuffer(data)) return data;
+    if (data instanceof ArrayBuffer) return Buffer.from(data);
+    if (ArrayBuffer.isView(data)) {
+      return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+    }
+    return Buffer.from(data);
+  };
+
+  const extractOggPages = (buffer, directionLabel) => {
+    let working = buffer;
+    const pages = [];
+    while (working.length >= 27) {
+      if (working.slice(0, 4).toString('ascii') !== 'OggS') {
+        const idx = working.indexOf('OggS');
+        if (idx === -1) {
+          if (working.length > 4096) {
+            console.warn(`[personaplex-gateway] ${directionLabel} dropped non-Ogg data`, working.length);
+            working = Buffer.alloc(0);
+          }
+          break;
+        }
+        if (idx > 0) {
+          console.warn(`[personaplex-gateway] ${directionLabel} resyncing Ogg stream`, idx);
+          working = working.slice(idx);
+        }
+        if (working.length < 27) break;
+      }
+      const pageSegments = working[26];
+      const headerLen = 27 + pageSegments;
+      if (working.length < headerLen) break;
+      let bodyLen = 0;
+      for (let i = 0; i < pageSegments; i++) {
+        bodyLen += working[27 + i];
+      }
+      const totalLen = headerLen + bodyLen;
+      if (working.length < totalLen) break;
+      pages.push(working.slice(0, totalLen));
+      working = working.slice(totalLen);
+    }
+    return { pages, remaining: working };
+  };
+
   upstream.on('open', () => {
     // Ready to proxy
     if (upstreamTimeout) {
@@ -200,6 +245,17 @@ wss.on('connection', (client, req) => {
         const len = data.byteLength || data.length || 0;
         if (len % 2 !== 0) {
           console.warn('[personaplex-gateway] upstream odd byte length', len);
+        }
+        const buf = toBuffer(data);
+        if (buf.length > 0 && buf[0] === 0x01) {
+          upstreamAudioBuffer = Buffer.concat([upstreamAudioBuffer, buf.slice(1)]);
+          const { pages, remaining } = extractOggPages(upstreamAudioBuffer, 'upstream');
+          upstreamAudioBuffer = remaining;
+          pages.forEach((page) => {
+            const framed = Buffer.concat([Buffer.from([0x01]), page]);
+            client.send(framed, { binary: true });
+          });
+          return;
         }
       }
       client.send(data, { binary: isBinaryPayload });
@@ -231,6 +287,17 @@ wss.on('connection', (client, req) => {
       const len = data.byteLength || data.length || 0;
       if (len % 2 !== 0) {
         console.warn('[personaplex-gateway] client odd byte length', len);
+      }
+      const buf = toBuffer(data);
+      if (buf.length > 0 && buf[0] === 0x01) {
+        clientAudioBuffer = Buffer.concat([clientAudioBuffer, buf.slice(1)]);
+        const { pages, remaining } = extractOggPages(clientAudioBuffer, 'client');
+        clientAudioBuffer = remaining;
+        pages.forEach((page) => {
+          const framed = Buffer.concat([Buffer.from([0x01]), page]);
+          upstream.send(framed, { binary: true });
+        });
+        return;
       }
     }
     upstream.send(data, { binary: isBinaryPayload });
