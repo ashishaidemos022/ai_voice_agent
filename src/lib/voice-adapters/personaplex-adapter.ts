@@ -26,6 +26,10 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
   private analyser: AnalyserNode | null = null;
   private dataArray: Uint8Array | null = null;
   private audioContext: AudioContext | null = null;
+  private playbackContext: AudioContext | null = null;
+  private playbackQueue: AudioBuffer[] = [];
+  private playbackNextTime = 0;
+  private playbackSource: AudioBufferSourceNode | null = null;
   private decoderWorker: Worker | null = null;
   private transcriptBuffer = '';
   private transcriptTimer: number | null = null;
@@ -139,6 +143,7 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
     this.ws = null;
     this.connected = false;
     this.stopCapture?.();
+    this.stopPlayback();
     if (this.decoderWorker) {
       this.decoderWorker.terminate();
       this.decoderWorker = null;
@@ -298,16 +303,17 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
 
   private async ensureDecoderReady(): Promise<void> {
     if (this.decoderWorker) return;
+    if (!this.playbackContext) {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      this.playbackContext = new AudioContextClass();
+      this.decoderOutputSampleRate = this.playbackContext.sampleRate || 48000;
+    }
     this.decoderWorker = createDecoderWorker();
     this.decoderWorker.onmessage = (event: MessageEvent<Float32Array[]>) => {
       const payload = event.data?.[0];
       if (!payload) return;
       this.handleDecodedAudio(payload);
     };
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    const probeContext = new AudioContextClass();
-    this.decoderOutputSampleRate = probeContext.sampleRate || 48000;
-    probeContext.close();
     await initDecoder(this.decoderWorker, this.decoderOutputSampleRate);
     if (this.debugEnabled) {
       console.log('[personaplex] decoder init', {
@@ -397,35 +403,68 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
       this.debugDecodedLogged = true;
     }
 
-    const targetRate = this.config.voice_sample_rate_hz ?? 24000;
-    const resampled = this.decoderOutputSampleRate === targetRate
-      ? samples
-      : this.resampleLinear(samples, this.decoderOutputSampleRate, targetRate);
-
-    const int16 = new Int16Array(resampled.length);
-    for (let i = 0; i < resampled.length; i++) {
-      const s = Math.max(-1, Math.min(1, resampled[i]));
-      int16[i] = s < 0 ? s * 32768 : s * 32767;
+    if (!this.playbackContext) return;
+    const clamped = new Float32Array(samples.length);
+    for (let i = 0; i < samples.length; i++) {
+      const v = samples[i];
+      clamped[i] = v < -1 ? -1 : v > 1 ? 1 : v;
     }
-    const base64 = this.arrayBufferToBase64(int16.buffer);
-    this.emit({ type: 'audio.delta', delta: base64 });
+    const buffer = this.playbackContext.createBuffer(
+      1,
+      clamped.length,
+      this.decoderOutputSampleRate
+    );
+    buffer.getChannelData(0).set(clamped);
+    this.enqueuePlayback(buffer);
     this.markSpeaking();
   }
 
-  private resampleLinear(input: Float32Array, fromRate: number, toRate: number): Float32Array {
-    if (fromRate === toRate) return input;
-    const ratio = toRate / fromRate;
-    const outLength = Math.max(1, Math.round(input.length * ratio));
-    const output = new Float32Array(outLength);
-    for (let i = 0; i < outLength; i++) {
-      const srcPos = i / ratio;
-      const idx = Math.floor(srcPos);
-      const frac = srcPos - idx;
-      const a = input[idx] ?? 0;
-      const b = input[idx + 1] ?? a;
-      output[i] = a + (b - a) * frac;
+  private enqueuePlayback(buffer: AudioBuffer): void {
+    if (!this.playbackContext) return;
+    this.playbackQueue.push(buffer);
+    if (this.playbackSource) return;
+    this.processPlaybackQueue();
+  }
+
+  private processPlaybackQueue(): void {
+    if (!this.playbackContext || this.playbackQueue.length === 0) {
+      this.playbackSource = null;
+      return;
     }
-    return output;
+
+    const buffer = this.playbackQueue.shift()!;
+    const source = this.playbackContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(this.playbackContext.destination);
+    this.playbackSource = source;
+
+    source.onended = () => {
+      this.playbackSource = null;
+      this.processPlaybackQueue();
+    };
+
+    const now = this.playbackContext.currentTime;
+    const startTime = Math.max(this.playbackNextTime, now + 0.03);
+    this.playbackNextTime = startTime + buffer.duration;
+    source.start(startTime);
+  }
+
+  private stopPlayback(): void {
+    this.playbackQueue = [];
+    this.playbackNextTime = 0;
+    if (this.playbackSource) {
+      try {
+        this.playbackSource.stop();
+      } catch {
+        // ignore
+      }
+      this.playbackSource.disconnect();
+      this.playbackSource = null;
+    }
+    if (this.playbackContext && this.playbackContext.state !== 'closed') {
+      this.playbackContext.close();
+    }
+    this.playbackContext = null;
   }
 
   private markSpeaking(): void {
