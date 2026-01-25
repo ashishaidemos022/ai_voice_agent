@@ -37,7 +37,8 @@ const createWorkerWithErrorTracking = (): Worker => {
       if (path && path.endsWith('.wasm')) return '${decoderWasmUrl}';
       return (prefix || '') + path;
     };
-    self.e = { locateFile };
+    var e = { locateFile };
+    self.e = e;
     self.Module = { locateFile };
     importScripts('${decoderScriptUrl}');
   `;
