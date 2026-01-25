@@ -195,13 +195,14 @@ wss.on('connection', (client, req) => {
   upstream.on('message', (data, isBinary) => {
     if (client.readyState === WebSocket.OPEN) {
       bytesIn += data.byteLength || data.length || 0;
-      if (isBinary) {
+      const isBinaryPayload = isBinary || Buffer.isBuffer(data) || data instanceof ArrayBuffer || ArrayBuffer.isView(data);
+      if (isBinaryPayload) {
         const len = data.byteLength || data.length || 0;
         if (len % 2 !== 0) {
           console.warn('[personaplex-gateway] upstream odd byte length', len);
         }
       }
-      client.send(data, { binary: isBinary });
+      client.send(data, { binary: isBinaryPayload });
     }
   });
 
@@ -225,13 +226,14 @@ wss.on('connection', (client, req) => {
   client.on('message', (data, isBinary) => {
     if (!upstream || upstream.readyState !== WebSocket.OPEN) return;
     bytesOut += data.byteLength || data.length || 0;
-    if (isBinary) {
+    const isBinaryPayload = isBinary || Buffer.isBuffer(data) || data instanceof ArrayBuffer || ArrayBuffer.isView(data);
+    if (isBinaryPayload) {
       const len = data.byteLength || data.length || 0;
       if (len % 2 !== 0) {
         console.warn('[personaplex-gateway] client odd byte length', len);
       }
     }
-    upstream.send(data, { binary: isBinary });
+    upstream.send(data, { binary: isBinaryPayload });
   });
 
   client.on('close', () => {
