@@ -30,7 +30,7 @@ const createWarmupBosPage = (): Uint8Array => {
 };
 
 const createWorkerWithErrorTracking = (): Worker => {
-  const decoderScriptUrl = new URL('/assets/decoderWorker.min.js', import.meta.url).toString();
+  const decoderScriptUrl = new URL('/assets/nvidia_decoder.js', import.meta.url).toString();
   const decoderWasmUrl = new URL('/assets/decoderWorker.min.wasm', import.meta.url).toString();
   const workerSource = `
     self.Module = {

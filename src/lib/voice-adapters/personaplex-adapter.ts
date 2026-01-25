@@ -27,9 +27,8 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
   private dataArray: Uint8Array | null = null;
   private audioContext: AudioContext | null = null;
   private playbackContext: AudioContext | null = null;
-  private playbackQueue: AudioBuffer[] = [];
-  private playbackNextTime = 0;
-  private playbackSource: AudioBufferSourceNode | null = null;
+  private playbackNode: AudioWorkletNode | null = null;
+  private playbackStreamTime = 0;
   private decoderWorker: Worker | null = null;
   private transcriptBuffer = '';
   private transcriptTimer: number | null = null;
@@ -307,6 +306,11 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       this.playbackContext = new AudioContextClass();
       this.decoderOutputSampleRate = this.playbackContext.sampleRate || 48000;
+      const processorUrl = new URL('/assets/nvidia_audiprocessor.js', window.location.origin);
+      await this.playbackContext.audioWorklet.addModule(processorUrl.toString());
+      this.playbackNode = new AudioWorkletNode(this.playbackContext, 'moshi-processor');
+      this.playbackNode.connect(this.playbackContext.destination);
+      this.playbackNode.port.postMessage({ type: 'reset' });
     }
     this.decoderWorker = createDecoderWorker();
     this.decoderWorker.onmessage = (event: MessageEvent<Float32Array[]>) => {
@@ -403,63 +407,30 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
       this.debugDecodedLogged = true;
     }
 
-    if (!this.playbackContext) return;
+    if (!this.playbackContext || !this.playbackNode) return;
     const clamped = new Float32Array(samples.length);
     for (let i = 0; i < samples.length; i++) {
       const v = samples[i];
       clamped[i] = v < -1 ? -1 : v > 1 ? 1 : v;
     }
-    const buffer = this.playbackContext.createBuffer(
-      1,
-      clamped.length,
-      this.decoderOutputSampleRate
-    );
-    buffer.getChannelData(0).set(clamped);
-    this.enqueuePlayback(buffer);
+    this.playbackNode.port.postMessage({
+      frame: clamped,
+      micDuration: this.playbackStreamTime
+    });
+    this.playbackStreamTime += clamped.length / this.decoderOutputSampleRate;
     this.markSpeaking();
   }
 
-  private enqueuePlayback(buffer: AudioBuffer): void {
-    if (!this.playbackContext) return;
-    this.playbackQueue.push(buffer);
-    if (this.playbackSource) return;
-    this.processPlaybackQueue();
-  }
-
-  private processPlaybackQueue(): void {
-    if (!this.playbackContext || this.playbackQueue.length === 0) {
-      this.playbackSource = null;
-      return;
-    }
-
-    const buffer = this.playbackQueue.shift()!;
-    const source = this.playbackContext.createBufferSource();
-    source.buffer = buffer;
-    source.connect(this.playbackContext.destination);
-    this.playbackSource = source;
-
-    source.onended = () => {
-      this.playbackSource = null;
-      this.processPlaybackQueue();
-    };
-
-    const now = this.playbackContext.currentTime;
-    const startTime = Math.max(this.playbackNextTime, now + 0.03);
-    this.playbackNextTime = startTime + buffer.duration;
-    source.start(startTime);
-  }
-
   private stopPlayback(): void {
-    this.playbackQueue = [];
-    this.playbackNextTime = 0;
-    if (this.playbackSource) {
+    this.playbackStreamTime = 0;
+    if (this.playbackNode) {
       try {
-        this.playbackSource.stop();
+        this.playbackNode.port.postMessage({ type: 'reset' });
       } catch {
         // ignore
       }
-      this.playbackSource.disconnect();
-      this.playbackSource = null;
+      this.playbackNode.disconnect();
+      this.playbackNode = null;
     }
     if (this.playbackContext && this.playbackContext.state !== 'closed') {
       this.playbackContext.close();
