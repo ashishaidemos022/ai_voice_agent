@@ -31,7 +31,7 @@ const createWarmupBosPage = (): Uint8Array => {
 
 const createWorkerWithErrorTracking = (): Worker => {
   const decoderScriptUrl = new URL('/assets/decoderWorker.min.js', import.meta.url).toString();
-  const decoderWasmUrl = 'https://viaana-personaplex-inference.fly.dev/assets/decoderWorker.min.wasm';
+  const decoderWasmUrl = new URL('/assets/decoderWorker.min.wasm', import.meta.url).toString();
   const workerSource = `
     self.Module = {
       locateFile: (path, prefix) => {
