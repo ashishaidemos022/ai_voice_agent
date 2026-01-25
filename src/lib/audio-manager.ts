@@ -84,8 +84,8 @@ export class AudioManager {
             audio: {
               channelCount: 1,
               sampleRate: this.targetSampleRate,
-              echoCancellation: false,
-              noiseSuppression: false,
+              echoCancellation: true,
+              noiseSuppression: true,
               autoGainControl: false
             },
           }),
