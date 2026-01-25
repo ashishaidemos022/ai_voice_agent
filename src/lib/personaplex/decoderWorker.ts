@@ -30,9 +30,20 @@ const createWarmupBosPage = (): Uint8Array => {
 };
 
 const createWorkerWithErrorTracking = (): Worker => {
-  const worker = new Worker(
-    new URL('/assets/decoderWorker.min.js', import.meta.url)
-  );
+  const decoderScriptUrl = new URL('/assets/decoderWorker.min.js', import.meta.url).toString();
+  const decoderWasmUrl = 'https://viaana-personaplex-inference.fly.dev/assets/decoderWorker.min.wasm';
+  const workerSource = `
+    self.Module = {
+      locateFile: (path, prefix) => {
+        if (path && path.endsWith('.wasm')) return '${decoderWasmUrl}';
+        return (prefix || '') + path;
+      }
+    };
+    importScripts('${decoderScriptUrl}');
+  `;
+  const workerBlob = new Blob([workerSource], { type: 'application/javascript' });
+  const workerUrl = URL.createObjectURL(workerBlob);
+  const worker = new Worker(workerUrl);
   worker.onerror = (event) => {
     console.error('Decoder worker error:', event.message);
     lastWorkerError = new Error(event.message);
