@@ -33,11 +33,18 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
   private bytesIn = 0;
   private bytesOut = 0;
   private connected = false;
+  private decoderOutputSampleRate = 48000;
+  private debugEnabled = false;
+  private debugAudioFramesLogged = 0;
+  private debugDecodedLogged = false;
 
   constructor(config: RealtimeConfig, session?: PersonaPlexGatewaySession) {
     this.config = config;
     if (session) {
       this.gatewaySession = session;
+    }
+    if (typeof window !== 'undefined') {
+      this.debugEnabled = window.localStorage.getItem('pp-debug-audio') === 'true';
     }
   }
 
@@ -297,8 +304,16 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
       if (!payload) return;
       this.handleDecodedAudio(payload);
     };
-    const sampleRate = this.config.voice_sample_rate_hz ?? 24000;
-    await initDecoder(this.decoderWorker, sampleRate);
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    const probeContext = new AudioContextClass();
+    this.decoderOutputSampleRate = probeContext.sampleRate || 48000;
+    probeContext.close();
+    await initDecoder(this.decoderWorker, this.decoderOutputSampleRate);
+    if (this.debugEnabled) {
+      console.log('[personaplex] decoder init', {
+        outputSampleRate: this.decoderOutputSampleRate
+      });
+    }
   }
 
   private handleMessage(data: ArrayBuffer | Blob): void {
@@ -311,6 +326,23 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
     const kind = bytes[0];
     const payload = bytes.slice(1);
     this.bytesIn += bytes.byteLength;
+
+    if (this.debugEnabled && this.debugAudioFramesLogged < 3 && kind === 0x01) {
+      const preview = Array.from(payload.slice(0, 16))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join(' ');
+      const isOgg = payload.length >= 4
+        && payload[0] === 0x4f
+        && payload[1] === 0x67
+        && payload[2] === 0x67
+        && payload[3] === 0x53;
+      console.log('[personaplex] audio frame preview', {
+        bytes: payload.length,
+        ogg: isOgg,
+        head: preview
+      });
+      this.debugAudioFramesLogged += 1;
+    }
 
     switch (kind) {
       case 0x00:
@@ -348,14 +380,52 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
   }
 
   private handleDecodedAudio(samples: Float32Array): void {
-    const int16 = new Int16Array(samples.length);
-    for (let i = 0; i < samples.length; i++) {
-      const s = Math.max(-1, Math.min(1, samples[i]));
+    if (this.debugEnabled && !this.debugDecodedLogged) {
+      let min = Infinity;
+      let max = -Infinity;
+      for (let i = 0; i < samples.length; i++) {
+        const v = samples[i];
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+      console.log('[personaplex] decoded chunk', {
+        sampleRate: this.decoderOutputSampleRate,
+        length: samples.length,
+        min,
+        max
+      });
+      this.debugDecodedLogged = true;
+    }
+
+    const targetRate = this.config.voice_sample_rate_hz ?? 24000;
+    const resampled = this.decoderOutputSampleRate === targetRate
+      ? samples
+      : this.resampleLinear(samples, this.decoderOutputSampleRate, targetRate);
+
+    const int16 = new Int16Array(resampled.length);
+    for (let i = 0; i < resampled.length; i++) {
+      const s = Math.max(-1, Math.min(1, resampled[i]));
       int16[i] = s < 0 ? s * 32768 : s * 32767;
     }
     const base64 = this.arrayBufferToBase64(int16.buffer);
     this.emit({ type: 'audio.delta', delta: base64 });
     this.markSpeaking();
+  }
+
+  private resampleLinear(input: Float32Array, fromRate: number, toRate: number): Float32Array {
+    if (fromRate === toRate) return input;
+    const ratio = toRate / fromRate;
+    const outLength = Math.max(1, Math.round(input.length * ratio));
+    const output = new Float32Array(outLength);
+    for (let i = 0; i < outLength; i++) {
+      const srcPos = i / ratio;
+      const idx = Math.floor(srcPos);
+      const frac = srcPos - idx;
+      const a = input[idx] ?? 0;
+      const b = input[idx + 1] ?? a;
+      output[i] = a + (b - a) * frac;
+    }
+    return output;
   }
 
   private markSpeaking(): void {
