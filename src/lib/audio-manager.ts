@@ -244,40 +244,66 @@ export class AudioManager {
           float32Array[i] = int16Array[i] / 32768.0;
         }
 
-        let playbackSamples = float32Array;
-        const targetSampleRate = this.audioContext.sampleRate;
-        if (sourceSampleRate !== targetSampleRate) {
-          const ratio = targetSampleRate / sourceSampleRate;
-          const outLength = Math.max(1, Math.round(float32Array.length * ratio));
-          const resampled = new Float32Array(outLength);
-          for (let i = 0; i < outLength; i++) {
-            const srcPos = i / ratio;
-            const idx = Math.floor(srcPos);
-            const frac = srcPos - idx;
-            const a = float32Array[idx] ?? 0;
-            const b = float32Array[idx + 1] ?? a;
-            resampled[i] = a + (b - a) * frac;
-          }
-          playbackSamples = resampled;
-        }
-
-        const audioBuffer = this.audioContext.createBuffer(
-          1,
-          playbackSamples.length,
-          this.audioContext.sampleRate
-        );
-        audioBuffer.getChannelData(0).set(playbackSamples);
-
-        this.audioQueue.push({ buffer: audioBuffer, resolve });
-
-        if (!this.isPlayingAudio) {
-          this.processAudioQueue();
-        }
+        this.enqueuePlayback(float32Array, sourceSampleRate, resolve);
       } catch (error) {
         console.error('Failed to prepare audio:', error);
         resolve();
       }
     });
+  }
+
+  async playFloat32Audio(samples: Float32Array, sourceSampleRate = 24000): Promise<void> {
+    return new Promise((resolve) => {
+      try {
+        if (!this.audioContext || this.audioContext.state === 'closed') {
+          console.warn('AudioContext not available for playback');
+          resolve();
+          return;
+        }
+
+        this.enqueuePlayback(samples, sourceSampleRate, resolve);
+      } catch (error) {
+        console.error('Failed to prepare float32 audio:', error);
+        resolve();
+      }
+    });
+  }
+
+  private enqueuePlayback(samples: Float32Array, sourceSampleRate: number, resolve: () => void): void {
+    if (!this.audioContext) {
+      resolve();
+      return;
+    }
+
+    let playbackSamples = samples;
+    const targetSampleRate = this.audioContext.sampleRate;
+    if (sourceSampleRate !== targetSampleRate) {
+      const ratio = targetSampleRate / sourceSampleRate;
+      const outLength = Math.max(1, Math.round(samples.length * ratio));
+      const resampled = new Float32Array(outLength);
+      for (let i = 0; i < outLength; i++) {
+        const srcPos = i / ratio;
+        const idx = Math.floor(srcPos);
+        const frac = srcPos - idx;
+        const a = samples[idx] ?? 0;
+        const b = samples[idx + 1] ?? a;
+        resampled[i] = a + (b - a) * frac;
+      }
+      playbackSamples = resampled;
+    }
+
+    const audioBuffer = this.audioContext.createBuffer(
+      1,
+      playbackSamples.length,
+      this.audioContext.sampleRate
+    );
+    audioBuffer.getChannelData(0).set(playbackSamples);
+
+    this.audioQueue.push({ buffer: audioBuffer, resolve });
+
+    if (!this.isPlayingAudio) {
+      this.processAudioQueue();
+    }
   }
 
   private processAudioQueue(): void {

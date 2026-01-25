@@ -348,15 +348,13 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
   }
 
   private handleDecodedAudio(samples: Float32Array): void {
-    const int16 = new Int16Array(samples.length);
     const gain = 0.85;
+    const scaled = new Float32Array(samples.length);
     for (let i = 0; i < samples.length; i++) {
-      const s = Math.max(-1, Math.min(1, samples[i] * gain));
-      int16[i] = s < 0 ? s * 32768 : s * 32767;
+      scaled[i] = Math.max(-1, Math.min(1, samples[i] * gain));
     }
-    const base64 = this.arrayBufferToBase64(int16.buffer);
     const sampleRate = this.config.voice_sample_rate_hz ?? 24000;
-    this.emit({ type: 'audio.delta', delta: base64, sampleRate });
+    this.emit({ type: 'audio.delta', float32: scaled, sampleRate });
     this.markSpeaking();
   }
 
