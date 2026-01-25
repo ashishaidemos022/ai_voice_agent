@@ -222,12 +222,12 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
       mediaTrackConstraints: { audio: true },
       bufferLength: Math.round(960 * (this.audioContext?.sampleRate ?? targetSampleRate) / targetSampleRate),
       encoderFrameSize: 20,
-      encoderSampleRate: targetSampleRate,
+      encoderSampleRate: 24000,
       maxFramesPerPage: 2,
       numberOfChannels: 1,
       recordingGain: 1,
-      resampleQuality: 5,
-      encoderComplexity: 5,
+      resampleQuality: 3,
+      encoderComplexity: 0,
       encoderApplication: 2049,
       streamPages: true,
     };
@@ -348,13 +348,13 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
   }
 
   private handleDecodedAudio(samples: Float32Array): void {
-    const gain = 0.85;
-    const scaled = new Float32Array(samples.length);
+    const int16 = new Int16Array(samples.length);
     for (let i = 0; i < samples.length; i++) {
-      scaled[i] = Math.max(-1, Math.min(1, samples[i] * gain));
+      const s = Math.max(-1, Math.min(1, samples[i]));
+      int16[i] = s < 0 ? s * 32768 : s * 32767;
     }
-    const sampleRate = this.config.voice_sample_rate_hz ?? 24000;
-    this.emit({ type: 'audio.delta', float32: scaled, sampleRate });
+    const base64 = this.arrayBufferToBase64(int16.buffer);
+    this.emit({ type: 'audio.delta', delta: base64 });
     this.markSpeaking();
   }
 

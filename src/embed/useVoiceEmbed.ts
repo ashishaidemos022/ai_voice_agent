@@ -245,17 +245,12 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
       }
     });
 
-    client.on('audio.delta', async (event: { delta?: string; sampleRate?: number; float32?: Float32Array }) => {
+    client.on('audio.delta', async (event: { delta: string }) => {
       try {
         console.debug(EMBED_LOG_PREFIX, 'Audio delta received', {
           chunkBytes: event.delta?.length || 0
         });
-        const sampleRate = typeof event.sampleRate === 'number' ? event.sampleRate : 24000;
-        if (event.float32 instanceof Float32Array) {
-          await audioManager.playFloat32Audio(event.float32, sampleRate);
-        } else if (event.delta) {
-          await audioManager.playAudioData(event.delta, sampleRate);
-        }
+        await audioManager.playAudioData(event.delta);
       } catch (playError) {
         console.warn('[voice-embed] failed to play audio chunk', playError);
       }

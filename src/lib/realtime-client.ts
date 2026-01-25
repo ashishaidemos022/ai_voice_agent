@@ -266,7 +266,7 @@ export class RealtimeAPIClient {
 
       case 'response.audio.delta':
         this.setAgentState('speaking');
-        this.emit({ type: 'audio.delta', delta: message.delta, sampleRate: 24000 });
+        this.emit({ type: 'audio.delta', delta: message.delta });
         break;
 
       case 'response.audio.done':
@@ -294,7 +294,7 @@ export class RealtimeAPIClient {
       // Newer Realtime event names (output_*). Mirror the legacy audio.* behavior.
       case 'response.output_audio.delta':
         this.setAgentState('speaking');
-        this.emit({ type: 'audio.delta', delta: message.delta, sampleRate: 24000 });
+        this.emit({ type: 'audio.delta', delta: message.delta });
         break;
 
       case 'response.output_audio.done':
