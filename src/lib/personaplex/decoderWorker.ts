@@ -33,12 +33,12 @@ const createWorkerWithErrorTracking = (): Worker => {
   const decoderScriptUrl = new URL('/assets/nvidia_decoder.js', import.meta.url).toString();
   const decoderWasmUrl = new URL('/assets/decoderWorker.min.wasm', import.meta.url).toString();
   const workerSource = `
-    self.Module = {
-      locateFile: (path, prefix) => {
-        if (path && path.endsWith('.wasm')) return '${decoderWasmUrl}';
-        return (prefix || '') + path;
-      }
+    const locateFile = (path, prefix) => {
+      if (path && path.endsWith('.wasm')) return '${decoderWasmUrl}';
+      return (prefix || '') + path;
     };
+    self.e = { locateFile };
+    self.Module = { locateFile };
     importScripts('${decoderScriptUrl}');
   `;
   const workerBlob = new Blob([workerSource], { type: 'application/javascript' });
