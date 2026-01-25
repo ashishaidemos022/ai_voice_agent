@@ -1,6 +1,6 @@
 (function() {
     "use strict";
-    var e = typeof e < "u" ? e : {};
+    var e = self.e || {};
     (function(t, r) {
         typeof exports == "object" && typeof module == "object" ? module.exports = r() : typeof define == "function" && define.amd ? define([], r) : typeof exports == "object" ? exports.DecoderWorker = r() : t.DecoderWorker = r()
     }
