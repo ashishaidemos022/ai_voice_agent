@@ -154,7 +154,12 @@ function shouldForceA2UI(message?: string | null): boolean {
     normalized.includes('confirm') ||
     normalized.includes('schedule') ||
     normalized.includes('time') ||
-    normalized.includes('date')
+    normalized.includes('date') ||
+    normalized.includes('location') ||
+    normalized.includes('address') ||
+    normalized.includes('map') ||
+    normalized.includes('where') ||
+    normalized.includes('directions')
   );
 }
 
@@ -1057,7 +1062,7 @@ Deno.serve(async (req: Request) => {
     const lastUserMessage = [...body.messages].reverse().find((msg) => msg.role === 'user')?.content || '';
     const extraA2UIHint =
       agentConfig.a2ui_enabled && shouldForceA2UI(lastUserMessage)
-        ? 'Return a JSON object containing {"a2ui":{"version":"0.8","ui":...},"fallback_text":"..."} for this response. Prefer a Card layout for the main content.'
+        ? 'Return a JSON object containing {"a2ui":{"version":"0.8","ui":...},"fallback_text":"..."} for this response. Prefer a Card layout for the main content. If the user asks about location/address/where, include a Map component with props {query, zoom, height, title} inside the Card.'
         : null;
     const chatMessages: ChatMessage[] = [
       { role: 'system', content: systemPrompt },
