@@ -4,6 +4,8 @@ import { cn } from '../lib/utils';
 import { Button } from '../components/ui/Button';
 import { ChatEmbedView } from './ChatEmbedApp';
 import { useVoiceEmbedSession, type VoiceEmbedAppearance } from './useVoiceEmbed';
+import { A2UIRenderer } from '../components/a2ui/A2UIRenderer';
+import { getA2UIEventDisplay, parseA2UIPayload } from '../lib/a2ui';
 
 function resolveVoicePublicId(): string | null {
   if (typeof window === 'undefined') return null;
@@ -84,10 +86,12 @@ export function VoiceEmbedApp() {
     toggleRecording,
     stopSession,
     resetConversation,
-    appearance
+    appearance,
+    sendA2UIEvent
   } = useVoiceEmbedSession(publicId || '');
 
   const appearanceVars = buildAppearanceVars(appearance);
+  const a2uiEnabled = Boolean(agentMeta?.a2ui_enabled);
   const rootStyle: CSSProperties = {
     ...appearanceVars,
     ...(appearance?.background_color ? { backgroundColor: 'var(--va-embed-bg)' } : {}),
@@ -325,31 +329,49 @@ export function VoiceEmbedApp() {
                 No messages yet. Start speaking to begin the conversation.
               </p>
             ) : (
-              messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={cn(
-                    'px-4 py-3 rounded-2xl text-sm max-w-[85%]',
-                    message.role === 'user'
-                      ? theme === 'light'
-                        ? 'bg-indigo-600 text-white ml-auto rounded-br-sm'
-                        : 'bg-indigo-500 text-white ml-auto rounded-br-sm'
-                      : theme === 'light'
-                      ? 'bg-slate-100 text-slate-900 rounded-bl-sm'
-                      : 'bg-white/10 text-white rounded-bl-sm border border-white/10'
-                  )}
-                  style={{
-                    ...(message.role === 'user' && appearance?.accent_color ? { backgroundColor: 'var(--va-embed-accent)' } : {}),
-                    ...(message.role === 'assistant' ? bubbleStyle : {}),
-                    ...(radiusStyle || {})
-                  }}
-                >
-                  <p className="text-[10px] uppercase tracking-[0.2em] mb-1 opacity-60">
-                    {message.role === 'user' ? 'You' : 'Agent'}
-                  </p>
-                  <p className="leading-relaxed whitespace-pre-wrap">{message.content}</p>
-                </div>
-              ))
+              messages.map((message) => {
+                const isUser = message.role === 'user';
+                const parsedA2UI = !isUser ? parseA2UIPayload(message.content) : null;
+                const shouldRenderA2UI = !isUser && a2uiEnabled && Boolean(parsedA2UI?.ui);
+                const eventDisplay = isUser ? getA2UIEventDisplay(message.content) : null;
+                const displayText = eventDisplay ? `Action: ${eventDisplay}` : message.content;
+                return (
+                  <div
+                    key={message.id}
+                    className={cn(
+                      'px-4 py-3 rounded-2xl text-sm max-w-[85%]',
+                      message.role === 'user'
+                        ? theme === 'light'
+                          ? 'bg-indigo-600 text-white ml-auto rounded-br-sm'
+                          : 'bg-indigo-500 text-white ml-auto rounded-br-sm'
+                        : theme === 'light'
+                        ? 'bg-slate-100 text-slate-900 rounded-bl-sm'
+                        : 'bg-white/10 text-white rounded-bl-sm border border-white/10'
+                    )}
+                    style={{
+                      ...(message.role === 'user' && appearance?.accent_color ? { backgroundColor: 'var(--va-embed-accent)' } : {}),
+                      ...(message.role === 'assistant' ? bubbleStyle : {}),
+                      ...(radiusStyle || {})
+                    }}
+                  >
+                    <p className="text-[10px] uppercase tracking-[0.2em] mb-1 opacity-60">
+                      {message.role === 'user' ? 'You' : 'Agent'}
+                    </p>
+                    {shouldRenderA2UI ? (
+                      <A2UIRenderer
+                        ui={parsedA2UI!.ui}
+                        fallbackText={parsedA2UI!.fallbackText || message.content}
+                        onEvent={sendA2UIEvent}
+                        className="space-y-3 text-current"
+                      />
+                    ) : (
+                      <p className="leading-relaxed whitespace-pre-wrap">
+                        {parsedA2UI?.fallbackText && !isUser ? parsedA2UI.fallbackText : displayText}
+                      </p>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
         </div>

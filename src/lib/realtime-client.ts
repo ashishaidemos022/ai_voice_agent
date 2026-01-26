@@ -159,9 +159,12 @@ export class RealtimeAPIClient {
     }
     const tools = this.overrideTools ?? getToolSchemas();
     const languageGuard = 'Always respond in English unless the user explicitly requests a different language.';
+    const a2uiInstruction = this.config.a2ui_enabled
+      ? '\n\nWhen useful, you may include a JSON object with {"a2ui":{"version":"0.8","ui":<tree>},"fallback_text":"..."}.\nIf A2UI is not needed, respond normally with text.'
+      : '';
     const ragInstructions = this.config.rag_mode === 'guardrail'
-      ? `${this.config.instructions}\n\nIf relevant knowledge from the approved knowledge base is unavailable, respond with "I do not have enough knowledge to answer that yet."\n\n${languageGuard}`
-      : `${this.config.instructions}\n\n${languageGuard}`;
+      ? `${this.config.instructions}\n\nIf relevant knowledge from the approved knowledge base is unavailable, respond with "I do not have enough knowledge to answer that yet."\n\n${languageGuard}${a2uiInstruction}`
+      : `${this.config.instructions}\n\n${languageGuard}${a2uiInstruction}`;
     const sessionConfig = {
       type: 'session.update',
       session: {
@@ -482,6 +485,26 @@ export class RealtimeAPIClient {
         ]
       }
     });
+  }
+
+  sendUserMessage(text: string): void {
+    if (!text || !text.trim()) {
+      return;
+    }
+    this.send({
+      type: 'conversation.item.create',
+      item: {
+        type: 'message',
+        role: 'user',
+        content: [
+          {
+            type: 'input_text',
+            text: text.trim()
+          }
+        ]
+      }
+    });
+    this.requestResponse();
   }
 
   cancelResponse(options?: { suppressState?: boolean }): void {

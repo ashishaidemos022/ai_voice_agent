@@ -349,6 +349,7 @@ export function useChatAgent() {
         instructions: preset.instructions,
         temperature: preset.temperature,
         maxTokens: preset.max_response_output_tokens,
+        a2ui_enabled: preset.a2ui_enabled ?? false,
         ragMode: preset.rag_mode,
         ragEnabled: preset.rag_enabled,
         vectorStoreIds

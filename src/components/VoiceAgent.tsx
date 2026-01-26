@@ -36,6 +36,7 @@ const defaultConfig: RealtimeConfig = {
   voice_persona_prompt: null,
   voice_id: null,
   voice_sample_rate_hz: null,
+  a2ui_enabled: false,
   instructions: 'You are a helpful AI voice assistant. You can help users with various tasks, answer questions, and execute tools when needed. Be conversational and friendly.',
   temperature: 0.8,
   max_response_output_tokens: 4096,
@@ -74,6 +75,7 @@ function mergeRealtimeConfig(prev: RealtimeConfig | null, next: RealtimeConfig):
     voice_persona_prompt: next.voice_persona_prompt ?? fallback?.voice_persona_prompt ?? null,
     voice_id: next.voice_id ?? fallback?.voice_id ?? null,
     voice_sample_rate_hz: next.voice_sample_rate_hz ?? fallback?.voice_sample_rate_hz ?? null,
+    a2ui_enabled: next.a2ui_enabled ?? fallback?.a2ui_enabled ?? false,
     rag_enabled: next.rag_enabled ?? fallback?.rag_enabled ?? false,
     rag_mode: next.rag_mode ?? fallback?.rag_mode,
     rag_default_model: next.rag_default_model ?? fallback?.rag_default_model ?? null,
@@ -220,6 +222,7 @@ export function VoiceAgent({
     setActiveConfig,
     initialize,
     toggleRecording,
+    sendA2UIEvent,
     cleanup
   } = useVoiceAgent();
 
@@ -1072,6 +1075,8 @@ export function VoiceAgent({
                                       liveAssistantTranscript={liveAssistantTranscript}
                                       liveUserTranscript={liveUserTranscript}
                                       agentState={agentState}
+                                      a2uiEnabled={Boolean(config?.a2ui_enabled)}
+                                      onA2UIEvent={sendA2UIEvent}
                                     />
                                   </div>
                                 </>
@@ -1087,6 +1092,8 @@ export function VoiceAgent({
                                 isLoadingHistory={isLoadingHistory}
                                 historyError={historyError}
                                 agentState={agentState}
+                                a2uiEnabled={Boolean(config?.a2ui_enabled)}
+                                onA2UIEvent={sendA2UIEvent}
                               />
                             </div>
                           )}

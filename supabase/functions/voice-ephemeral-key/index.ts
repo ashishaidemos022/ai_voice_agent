@@ -59,6 +59,7 @@ type VoiceEmbedRecord = {
     name: string;
     summary?: string | null;
     instructions?: string | null;
+    a2ui_enabled?: boolean | null;
     voice?: string | null;
     voice_provider?: string | null;
     voice_persona_prompt?: string | null;
@@ -170,6 +171,7 @@ async function fetchVoiceEmbed(publicId: string): Promise<VoiceEmbedRecord | nul
           name,
           summary,
           instructions,
+          a2ui_enabled,
           voice,
           voice_provider,
           voice_persona_prompt,
@@ -788,6 +790,7 @@ Deno.serve(async (req: Request) => {
             voice_persona_prompt: agentConfig?.voice_persona_prompt || null,
             voice_id: agentConfig?.voice_id || null,
             voice_sample_rate_hz: agentConfig?.voice_sample_rate_hz || null,
+            a2ui_enabled: agentConfig?.a2ui_enabled ?? false,
             rag_enabled: agentConfig?.rag_enabled ?? false,
             rag_mode: agentConfig?.rag_mode || 'assist',
             rag_default_model: agentConfig?.rag_default_model || null,
@@ -892,6 +895,7 @@ Deno.serve(async (req: Request) => {
           voice_sample_rate_hz: agentConfig.voice_sample_rate_hz || null,
           model: agentConfig.model || agentConfig.chat_model || 'gpt-4o-realtime-preview',
           instructions: agentConfig.instructions || '',
+          a2ui_enabled: agentConfig.a2ui_enabled ?? false,
           rag_enabled: agentConfig.rag_enabled ?? false,
           rag_mode: agentConfig.rag_mode || 'assist',
           rag_default_model: agentConfig.rag_default_model || null,

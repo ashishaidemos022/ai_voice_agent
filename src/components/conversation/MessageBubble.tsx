@@ -2,14 +2,22 @@ import { motion } from 'framer-motion';
 import { User, Bot } from 'lucide-react';
 import { Message } from '../../types/voice-agent';
 import { ToolCallIndicator } from './ToolCallIndicator';
+import { A2UIRenderer } from '../a2ui/A2UIRenderer';
+import { getA2UIEventDisplay, parseA2UIPayload, type A2UIEvent } from '../../lib/a2ui';
 
 interface MessageBubbleProps {
   message: Message;
+  a2uiEnabled?: boolean;
+  onA2UIEvent?: (event: A2UIEvent) => void;
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({ message, a2uiEnabled = false, onA2UIEvent }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
+  const parsedA2UI = !isUser ? parseA2UIPayload(message.content) : null;
+  const shouldRenderA2UI = !isUser && a2uiEnabled && Boolean(parsedA2UI?.ui);
+  const eventDisplay = isUser ? getA2UIEventDisplay(message.content) : null;
+  const displayText = eventDisplay ? `Action: ${eventDisplay}` : message.content;
 
   const time = new Date(message.timestamp).toLocaleTimeString('en-US', {
     hour: '2-digit',
@@ -39,7 +47,17 @@ export function MessageBubble({ message }: MessageBubbleProps) {
               : 'bg-white text-gray-900 border border-gray-200 shadow-sm'
           }`}
         >
-          <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
+          {shouldRenderA2UI ? (
+            <A2UIRenderer
+              ui={parsedA2UI!.ui}
+              fallbackText={parsedA2UI!.fallbackText || message.content}
+              onEvent={onA2UIEvent}
+            />
+          ) : (
+            <p className="text-sm whitespace-pre-wrap leading-relaxed">
+              {parsedA2UI?.fallbackText && !isUser ? parsedA2UI.fallbackText : displayText}
+            </p>
+          )}
         </div>
 
         {message.tool_calls && message.tool_calls.length > 0 && (

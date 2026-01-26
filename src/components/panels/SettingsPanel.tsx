@@ -105,6 +105,7 @@ const BASE_DEFAULT_CONFIG: RealtimeConfig = {
   voice_persona_prompt: null,
   voice_id: null,
   voice_sample_rate_hz: null,
+  a2ui_enabled: false,
   instructions: DEFAULT_INSTRUCTIONS,
   temperature: 0.8,
   max_response_output_tokens: 4096,
@@ -675,6 +676,25 @@ export function SettingsPanel({
                 />
                 <p className="text-xs text-white/50">
                   Use concise directives, add safety rules, and keep language consistent.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={config.a2ui_enabled ?? false}
+                    onChange={(event) =>
+                      onConfigChange({
+                        ...config,
+                        a2ui_enabled: event.target.checked
+                      })
+                    }
+                    className="w-4 h-4 text-cyan-400 border-white/20 rounded focus:ring-cyan-400"
+                  />
+                  <span className="text-sm font-semibold text-white/80">Enable A2UI (agent-generated UI)</span>
+                </label>
+                <p className="text-xs text-white/50">
+                  Let the agent return interactive UI blocks alongside text responses.
                 </p>
               </div>
             </CardHeader>

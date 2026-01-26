@@ -51,6 +51,7 @@ export interface RealtimeConfig {
   instructions: string;
   temperature: number;
   max_response_output_tokens: number;
+  a2ui_enabled?: boolean;
   voice_provider?: 'openai_realtime' | 'personaplex';
   voice_persona_prompt?: string | null;
   voice_id?: string | null;

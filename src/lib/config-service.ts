@@ -46,6 +46,7 @@ export interface AgentConfigPreset {
   agent_avatar_url?: string | null;
   chat_model?: string | null;
   chat_theme?: Record<string, any> | null;
+  a2ui_enabled?: boolean;
   voice: string;
   voice_provider?: 'openai_realtime' | 'personaplex' | null;
   voice_persona_prompt?: string | null;
@@ -102,6 +103,7 @@ export function configPresetToRealtimeConfig(preset: AgentConfigPreset): Realtim
     instructions: preset.instructions,
     temperature: preset.temperature,
     max_response_output_tokens: preset.max_response_output_tokens,
+    a2ui_enabled: preset.a2ui_enabled ?? false,
     voice_provider: preset.voice_provider ?? 'openai_realtime',
     voice_persona_prompt: preset.voice_persona_prompt ?? null,
     voice_id: preset.voice_id ?? null,
@@ -119,6 +121,7 @@ export function realtimeConfigToPreset(config: RealtimeConfig, name: string): Pa
   return {
     name,
     instructions: config.instructions,
+    a2ui_enabled: config.a2ui_enabled ?? false,
     voice: config.voice,
     voice_provider: config.voice_provider ?? 'openai_realtime',
     voice_persona_prompt: config.voice_persona_prompt ?? null,
@@ -445,6 +448,7 @@ export async function getConfigPresetWithTools(id: string): Promise<AgentConfigP
 function transformPresetRow(row: any): AgentConfigPreset {
   return {
     ...row,
+    a2ui_enabled: row.a2ui_enabled ?? false,
     rag_enabled: row.rag_enabled ?? false,
     rag_mode: (row.rag_mode as RagMode) || 'assist',
     rag_default_model: row.rag_default_model || row.chat_model || row.model,

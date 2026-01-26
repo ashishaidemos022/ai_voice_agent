@@ -7,6 +7,7 @@ import { executeTool, registerToolsFromServer } from '../lib/tools-registry';
 import type { RealtimeConfig } from '../types/voice-agent';
 import { buildEmbedFunctionUrl, resolveEmbedApiBase, resolveEmbedUsageBase } from './embed-api';
 import { requestPersonaPlexEmbedToken } from './personaplex-gateway';
+import { formatA2UIEventMessage, type A2UIEvent } from '../lib/a2ui';
 
 type TranscriptBuffers = {
   user: Record<string, string>;
@@ -45,6 +46,7 @@ export type UseVoiceEmbedResult = {
     summary?: string | null;
     voice?: string | null;
     voice_provider?: 'openai_realtime' | 'personaplex' | null;
+    a2ui_enabled?: boolean;
   } | null;
   isLoadingMeta: boolean;
   isInitializing: boolean;
@@ -65,6 +67,7 @@ export type UseVoiceEmbedResult = {
   toggleRecording: () => Promise<void>;
   stopSession: () => void;
   resetConversation: () => void;
+  sendA2UIEvent: (event: A2UIEvent) => void;
 };
 
 const REQUEST_HEADERS = {
@@ -216,6 +219,25 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
     setError(null);
     updateSessionId(null);
   }, [resetTranscripts, updateSessionId]);
+
+  const sendA2UIEvent = useCallback((event: A2UIEvent) => {
+    const client = realtimeClientRef.current;
+    if (!client || typeof client.sendUserMessage !== 'function') {
+      setError('A2UI events are not supported for this session.');
+      return;
+    }
+    const content = formatA2UIEventMessage(event);
+    client.sendUserMessage(content);
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        role: 'user',
+        content,
+        createdAt: new Date().toISOString()
+      }
+    ].slice(-30));
+  }, []);
 
   function attachRealtimeHandlers(client: VoiceAdapter, audioManager: AudioManager) {
     client.on('connected', () => {
@@ -507,13 +529,15 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
         name: json?.agent?.name || prev?.name || 'Voice Agent',
         summary: json?.agent?.summary || prev?.summary || null,
         voice: resolvedVoice || prev?.voice || null,
-        voice_provider: provider
+        voice_provider: provider,
+        a2ui_enabled: Boolean(json?.agent?.a2ui_enabled)
       }));
       agentMetaRef.current = {
         name: json?.agent?.name || 'Voice Agent',
         summary: json?.agent?.summary || null,
         voice: resolvedVoice,
-        voice_provider: provider
+        voice_provider: provider,
+        a2ui_enabled: Boolean(json?.agent?.a2ui_enabled)
       };
 
       const realtimeConfig: RealtimeConfig = {
@@ -523,6 +547,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
         voice_persona_prompt: json?.agent?.voice_persona_prompt ?? null,
         voice_id: json?.agent?.voice_id ?? null,
         voice_sample_rate_hz: json?.agent?.voice_sample_rate_hz ?? null,
+        a2ui_enabled: Boolean(json?.agent?.a2ui_enabled),
         instructions: json?.agent?.instructions || 'You are a helpful AI voice assistant.',
         temperature: 0.8,
         max_response_output_tokens: 1024,
@@ -757,6 +782,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
     appearance,
     toggleRecording,
     stopSession,
-    resetConversation
+    resetConversation,
+    sendA2UIEvent
   };
 }

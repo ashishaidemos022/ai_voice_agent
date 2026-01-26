@@ -138,8 +138,10 @@ function isOriginAllowed(origin: string | null, allowed: string[]): boolean {
   });
 }
 
-function buildSystemPrompt(instructions?: string | null) {
-  return instructions?.trim() || 'You are a helpful AI assistant. Respond concisely and helpfully.';
+function buildSystemPrompt(instructions?: string | null, a2uiEnabled?: boolean | null) {
+  const base = instructions?.trim() || 'You are a helpful AI assistant. Respond concisely and helpfully.';
+  if (!a2uiEnabled) return base;
+  return `${base}\n\nWhen useful, you may include a JSON object with {"a2ui":{"version":"0.8","ui":<tree>},"fallback_text":"..."}.\nIf A2UI is not needed, respond normally with text.`;
 }
 
 function summarizeTools(tools: LoadedTool[]) {
@@ -161,6 +163,7 @@ async function buildEmbedResponse(embed: any, includeToolSummary: boolean) {
       id: embed.agent_config?.id || null,
       name: embed.agent_config?.name || 'AI Agent',
       summary: embed.agent_config?.summary || null,
+      a2ui_enabled: embed.agent_config?.a2ui_enabled ?? false,
       rag_enabled: embed.agent_config?.rag_enabled ?? false,
       rag_mode: embed.agent_config?.rag_mode || 'assist',
       rag_default_model: embed.agent_config?.rag_default_model || null,
@@ -766,6 +769,7 @@ async function fetchEmbed(publicId: string) {
       name,
       summary,
       instructions,
+      a2ui_enabled,
       model,
       chat_model,
       temperature,
@@ -1035,7 +1039,7 @@ Deno.serve(async (req: Request) => {
       embedType: embed.embed_type
     });
 
-    const systemPrompt = buildSystemPrompt(agentConfig.instructions);
+    const systemPrompt = buildSystemPrompt(agentConfig.instructions, agentConfig.a2ui_enabled);
     const chatMessages: ChatMessage[] = [
       { role: 'system', content: systemPrompt },
       ...body.messages

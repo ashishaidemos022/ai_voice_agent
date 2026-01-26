@@ -12,6 +12,7 @@ import { configPresetToRealtimeConfig, getConfigPresetById } from '../lib/config
 import { useAuth } from '../context/AuthContext';
 import { normalizeUsage, recordUsageEvent } from '../lib/usage-tracker';
 import { requestPersonaPlexGatewayToken } from '../lib/personaplex-gateway';
+import { formatA2UIEventMessage, type A2UIEvent } from '../lib/a2ui';
 
 type LiveTranscripts = {
   user: Record<string, string>;
@@ -147,6 +148,17 @@ export function useVoiceAgent() {
     [updateSessionMessageCount]
   );
 
+  const sendA2UIEvent = useCallback((event: A2UIEvent) => {
+    const client = realtimeClientRef.current;
+    if (!client || typeof client.sendUserMessage !== 'function') {
+      setError('A2UI events are not supported for this session.');
+      return;
+    }
+    const content = formatA2UIEventMessage(event);
+    client.sendUserMessage(content);
+    void persistMessage('user', content);
+  }, [persistMessage]);
+
   const resetTranscripts = useCallback(() => {
     transcriptsRef.current = {
       user: {},
@@ -171,6 +183,7 @@ export function useVoiceAgent() {
       voice_persona_prompt: next.voice_persona_prompt ?? fallback?.voice_persona_prompt ?? null,
       voice_id: next.voice_id ?? fallback?.voice_id ?? null,
       voice_sample_rate_hz: next.voice_sample_rate_hz ?? fallback?.voice_sample_rate_hz ?? null,
+      a2ui_enabled: next.a2ui_enabled ?? fallback?.a2ui_enabled ?? false,
       rag_enabled: next.rag_enabled ?? fallback?.rag_enabled ?? false,
       rag_mode: next.rag_mode ?? fallback?.rag_mode ?? 'assist',
       rag_default_model: next.rag_default_model ?? fallback?.rag_default_model ?? null,
@@ -863,6 +876,7 @@ export function useVoiceAgent() {
     initialize,
     toggleRecording,
     interrupt,
+    sendA2UIEvent,
     cleanup
   };
 }

@@ -1,0 +1,134 @@
+export type A2UIComponentType = 'Card' | 'Text' | 'Button' | 'Input' | 'Select' | 'Form';
+
+export type A2UIElement = {
+  type: A2UIComponentType;
+  props?: Record<string, any>;
+  children?: A2UIElement[];
+};
+
+export type A2UIPayload = {
+  a2ui: {
+    version: '0.8';
+    ui: A2UIElement | A2UIElement[];
+  };
+  fallback_text?: string;
+};
+
+export type ParsedA2UI = {
+  ui: A2UIElement | A2UIElement[];
+  fallbackText: string | null;
+};
+
+export type A2UIEvent = {
+  type: 'button' | 'form';
+  id?: string | null;
+  action?: string | null;
+  label?: string | null;
+  fields?: Record<string, any> | null;
+};
+
+const ALLOWED_COMPONENTS = new Set<A2UIComponentType>([
+  'Card',
+  'Text',
+  'Button',
+  'Input',
+  'Select',
+  'Form'
+]);
+
+const EVENT_PREFIX = 'A2UI_EVENT ';
+
+function isPlainObject(value: any): value is Record<string, any> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function extractJsonCandidate(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  const fencedMatch = trimmed.match(/```json\s*([\s\S]*?)\s*```/i) || trimmed.match(/```\s*([\s\S]*?)\s*```/i);
+  if (fencedMatch?.[1]) {
+    return fencedMatch[1].trim();
+  }
+
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    return trimmed;
+  }
+
+  const firstBrace = trimmed.indexOf('{');
+  const lastBrace = trimmed.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    return trimmed.slice(firstBrace, lastBrace + 1);
+  }
+
+  return null;
+}
+
+function validateNode(node: any): node is A2UIElement {
+  if (!isPlainObject(node)) return false;
+  if (!ALLOWED_COMPONENTS.has(node.type)) return false;
+  if (node.props && !isPlainObject(node.props)) return false;
+  if (node.children !== undefined) {
+    if (!Array.isArray(node.children)) return false;
+    if (!node.children.every(validateNode)) return false;
+  }
+  return true;
+}
+
+function validateUi(ui: any): ui is A2UIElement | A2UIElement[] {
+  if (Array.isArray(ui)) {
+    return ui.length > 0 ? ui.every(validateNode) : false;
+  }
+  return validateNode(ui);
+}
+
+export function parseA2UIPayload(text: string): ParsedA2UI | null {
+  const candidate = extractJsonCandidate(text);
+  if (!candidate) return null;
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(candidate);
+  } catch {
+    return null;
+  }
+
+  if (!isPlainObject(parsed) || !isPlainObject(parsed.a2ui)) return null;
+  if (parsed.a2ui.version !== '0.8') return null;
+  if (!validateUi(parsed.a2ui.ui)) return null;
+
+  return {
+    ui: parsed.a2ui.ui,
+    fallbackText: typeof parsed.fallback_text === 'string' ? parsed.fallback_text : null
+  };
+}
+
+export function formatA2UIEventMessage(event: A2UIEvent): string {
+  return `${EVENT_PREFIX}${JSON.stringify(event)}`;
+}
+
+export function parseA2UIEventMessage(text: string): A2UIEvent | null {
+  if (!text.startsWith(EVENT_PREFIX)) return null;
+  const raw = text.slice(EVENT_PREFIX.length).trim();
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (parsed.type !== 'button' && parsed.type !== 'form') return null;
+    return parsed as A2UIEvent;
+  } catch {
+    return null;
+  }
+}
+
+export function getA2UIEventDisplay(text: string): string | null {
+  const event = parseA2UIEventMessage(text);
+  if (!event) return null;
+  if (event.type === 'button') {
+    return event.label || event.action || event.id || 'Button action';
+  }
+  if (event.type === 'form') {
+    return event.id || 'Form submitted';
+  }
+  return null;
+}

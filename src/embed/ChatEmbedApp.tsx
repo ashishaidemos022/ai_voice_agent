@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Loader2, MessageCircle, RotateCcw, Sparkles } from 'lucide-react';
 import { useEmbedChat, type ChatEmbedAppearance } from './useEmbedChat';
 import { Button } from '../components/ui/Button';
 import { cn } from '../lib/utils';
+import { A2UIRenderer } from '../components/a2ui/A2UIRenderer';
+import { formatA2UIEventMessage, getA2UIEventDisplay, parseA2UIPayload, type A2UIEvent } from '../lib/a2ui';
 
 function resolvePublicId(): string | null {
   if (typeof window === 'undefined') return null;
@@ -57,6 +59,11 @@ export function ChatEmbedView({ publicId, theme, isWidget }: ChatEmbedViewProps)
   } = useEmbedChat(publicId, { persist: isWidget });
 
   const allowSend = composer.trim().length > 0 && !isSending;
+  const a2uiEnabled = Boolean(agentMeta?.a2uiEnabled);
+
+  const handleA2UIEvent = useCallback((event: A2UIEvent) => {
+    sendMessage(formatA2UIEventMessage(event));
+  }, [sendMessage]);
 
   const handleSend = () => {
     if (!composer.trim()) return;
@@ -196,7 +203,13 @@ export function ChatEmbedView({ publicId, theme, isWidget }: ChatEmbedViewProps)
             Start the conversation and this agent will respond in real time.
           </div>
         )}
-        {messages.map((message) => (
+        {messages.map((message) => {
+          const isUser = message.role === 'user';
+          const parsedA2UI = !isUser ? parseA2UIPayload(message.content) : null;
+          const shouldRenderA2UI = !isUser && a2uiEnabled && Boolean(parsedA2UI?.ui);
+          const eventDisplay = isUser ? getA2UIEventDisplay(message.content) : null;
+          const displayText = eventDisplay ? `Action: ${eventDisplay}` : message.content;
+          return (
           <div
             key={message.id}
             className={cn(
@@ -218,9 +231,20 @@ export function ChatEmbedView({ publicId, theme, isWidget }: ChatEmbedViewProps)
             <div className={cn('text-[10px] uppercase tracking-[0.25em] mb-1 flex items-center gap-1', message.role === 'user' ? 'opacity-70' : 'opacity-60')}>
               {message.role === 'user' ? 'You' : 'Agent'}
             </div>
-            <p className="leading-relaxed whitespace-pre-wrap">{message.content}</p>
+            {shouldRenderA2UI ? (
+              <A2UIRenderer
+                ui={parsedA2UI!.ui}
+                fallbackText={parsedA2UI!.fallbackText || message.content}
+                onEvent={handleA2UIEvent}
+                className="space-y-3 text-current"
+              />
+            ) : (
+              <p className="leading-relaxed whitespace-pre-wrap">
+                {parsedA2UI?.fallbackText && !isUser ? parsedA2UI.fallbackText : displayText}
+              </p>
+            )}
           </div>
-        ))}
+        )})}
         {isSending && (
           <div
             className={cn(

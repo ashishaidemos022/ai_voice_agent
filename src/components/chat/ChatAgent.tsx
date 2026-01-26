@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bot,
   BookOpenCheck,
@@ -29,6 +29,8 @@ import { N8NPanel } from '../panels/N8NPanel';
 import { SettingsPanel } from '../panels/SettingsPanel';
 import { configPresetToRealtimeConfig } from '../../lib/config-service';
 import type { RealtimeConfig } from '../../types/voice-agent';
+import { A2UIRenderer } from '../a2ui/A2UIRenderer';
+import { formatA2UIEventMessage, getA2UIEventDisplay, parseA2UIPayload, type A2UIEvent } from '../../lib/a2ui';
 
 const formatRelative = (dateString?: string | null) => {
   if (!dateString) return 'moments ago';
@@ -105,6 +107,11 @@ export function ChatAgent({
   const visibleMessages = useMemo<ChatMessage[]>(() => {
     return viewMode === 'current' ? messages : historicalMessages;
   }, [messages, historicalMessages, viewMode]);
+  const a2uiEnabled = Boolean(activePreset?.a2ui_enabled);
+
+  const handleA2UIEvent = useCallback((event: A2UIEvent) => {
+    void sendMessage(formatA2UIEventMessage(event));
+  }, [sendMessage]);
 
   const toolSummary = useMemo(() => {
     const mcpCount = availableTools.filter((tool) => tool.source !== 'n8n').length;
@@ -266,7 +273,12 @@ export function ChatAgent({
                 </div>
               )}
               {visibleMessages.map((message) => (
-                <ChatBubble key={message.id} message={message} />
+                <ChatBubble
+                  key={message.id}
+                  message={message}
+                  a2uiEnabled={a2uiEnabled}
+                  onA2UIEvent={handleA2UIEvent}
+                />
               ))}
               {viewMode === 'current' && liveAssistantText && (
                 <ChatBubble
@@ -278,6 +290,8 @@ export function ChatAgent({
                     createdAt: new Date().toISOString(),
                     isStreaming: true
                   }}
+                  a2uiEnabled={a2uiEnabled}
+                  onA2UIEvent={handleA2UIEvent}
                 />
               )}
               {showHistoryDetail && isHistoryLoading && (
@@ -609,8 +623,16 @@ export function ChatAgent({
   );
 }
 
-function ChatBubble({ message }: { message: ChatMessage }) {
+function ChatBubble({ message, a2uiEnabled, onA2UIEvent }: {
+  message: ChatMessage;
+  a2uiEnabled: boolean;
+  onA2UIEvent: (event: A2UIEvent) => void;
+}) {
   const isUser = message.sender === 'user';
+  const parsedA2UI = !isUser ? parseA2UIPayload(message.content) : null;
+  const shouldRenderA2UI = !isUser && a2uiEnabled && Boolean(parsedA2UI?.ui);
+  const eventDisplay = isUser ? getA2UIEventDisplay(message.content) : null;
+  const displayText = eventDisplay ? `Action: ${eventDisplay}` : message.content;
   return (
     <div className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
       <div
@@ -626,7 +648,17 @@ function ChatBubble({ message }: { message: ChatMessage }) {
           <span>{isUser ? 'You' : 'Assistant'}</span>
           {message.isStreaming && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
         </div>
-        <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+        {shouldRenderA2UI ? (
+          <A2UIRenderer
+            ui={parsedA2UI!.ui}
+            fallbackText={parsedA2UI!.fallbackText || message.content}
+            onEvent={onA2UIEvent}
+          />
+        ) : (
+          <p className="text-sm leading-relaxed whitespace-pre-wrap">
+            {parsedA2UI?.fallbackText && !isUser ? parsedA2UI.fallbackText : displayText}
+          </p>
+        )}
         {message.toolName && (
           <p className="text-[11px] text-white/50 mt-2 flex items-center gap-1">
             <Sparkles className="w-3 h-3" />

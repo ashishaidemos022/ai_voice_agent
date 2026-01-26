@@ -4,6 +4,7 @@ import { Loader2, MessageSquare } from "lucide-react";
 import { AgentState } from "../../lib/realtime-client";
 import { Message } from "../../types/voice-agent";
 import { MessageBubble } from "./MessageBubble";
+import type { A2UIEvent } from "../../lib/a2ui";
 import { Card } from "../ui/Card";
 
 interface Props {
@@ -15,6 +16,8 @@ interface Props {
   liveAssistantTranscript?: string;
   liveUserTranscript?: string;
   agentState?: AgentState;
+  a2uiEnabled?: boolean;
+  onA2UIEvent?: (event: A2UIEvent) => void;
 }
 
 const streamMotion = {
@@ -32,7 +35,9 @@ export function ConversationThread({
   historyError = null,
   liveAssistantTranscript,
   liveUserTranscript,
-  agentState = "idle"
+  agentState = "idle",
+  a2uiEnabled = false,
+  onA2UIEvent
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -110,7 +115,7 @@ export function ConversationThread({
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.15 }}
               >
-                <MessageBubble message={m} />
+                <MessageBubble message={m} a2uiEnabled={a2uiEnabled} onA2UIEvent={onA2UIEvent} />
               </motion.div>
             ))}
           </AnimatePresence>

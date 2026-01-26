@@ -13,6 +13,7 @@ export interface VoiceAdapter {
   commitAudio(): void;
   clearAudioBuffer(): void;
   sendFunctionCallOutput(callId: string, output: any): void;
+  sendUserMessage?: (text: string) => void;
   sendSystemMessage(text: string): void;
   cancelResponse(options?: { suppressState?: boolean }): void;
   requestResponse(): void;

@@ -11,6 +11,7 @@ export type EmbedAgentMeta = {
   id?: string | null;
   name: string;
   summary?: string | null;
+  a2uiEnabled?: boolean;
   ragEnabled?: boolean;
   ragMode?: RagMode;
   knowledgeSpaceIds?: string[];
@@ -166,6 +167,7 @@ export function useEmbedChat(publicId: string, options?: { persist?: boolean }) 
         id: json.agent?.id,
         name: json.agent?.name || 'AI Agent',
         summary: json.agent?.summary || null,
+        a2uiEnabled: Boolean(json.agent?.a2ui_enabled),
         ragEnabled: Boolean(json.agent?.rag_enabled),
         ragMode: json.agent?.rag_mode || 'assist',
         knowledgeSpaceIds
