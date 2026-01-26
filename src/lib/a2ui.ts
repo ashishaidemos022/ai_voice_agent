@@ -96,7 +96,11 @@ function normalizeNode(node: any): A2UIElement | null {
       });
     }
   }
-  const rawType = typeof node.type === 'string' ? normalizeComponentType(node.type) : null;
+  const rawType = typeof node.type === 'string'
+    ? normalizeComponentType(node.type)
+    : typeof node.component === 'string'
+    ? normalizeComponentType(node.component)
+    : null;
   if (!rawType) {
     return null;
   }
