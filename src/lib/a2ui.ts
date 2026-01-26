@@ -42,6 +42,19 @@ function isPlainObject(value: any): value is Record<string, any> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function normalizeComponentType(rawType: string | undefined | null): A2UIComponentType | null {
+  if (!rawType) return null;
+  if (ALLOWED_COMPONENTS.has(rawType as A2UIComponentType)) {
+    return rawType as A2UIComponentType;
+  }
+  const normalized = rawType.trim();
+  if (!normalized) return null;
+  const canonical = normalized.charAt(0).toUpperCase() + normalized.slice(1).toLowerCase();
+  return ALLOWED_COMPONENTS.has(canonical as A2UIComponentType)
+    ? (canonical as A2UIComponentType)
+    : null;
+}
+
 function extractJsonCandidate(text: string): string | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
@@ -67,28 +80,37 @@ function extractJsonCandidate(text: string): string | null {
 function normalizeNode(node: any): A2UIElement | null {
   if (!isPlainObject(node)) return null;
   const nodeKeys = Object.keys(node);
-  if (nodeKeys.length === 1 && ALLOWED_COMPONENTS.has(nodeKeys[0] as A2UIComponentType)) {
-    const nested = node[nodeKeys[0]];
-    if (typeof nested === 'string') {
+  if (nodeKeys.length === 1) {
+    const normalizedKey = normalizeComponentType(nodeKeys[0]);
+    if (normalizedKey) {
+      const nested = node[nodeKeys[0]];
+      if (typeof nested === 'string') {
+        return normalizeNode({
+          type: normalizedKey,
+          text: nested
+        });
+      }
       return normalizeNode({
-        type: nodeKeys[0],
-        text: nested
+        type: normalizedKey,
+        ...(isPlainObject(nested) ? nested : {})
       });
     }
-    return normalizeNode({
-      type: nodeKeys[0],
-      ...(isPlainObject(nested) ? nested : {})
-    });
   }
-  const rawType = node.type;
-  if (typeof rawType !== 'string' || !ALLOWED_COMPONENTS.has(rawType as A2UIComponentType)) {
+  const rawType = typeof node.type === 'string' ? normalizeComponentType(node.type) : null;
+  if (!rawType) {
     return null;
   }
   const normalized: A2UIElement = {
-    type: rawType as A2UIComponentType,
+    type: rawType,
     props: isPlainObject(node.props) ? { ...node.props } : {},
     children: Array.isArray(node.children) ? [] : undefined
   };
+
+  if (rawType === 'Text' && Array.isArray(node.children) && node.children.every((child: any) => typeof child === 'string')) {
+    normalized.props = normalized.props || {};
+    normalized.props.text = node.children.join('');
+    normalized.children = undefined;
+  }
 
   if (typeof node.text === 'string' && normalized.props) {
     normalized.props.text = node.text;
@@ -101,7 +123,14 @@ function normalizeNode(node: any): A2UIElement | null {
   }
 
   if (Array.isArray(node.children)) {
-    const normalizedChildren = node.children.map(normalizeNode).filter(Boolean) as A2UIElement[];
+    const normalizedChildren = node.children
+      .map((child: any) => {
+        if (typeof child === 'string') {
+          return normalizeNode({ type: 'Text', text: child });
+        }
+        return normalizeNode(child);
+      })
+      .filter(Boolean) as A2UIElement[];
     if (normalizedChildren.length !== node.children.length) {
       return null;
     }
@@ -129,13 +158,16 @@ function normalizeUi(ui: any): A2UIElement | A2UIElement[] | null {
   }
   if (isPlainObject(ui)) {
     const uiKeys = Object.keys(ui);
-    if (uiKeys.length === 1 && ALLOWED_COMPONENTS.has(uiKeys[0] as A2UIComponentType)) {
-      const keyedNode = ui[uiKeys[0]];
-      const normalizedChild = normalizeNode({
-        type: uiKeys[0],
-        ...(isPlainObject(keyedNode) ? keyedNode : {})
-      });
-      return normalizedChild ?? null;
+    if (uiKeys.length === 1) {
+      const normalizedKey = normalizeComponentType(uiKeys[0]);
+      if (normalizedKey) {
+        const keyedNode = ui[uiKeys[0]];
+        const normalizedChild = normalizeNode({
+          type: normalizedKey,
+          ...(isPlainObject(keyedNode) ? keyedNode : {})
+        });
+        return normalizedChild ?? null;
+      }
     }
   }
   if (isPlainObject(ui) && isPlainObject((ui as any).card)) {
