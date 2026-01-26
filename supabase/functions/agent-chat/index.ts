@@ -141,7 +141,7 @@ function isOriginAllowed(origin: string | null, allowed: string[]): boolean {
 function buildSystemPrompt(instructions?: string | null, a2uiEnabled?: boolean | null) {
   const base = instructions?.trim() || 'You are a helpful AI assistant. Respond concisely and helpfully.';
   if (!a2uiEnabled) return base;
-  return `${base}\n\nWhen useful, you may include a JSON object with {"a2ui":{"version":"0.8","ui":<tree>},"fallback_text":"..."}.\nIf A2UI is not needed, respond normally with text.`;
+  return `${base}\n\nWhen useful, you may include a JSON object with {"a2ui":{"version":"0.8","ui":<tree>},"fallback_text":"..."}.\nIf A2UI is not needed, respond normally with text.\nFor time/weather requests, prefer a Card with props {variant:"time", icon, title, subtitle, meta, badges, accent_color} and children Text nodes for the main time/weather values.`;
 }
 
 function summarizeTools(tools: LoadedTool[]) {

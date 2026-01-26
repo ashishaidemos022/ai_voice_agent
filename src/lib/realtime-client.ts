@@ -162,7 +162,7 @@ export class RealtimeAPIClient {
     const tools = this.overrideTools ?? getToolSchemas();
     const languageGuard = 'Always respond in English unless the user explicitly requests a different language.';
     const a2uiInstruction = this.config.a2ui_enabled
-      ? '\n\nWhen useful, you may include a JSON object with {"a2ui":{"version":"0.8","ui":<tree>},"fallback_text":"..."}.\nIf A2UI is not needed, respond normally with text.'
+      ? '\n\nWhen useful, you may include a JSON object with {"a2ui":{"version":"0.8","ui":<tree>},"fallback_text":"..."}.\nIf A2UI is not needed, respond normally with text.\nFor time/weather requests, prefer a Card with props {variant:\"time\", icon, title, subtitle, meta, badges, accent_color} and children Text nodes for the main time/weather values.'
       : '';
     const ragInstructions = this.config.rag_mode === 'guardrail'
       ? `${this.config.instructions}\n\nIf relevant knowledge from the approved knowledge base is unavailable, respond with "I do not have enough knowledge to answer that yet."\n\n${languageGuard}${a2uiInstruction}`

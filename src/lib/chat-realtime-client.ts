@@ -157,7 +157,7 @@ export class ChatRealtimeClient {
     const tools = getToolSchemas();
     const languageGuard = 'Always reply in English unless the user explicitly asks for another language.';
     const a2uiInstruction = this.config.a2ui_enabled
-      ? '\n\nWhen useful, you may include a JSON object with {"a2ui":{"version":"0.8","ui":<tree>},"fallback_text":"..."}.\nIf A2UI is not needed, respond normally with text.'
+      ? '\n\nWhen useful, you may include a JSON object with {"a2ui":{"version":"0.8","ui":<tree>},"fallback_text":"..."}.\nIf A2UI is not needed, respond normally with text.\nFor time/weather requests, prefer a Card with props {variant:"time", icon, title, subtitle, meta, badges, accent_color} and children Text nodes for the main time/weather values.'
       : '';
     const ragInstructions = this.config.ragMode === 'guardrail'
       ? `${this.config.instructions}\n\nIf you cannot find supporting knowledge, respond with "I do not have enough approved information to answer."\n\n${languageGuard}${a2uiInstruction}`
