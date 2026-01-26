@@ -66,6 +66,14 @@ function extractJsonCandidate(text: string): string | null {
 
 function normalizeNode(node: any): A2UIElement | null {
   if (!isPlainObject(node)) return null;
+  const nodeKeys = Object.keys(node);
+  if (nodeKeys.length === 1 && ALLOWED_COMPONENTS.has(nodeKeys[0] as A2UIComponentType)) {
+    const nested = node[nodeKeys[0]];
+    return normalizeNode({
+      type: nodeKeys[0],
+      ...(isPlainObject(nested) ? nested : {})
+    });
+  }
   const rawType = node.type;
   if (typeof rawType !== 'string' || !ALLOWED_COMPONENTS.has(rawType as A2UIComponentType)) {
     return null;
@@ -92,6 +100,13 @@ function normalizeNode(node: any): A2UIElement | null {
       return null;
     }
     normalized.children = normalizedChildren;
+  }
+  if (!normalized.children && Array.isArray(node.contents)) {
+    const normalizedContents = node.contents.map(normalizeNode).filter(Boolean) as A2UIElement[];
+    if (normalizedContents.length !== node.contents.length) {
+      return null;
+    }
+    normalized.children = normalizedContents;
   }
 
   return normalized;
