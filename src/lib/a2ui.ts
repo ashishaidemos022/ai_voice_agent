@@ -106,6 +106,17 @@ function normalizeUi(ui: any): A2UIElement | A2UIElement[] | null {
     const normalized = ui.map(normalizeNode).filter(Boolean) as A2UIElement[];
     return normalized.length === ui.length && normalized.length > 0 ? normalized : null;
   }
+  if (isPlainObject(ui)) {
+    const uiKeys = Object.keys(ui);
+    if (uiKeys.length === 1 && ALLOWED_COMPONENTS.has(uiKeys[0] as A2UIComponentType)) {
+      const keyedNode = ui[uiKeys[0]];
+      const normalizedChild = normalizeNode({
+        type: uiKeys[0],
+        ...(isPlainObject(keyedNode) ? keyedNode : {})
+      });
+      return normalizedChild ?? null;
+    }
+  }
   if (isPlainObject(ui) && isPlainObject((ui as any).card)) {
     const cardNode = (ui as any).card;
     const normalizedChild = normalizeNode(cardNode);
@@ -134,9 +145,12 @@ export function parseA2UIPayload(text: string): ParsedA2UI | null {
     return null;
   }
 
-  if (!isPlainObject(parsed) || !isPlainObject(parsed.a2ui)) return null;
-  if (parsed.a2ui.version !== '0.8') return null;
-  const normalizedUi = normalizeUi(parsed.a2ui.ui);
+  if (!isPlainObject(parsed)) return null;
+  const a2uiContainer = isPlainObject(parsed.a2ui) ? parsed.a2ui : parsed;
+  const version = (a2uiContainer as any)?.version || (parsed as any)['a2ui.version'];
+  const uiValue = (a2uiContainer as any)?.ui || (parsed as any)?.ui;
+  if (version !== '0.8') return null;
+  const normalizedUi = normalizeUi(uiValue);
   if (!normalizedUi) return null;
 
   return {
