@@ -141,7 +141,21 @@ function isOriginAllowed(origin: string | null, allowed: string[]): boolean {
 function buildSystemPrompt(instructions?: string | null, a2uiEnabled?: boolean | null) {
   const base = instructions?.trim() || 'You are a helpful AI assistant. Respond concisely and helpfully.';
   if (!a2uiEnabled) return base;
-  return `${base}\n\nWhen useful, you may include a JSON object with {"a2ui":{"version":"0.8","ui":<tree>},"fallback_text":"..."}.\nIf A2UI is not needed, respond normally with text.\nFor time/weather requests, prefer a Card with props {variant:"time", icon, title, subtitle, meta, badges, accent_color} and children Text nodes for the main time/weather values.`;
+  return `${base}\n\nWhen useful, you may include a JSON object with {"a2ui":{"version":"0.8","ui":<tree>},"fallback_text":"..."}.\nIf A2UI is not needed, respond normally with text.\nFor time/weather requests, prefer a Card with props {variant:"time", icon, title, subtitle, meta, badges, accent_color} and children Text nodes for the main time/weather values.\nFor appointment confirmations or schedules, ALWAYS include an A2UI Card (variant:"evolve-appointment" or a plain Card) that lists date, time, location, and confirmation details when available, plus fallback_text.`;
+}
+
+function shouldForceA2UI(message?: string | null): boolean {
+  if (!message) return false;
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes('appointment') ||
+    normalized.includes('booked') ||
+    normalized.includes('booking') ||
+    normalized.includes('confirm') ||
+    normalized.includes('schedule') ||
+    normalized.includes('time') ||
+    normalized.includes('date')
+  );
 }
 
 function summarizeTools(tools: LoadedTool[]) {
@@ -1040,8 +1054,14 @@ Deno.serve(async (req: Request) => {
     });
 
     const systemPrompt = buildSystemPrompt(agentConfig.instructions, agentConfig.a2ui_enabled);
+    const lastUserMessage = [...body.messages].reverse().find((msg) => msg.role === 'user')?.content || '';
+    const extraA2UIHint =
+      agentConfig.a2ui_enabled && shouldForceA2UI(lastUserMessage)
+        ? 'Return a JSON object containing {"a2ui":{"version":"0.8","ui":...},"fallback_text":"..."} for this response. Prefer a Card layout for the main content.'
+        : null;
     const chatMessages: ChatMessage[] = [
       { role: 'system', content: systemPrompt },
+      ...(extraA2UIHint ? [{ role: 'system', content: extraA2UIHint }] : []),
       ...body.messages
     ];
     const tools = await loadAgentTools(agentConfig.id, agentConfig.user_id);
