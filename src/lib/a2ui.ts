@@ -118,15 +118,6 @@ function normalizeUi(ui: any): A2UIElement | A2UIElement[] | null {
   }
   return normalizeNode(ui);
 }
-  if (!isPlainObject(node)) return false;
-  if (!ALLOWED_COMPONENTS.has(node.type)) return false;
-  if (node.props && !isPlainObject(node.props)) return false;
-  if (node.children !== undefined) {
-    if (!Array.isArray(node.children)) return false;
-    if (!node.children.every(validateNode)) return false;
-  }
-  return true;
-}
 
 function validateUi(ui: any): ui is A2UIElement | A2UIElement[] {
   return Boolean(normalizeUi(ui));
