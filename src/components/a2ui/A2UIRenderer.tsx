@@ -14,14 +14,38 @@ type A2UIRendererProps = {
   className?: string;
 };
 
+function resolveTextRole(node: A2UIElement): string | null {
+  return typeof node.props?.role === 'string' ? node.props.role : null;
+}
+
 function A2UIText({ node }: { node: A2UIElement }) {
   const text = typeof node.props?.text === 'string'
     ? node.props.text
     : typeof node.props?.value === 'string'
     ? node.props.value
     : '';
+  const role = resolveTextRole(node);
+  if (role === 'divider') {
+    return <div className="a2ui-divider" />;
+  }
   const variant = typeof node.props?.variant === 'string' ? node.props.variant : 'body';
-  const classes = variant === 'label'
+  const roleClass =
+    role === 'eyebrow'
+      ? 'a2ui-text--eyebrow'
+      : role === 'title'
+      ? 'a2ui-text--title'
+      : role === 'primary'
+      ? 'a2ui-text--primary'
+      : role === 'label'
+      ? 'a2ui-text--label'
+      : role === 'value'
+      ? 'a2ui-text--value'
+      : role === 'body'
+      ? 'a2ui-text--body'
+      : null;
+  const classes = roleClass
+    ? roleClass
+    : variant === 'label'
     ? 'text-[11px] uppercase tracking-[0.3em] opacity-60'
     : variant === 'value'
     ? 'text-lg font-semibold'
@@ -35,11 +59,24 @@ function A2UIButton({ node, onEvent }: { node: A2UIElement; onEvent?: (event: A2
     : typeof node.props?.text === 'string'
     ? node.props.text
     : 'Action';
-  const action = typeof node.props?.action === 'string' ? node.props.action : null;
-  const id = typeof node.props?.id === 'string' ? node.props.id : null;
+  const action = typeof node.props?.action === 'string'
+    ? node.props.action
+    : typeof node.props?.action_id === 'string'
+    ? node.props.action_id
+    : null;
+  const id = typeof node.props?.id === 'string'
+    ? node.props.id
+    : typeof node.props?.component_id === 'string'
+    ? node.props.component_id
+    : null;
+  const variant = typeof node.props?.variant === 'string' ? node.props.variant : 'primary';
+  const className = variant === 'secondary'
+    ? 'a2ui-button a2ui-button--secondary'
+    : 'a2ui-button a2ui-button--primary';
   return (
     <Button
       size="sm"
+      className={className}
       onClick={() =>
         onEvent?.({
           type: 'button',
@@ -133,34 +170,93 @@ function A2UICard({ node, children }: { node: A2UIElement; children: ReactNode }
   const backgroundClass = variant === 'time'
     ? 'bg-gradient-to-br from-indigo-500/20 via-slate-900/40 to-cyan-500/20'
     : 'bg-white/5';
+  const isEvolve = variant === 'evolve-appointment';
 
   return (
-    <div className={`rounded-2xl border border-white/10 ${backgroundClass} p-4 space-y-4`} style={cardStyle}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-white/10 flex items-center justify-center text-xl" style={headerStyle}>
-            {icon}
+    <div className={`rounded-2xl border border-white/10 ${backgroundClass} p-4 space-y-4 ${isEvolve ? 'a2ui-card a2ui-card--evolve' : ''}`} style={cardStyle}>
+      {isEvolve && (
+        <>
+          <div className="a2ui-card__glow" />
+          <div className="a2ui-card__frame" />
+        </>
+      )}
+      <div className="relative z-10 space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-white/10 flex items-center justify-center text-xl" style={headerStyle}>
+              {icon}
+            </div>
+            <div>
+              {title && <p className="text-xs uppercase tracking-[0.3em] text-current opacity-60">{title}</p>}
+              {subtitle && <p className="text-sm font-semibold">{subtitle}</p>}
+              {meta && <p className="text-xs opacity-60">{meta}</p>}
+            </div>
           </div>
-          <div>
-            {title && <p className="text-xs uppercase tracking-[0.3em] text-current opacity-60">{title}</p>}
-            {subtitle && <p className="text-sm font-semibold">{subtitle}</p>}
-            {meta && <p className="text-xs opacity-60">{meta}</p>}
-          </div>
+          {badgeItems.length > 0 && (
+            <div className="flex flex-wrap gap-2 justify-end">
+              {badgeItems.slice(0, 4).map((badge: any, idx: number) => (
+                <span
+                  key={`${badge?.label || badge}-${idx}`}
+                  className="px-2 py-1 rounded-full text-[10px] uppercase tracking-[0.2em] bg-white/10 border border-white/10"
+                >
+                  {typeof badge === 'string' ? badge : badge?.label || 'Info'}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
-        {badgeItems.length > 0 && (
-          <div className="flex flex-wrap gap-2 justify-end">
-            {badgeItems.slice(0, 4).map((badge: any, idx: number) => (
-              <span
-                key={`${badge?.label || badge}-${idx}`}
-                className="px-2 py-1 rounded-full text-[10px] uppercase tracking-[0.2em] bg-white/10 border border-white/10"
-              >
-                {typeof badge === 'string' ? badge : badge?.label || 'Info'}
-              </span>
-            ))}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function A2UIAppointmentCard({
+  node,
+  renderNode
+}: {
+  node: A2UIElement;
+  renderNode: (child: A2UIElement, key: string) => ReactNode;
+}) {
+  const children = node.children ?? [];
+  const dividerIndex = children.findIndex(
+    (child) => child.type === 'Text' && resolveTextRole(child) === 'divider'
+  );
+  const headerChildren = dividerIndex >= 0 ? children.slice(0, dividerIndex) : children;
+  const restChildren = dividerIndex >= 0 ? children.slice(dividerIndex + 1) : [];
+  const detailChildren: A2UIElement[] = [];
+  const tailChildren: A2UIElement[] = [];
+  let collectingDetails = true;
+
+  restChildren.forEach((child) => {
+    const role = resolveTextRole(child);
+    const isDetail = child.type === 'Text' && (role === 'label' || role === 'value');
+    if (collectingDetails && isDetail) {
+      detailChildren.push(child);
+    } else {
+      collectingDetails = false;
+      tailChildren.push(child);
+    }
+  });
+
+  return (
+    <div className="a2ui-card a2ui-card--evolve">
+      <div className="a2ui-card__glow" />
+      <div className="a2ui-card__frame" />
+      <div className="a2ui-card__content">
+        {headerChildren.map((child, idx) => renderNode(child, `${child.type}-${idx}`))}
+        {dividerIndex >= 0 && <div className="a2ui-divider" />}
+        {detailChildren.length > 0 && (
+          <div className="a2ui-detail-grid">
+            {detailChildren.map((child, idx) => renderNode(child, `${child.type}-detail-${idx}`))}
+          </div>
+        )}
+        {tailChildren.length > 0 && (
+          <div className="space-y-3">
+            {tailChildren.map((child, idx) => renderNode(child, `${child.type}-tail-${idx}`))}
           </div>
         )}
       </div>
-      {children}
     </div>
   );
 }
@@ -210,6 +306,9 @@ export function A2UIRenderer({ ui, fallbackText, onEvent, className }: A2UIRende
   const renderNode = (node: A2UIElement, key: string): ReactNode => {
     switch (node.type) {
       case 'Card':
+        if (node.props?.variant === 'evolve-appointment') {
+          return <A2UIAppointmentCard key={key} node={node} renderNode={renderNode} />;
+        }
         return (
           <A2UICard key={key} node={node}>
             {renderChildren(node.children)}
@@ -248,7 +347,7 @@ export function A2UIRenderer({ ui, fallbackText, onEvent, className }: A2UIRende
 
   try {
     return (
-      <div className={className || 'space-y-3'}>
+      <div className={`a2ui-root ${className || 'space-y-3'}`}>
         {nodes.map((node, idx) => renderNode(node, `${node.type}-${idx}`))}
         {!nodes.length && fallbackText && <p className="text-sm whitespace-pre-wrap">{fallbackText}</p>}
       </div>

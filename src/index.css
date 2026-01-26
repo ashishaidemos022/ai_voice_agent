@@ -1,8 +1,26 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Manrope:wght@300;400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --ivory: #f7f2ea;
+    --sand: #efe6d9;
+    --stone: #cbb9a3;
+    --bronze: #b5825a;
+    --olive: #6f7b68;
+    --deep-ink: #1d1f1a;
+    --soft-ink: #3b3f36;
+    --cloud: #ffffff;
+    --mist: #f1f5f3;
+    --glow: rgba(181, 130, 90, 0.18);
+    --radius-lg: 28px;
+    --radius-md: 18px;
+    --shadow: 0 24px 60px rgba(29, 31, 26, 0.12);
+  }
+
   body {
     background-color: #05070f;
     color: #e2e8f0;
@@ -22,6 +40,139 @@
 }
 
 @layer components {
+  .a2ui-root {
+    font-family: 'Manrope', 'Sora', 'Space Grotesk', sans-serif;
+    color: inherit;
+  }
+
+  .a2ui-card {
+    position: relative;
+  }
+
+  .a2ui-card--evolve {
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(246, 241, 234, 0.82));
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+    padding: 28px;
+    overflow: hidden;
+    color: var(--deep-ink);
+  }
+
+  .a2ui-card__frame {
+    position: absolute;
+    inset: 12px;
+    border-radius: 24px;
+    border: 1px solid rgba(181, 130, 90, 0.2);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .a2ui-card__glow {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    right: 0;
+    height: 90px;
+    background: linear-gradient(90deg, var(--glow), rgba(111, 123, 104, 0.18), rgba(181, 130, 90, 0.12));
+    opacity: 0.9;
+    z-index: 0;
+  }
+
+  .a2ui-card__content {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .a2ui-text--eyebrow {
+    font-size: 12px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--olive);
+  }
+
+  .a2ui-text--title {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 26px;
+    font-weight: 500;
+    color: var(--deep-ink);
+    margin-top: 6px;
+  }
+
+  .a2ui-text--primary {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 30px;
+    font-weight: 500;
+    line-height: 1.1;
+    margin-top: 14px;
+    color: var(--deep-ink);
+  }
+
+  .a2ui-text--label {
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--soft-ink);
+  }
+
+  .a2ui-text--value {
+    font-size: 15px;
+    color: var(--deep-ink);
+  }
+
+  .a2ui-text--body {
+    font-size: 15px;
+    color: var(--soft-ink);
+    margin-top: 10px;
+  }
+
+  .a2ui-divider {
+    height: 1px;
+    background: rgba(203, 185, 163, 0.55);
+    margin: 16px 0;
+  }
+
+  .a2ui-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 18px;
+    margin-top: 12px;
+  }
+
+  @media (max-width: 640px) {
+    .a2ui-detail-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .a2ui-button {
+    border-radius: 999px !important;
+    padding: 12px 18px !important;
+    font-size: 13px !important;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    transform: translateY(0);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+
+  .a2ui-button:hover {
+    transform: translateY(-2px);
+  }
+
+  .a2ui-button--primary {
+    background: var(--bronze) !important;
+    color: var(--cloud) !important;
+    box-shadow: 0 16px 30px rgba(181, 130, 90, 0.28);
+  }
+
+  .a2ui-button--secondary {
+    background: transparent !important;
+    border: 1px solid rgba(203, 185, 163, 0.85) !important;
+    color: var(--deep-ink) !important;
+  }
+
   .workspace-panel .bg-white {
     background-color: rgba(3, 7, 18, 0.75) !important;
   }
