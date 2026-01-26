@@ -69,6 +69,12 @@ function normalizeNode(node: any): A2UIElement | null {
   const nodeKeys = Object.keys(node);
   if (nodeKeys.length === 1 && ALLOWED_COMPONENTS.has(nodeKeys[0] as A2UIComponentType)) {
     const nested = node[nodeKeys[0]];
+    if (typeof nested === 'string') {
+      return normalizeNode({
+        type: nodeKeys[0],
+        text: nested
+      });
+    }
     return normalizeNode({
       type: nodeKeys[0],
       ...(isPlainObject(nested) ? nested : {})
