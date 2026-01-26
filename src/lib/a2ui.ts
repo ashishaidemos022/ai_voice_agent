@@ -1,4 +1,4 @@
-export type A2UIComponentType = 'Card' | 'Text' | 'Button' | 'Input' | 'Select' | 'Form';
+export type A2UIComponentType = 'Card' | 'Text' | 'Button' | 'Input' | 'Select' | 'Form' | 'Map';
 
 export type A2UIElement = {
   type: A2UIComponentType;
@@ -33,7 +33,8 @@ const ALLOWED_COMPONENTS = new Set<A2UIComponentType>([
   'Button',
   'Input',
   'Select',
-  'Form'
+  'Form',
+  'Map'
 ]);
 
 const EVENT_PREFIX = 'A2UI_EVENT ';

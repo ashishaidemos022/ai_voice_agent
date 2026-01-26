@@ -141,7 +141,7 @@ function isOriginAllowed(origin: string | null, allowed: string[]): boolean {
 function buildSystemPrompt(instructions?: string | null, a2uiEnabled?: boolean | null) {
   const base = instructions?.trim() || 'You are a helpful AI assistant. Respond concisely and helpfully.';
   if (!a2uiEnabled) return base;
-  return `${base}\n\nWhen useful, you may include a JSON object with {"a2ui":{"version":"0.8","ui":<tree>},"fallback_text":"..."}.\nIf A2UI is not needed, respond normally with text.\nFor time/weather requests, prefer a Card with props {variant:"time", icon, title, subtitle, meta, badges, accent_color} and children Text nodes for the main time/weather values.\nFor appointment confirmations or schedules, ALWAYS include an A2UI Card (variant:"evolve-appointment" or a plain Card) that lists date, time, location, and confirmation details when available, plus fallback_text.`;
+  return `${base}\n\nWhen useful, you may include a JSON object with {"a2ui":{"version":"0.8","ui":<tree>},"fallback_text":"..."}.\nIf A2UI is not needed, respond normally with text.\nFor time/weather requests, prefer a Card with props {variant:\"time\", icon, title, subtitle, meta, badges, accent_color} and children Text nodes for the main time/weather values.\nFor appointment confirmations or schedules, ALWAYS include an A2UI Card (variant:\"evolve-appointment\" or a plain Card) that lists date, time, location, and confirmation details when available, plus fallback_text.\nFor location/address questions, include a Map component with props {query: \"<address or place>\", zoom, height, title} inside a Card so it renders a map.`;
 }
 
 function shouldForceA2UI(message?: string | null): boolean {

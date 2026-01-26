@@ -300,6 +300,33 @@ function A2UIForm({ node, onEvent, renderChildren }: {
   );
 }
 
+function A2UIMap({ node }: { node: A2UIElement }) {
+  const query = typeof node.props?.query === 'string' ? node.props.query : '';
+  const lat = typeof node.props?.lat === 'number' ? node.props.lat : null;
+  const lng = typeof node.props?.lng === 'number' ? node.props.lng : null;
+  const zoom = typeof node.props?.zoom === 'number' ? node.props.zoom : 14;
+  const height = typeof node.props?.height === 'number' ? node.props.height : 220;
+  const title = typeof node.props?.title === 'string' ? node.props.title : 'Map';
+  const marker = lat !== null && lng !== null ? `${lat},${lng}` : '';
+  const q = marker || query;
+  const src = q
+    ? `https://www.google.com/maps?q=${encodeURIComponent(q)}&z=${encodeURIComponent(String(zoom))}&output=embed`
+    : 'about:blank';
+
+  return (
+    <div className="a2ui-map">
+      <iframe
+        title={title}
+        src={src}
+        loading="lazy"
+        referrerPolicy="no-referrer-when-downgrade"
+        className="a2ui-map__frame"
+        style={{ height: `${height}px` }}
+      />
+    </div>
+  );
+}
+
 export function A2UIRenderer({ ui, fallbackText, onEvent, className }: A2UIRendererProps) {
   const nodes = Array.isArray(ui) ? ui : [ui];
 
@@ -331,6 +358,8 @@ export function A2UIRenderer({ ui, fallbackText, onEvent, className }: A2UIRende
             renderChildren={renderChildren}
           />
         );
+      case 'Map':
+        return <A2UIMap key={key} node={node} />;
       default:
         return null;
     }
