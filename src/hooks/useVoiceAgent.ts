@@ -66,6 +66,8 @@ export function useVoiceAgent() {
   });
   const activeConfigIdRef = useRef<string | null>(null);
   const ragResponsePendingRef = useRef(false);
+  const assistantTextBufferRef = useRef('');
+  const usedAssistantTextRef = useRef(false);
 
   const createSession = useCallback(async (sessionConfig: RealtimeConfig, configId: string | null) => {
     if (!configId) {
@@ -361,6 +363,9 @@ export function useVoiceAgent() {
         itemId: event.itemId
       });
       const isUser = event.role === 'user';
+      if (!isUser && configRef.current?.a2ui_enabled && assistantTextBufferRef.current.length > 0) {
+        return;
+      }
       const buffer = isUser ? transcriptsRef.current.user : transcriptsRef.current.assistant;
       const fallbackId = isUser ? 'user-default' : 'assistant-default';
       const itemId = event.itemId || (isUser ? transcriptsRef.current.activeUserId : transcriptsRef.current.activeAssistantId) || fallbackId;
@@ -387,6 +392,13 @@ export function useVoiceAgent() {
         itemId: event.itemId
       });
       const isUser = event.role === 'user';
+      if (!isUser && configRef.current?.a2ui_enabled && usedAssistantTextRef.current) {
+        if (transcriptsRef.current.activeAssistantId) {
+          transcriptsRef.current.activeAssistantId = null;
+          setLiveAssistantTranscript('');
+        }
+        return;
+      }
       const buffers = isUser ? transcriptsRef.current.user : transcriptsRef.current.assistant;
       const activeId = isUser ? transcriptsRef.current.activeUserId : transcriptsRef.current.activeAssistantId;
       const itemId = event.itemId || activeId || (isUser ? 'user-default' : 'assistant-default');
@@ -437,6 +449,9 @@ export function useVoiceAgent() {
           setLiveUserTranscript('');
         }
       } else {
+        if (configRef.current?.a2ui_enabled && assistantTextBufferRef.current.length > 0) {
+          return;
+        }
         if (event.itemId) {
           delete transcriptsRef.current.assistant[event.itemId];
           if (transcriptsRef.current.activeAssistantId === event.itemId) {
@@ -451,10 +466,28 @@ export function useVoiceAgent() {
       }
     });
 
+    client.on('text.delta', (event: any) => {
+      if (!configRef.current?.a2ui_enabled) return;
+      assistantTextBufferRef.current += event.delta || '';
+      setLiveAssistantTranscript(assistantTextBufferRef.current);
+    });
+
+    client.on('text.done', async (event: any) => {
+      if (!configRef.current?.a2ui_enabled) return;
+      const transcriptText = (event.text || assistantTextBufferRef.current || '').trim();
+      assistantTextBufferRef.current = '';
+      if (!transcriptText) return;
+      usedAssistantTextRef.current = true;
+      await persistMessage('assistant', transcriptText);
+      setLiveAssistantTranscript('');
+    });
+
     client.on('response.created', () => {
       setIsProcessing(true);
       setAgentState('thinking');
       setLiveAssistantTranscript('');
+      assistantTextBufferRef.current = '';
+      usedAssistantTextRef.current = false;
     });
 
     client.on('response.done', async (event: any) => {

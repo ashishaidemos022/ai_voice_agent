@@ -130,6 +130,8 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
   const agentMetaRef = useRef<UseVoiceEmbedResult['agentMeta']>(null);
   const usageHandledRef = useRef(false);
   const usageBaseWarnedRef = useRef(false);
+  const assistantTextBufferRef = useRef('');
+  const usedAssistantTextRef = useRef(false);
 
   const updateSessionId = useCallback((value: string | null) => {
     sessionIdRef.current = value;
@@ -291,6 +293,9 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
 
     client.on('transcript.delta', (event: any) => {
       const isUser = event.role === 'user';
+      if (!isUser && agentMetaRef.current?.a2ui_enabled && assistantTextBufferRef.current.length > 0) {
+        return;
+      }
       const buffers = isUser ? transcriptsRef.current.user : transcriptsRef.current.assistant;
       const activeId = isUser ? transcriptsRef.current.activeUserId : transcriptsRef.current.activeAssistantId;
       const fallbackId = isUser ? 'user-default' : 'assistant-default';
@@ -313,6 +318,13 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
 
     client.on('transcript.done', async (event: any) => {
       const isUser = event.role === 'user';
+      if (!isUser && agentMetaRef.current?.a2ui_enabled && usedAssistantTextRef.current) {
+        if (transcriptsRef.current.activeAssistantId) {
+          transcriptsRef.current.activeAssistantId = null;
+          setLiveAssistantTranscript('');
+        }
+        return;
+      }
       const buffers = isUser ? transcriptsRef.current.user : transcriptsRef.current.assistant;
       const activeId = isUser ? transcriptsRef.current.activeUserId : transcriptsRef.current.activeAssistantId;
       const itemId = event.itemId || activeId || (isUser ? 'user-default' : 'assistant-default');
@@ -369,15 +381,42 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
         transcriptsRef.current.activeUserId = null;
         setLiveUserTranscript('');
       } else {
+        if (agentMetaRef.current?.a2ui_enabled && assistantTextBufferRef.current.length > 0) {
+          return;
+        }
         transcriptsRef.current.assistant = {};
         transcriptsRef.current.activeAssistantId = null;
         setLiveAssistantTranscript('');
       }
     });
 
+    client.on('text.delta', (event: any) => {
+      if (!agentMetaRef.current?.a2ui_enabled) return;
+      assistantTextBufferRef.current += event.delta || '';
+      setLiveAssistantTranscript(assistantTextBufferRef.current);
+    });
+
+    client.on('text.done', async (event: any) => {
+      if (!agentMetaRef.current?.a2ui_enabled) return;
+      const transcriptText = (event.text || assistantTextBufferRef.current || '').trim();
+      assistantTextBufferRef.current = '';
+      if (!transcriptText) return;
+      usedAssistantTextRef.current = true;
+      const nextMessage: VoiceEmbedMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: transcriptText,
+        createdAt: new Date().toISOString()
+      };
+      setMessages((prev) => [...prev, nextMessage].slice(-30));
+      setLiveAssistantTranscript('');
+    });
+
     client.on('response.created', () => {
       setAgentState('thinking');
       usageHandledRef.current = false;
+      assistantTextBufferRef.current = '';
+      usedAssistantTextRef.current = false;
     });
 
     const reportUsage = async (usage: any) => {

@@ -64,7 +64,60 @@ function extractJsonCandidate(text: string): string | null {
   return null;
 }
 
+function normalizeNode(node: any): A2UIElement | null {
+  if (!isPlainObject(node)) return null;
+  const rawType = node.type;
+  if (typeof rawType !== 'string' || !ALLOWED_COMPONENTS.has(rawType as A2UIComponentType)) {
+    return null;
+  }
+  const normalized: A2UIElement = {
+    type: rawType as A2UIComponentType,
+    props: isPlainObject(node.props) ? { ...node.props } : {},
+    children: Array.isArray(node.children) ? [] : undefined
+  };
+
+  if (typeof node.text === 'string' && normalized.props) {
+    normalized.props.text = node.text;
+  }
+  if (typeof node.label === 'string' && normalized.props) {
+    normalized.props.label = node.label;
+  }
+  if (typeof node.title === 'string' && normalized.props) {
+    normalized.props.title = node.title;
+  }
+
+  if (Array.isArray(node.children)) {
+    const normalizedChildren = node.children.map(normalizeNode).filter(Boolean) as A2UIElement[];
+    if (normalizedChildren.length !== node.children.length) {
+      return null;
+    }
+    normalized.children = normalizedChildren;
+  }
+
+  return normalized;
+}
+
 function validateNode(node: any): node is A2UIElement {
+  return Boolean(normalizeNode(node));
+}
+
+function normalizeUi(ui: any): A2UIElement | A2UIElement[] | null {
+  if (Array.isArray(ui)) {
+    const normalized = ui.map(normalizeNode).filter(Boolean) as A2UIElement[];
+    return normalized.length === ui.length && normalized.length > 0 ? normalized : null;
+  }
+  if (isPlainObject(ui) && isPlainObject((ui as any).card)) {
+    const cardNode = (ui as any).card;
+    const normalizedChild = normalizeNode(cardNode);
+    if (!normalizedChild) return null;
+    return {
+      type: 'Card',
+      props: {},
+      children: [normalizedChild]
+    };
+  }
+  return normalizeNode(ui);
+}
   if (!isPlainObject(node)) return false;
   if (!ALLOWED_COMPONENTS.has(node.type)) return false;
   if (node.props && !isPlainObject(node.props)) return false;
@@ -76,10 +129,7 @@ function validateNode(node: any): node is A2UIElement {
 }
 
 function validateUi(ui: any): ui is A2UIElement | A2UIElement[] {
-  if (Array.isArray(ui)) {
-    return ui.length > 0 ? ui.every(validateNode) : false;
-  }
-  return validateNode(ui);
+  return Boolean(normalizeUi(ui));
 }
 
 export function parseA2UIPayload(text: string): ParsedA2UI | null {
@@ -95,10 +145,11 @@ export function parseA2UIPayload(text: string): ParsedA2UI | null {
 
   if (!isPlainObject(parsed) || !isPlainObject(parsed.a2ui)) return null;
   if (parsed.a2ui.version !== '0.8') return null;
-  if (!validateUi(parsed.a2ui.ui)) return null;
+  const normalizedUi = normalizeUi(parsed.a2ui.ui);
+  if (!normalizedUi) return null;
 
   return {
-    ui: parsed.a2ui.ui,
+    ui: normalizedUi,
     fallbackText: typeof parsed.fallback_text === 'string' ? parsed.fallback_text : null
   };
 }

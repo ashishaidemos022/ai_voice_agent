@@ -13,6 +13,8 @@ export type RealtimeEvent =
   | { type: 'transcript.delta'; delta: string; role: 'user' | 'assistant'; itemId?: string }
   | { type: 'transcript.done'; transcript: string; role: 'user' | 'assistant'; itemId?: string }
   | { type: 'transcript.reset'; role: 'user' | 'assistant'; itemId?: string }
+  | { type: 'text.delta'; delta: string }
+  | { type: 'text.done'; text: string }
   | { type: 'response.created'; id?: string }
   | { type: 'response.done'; response: any }
   | { type: 'usage.reported'; usage: any; response?: any }
@@ -302,6 +304,14 @@ export class RealtimeAPIClient {
 
       case 'response.output_audio.done':
         this.emit({ type: 'audio.done' });
+        break;
+      case 'response.output_text.delta':
+      case 'response.text.delta':
+        this.emit({ type: 'text.delta', delta: message.delta || '' });
+        break;
+      case 'response.output_text.done':
+      case 'response.text.done':
+        this.emit({ type: 'text.done', text: message.output_text || message.text || '' });
         break;
 
       case 'response.output_audio_transcript.delta':
