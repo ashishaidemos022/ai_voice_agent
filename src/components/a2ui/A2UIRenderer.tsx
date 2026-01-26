@@ -20,7 +20,13 @@ function A2UIText({ node }: { node: A2UIElement }) {
     : typeof node.props?.value === 'string'
     ? node.props.value
     : '';
-  return <p className="text-sm leading-relaxed whitespace-pre-wrap">{text}</p>;
+  const variant = typeof node.props?.variant === 'string' ? node.props.variant : 'body';
+  const classes = variant === 'label'
+    ? 'text-[11px] uppercase tracking-[0.3em] opacity-60'
+    : variant === 'value'
+    ? 'text-lg font-semibold'
+    : 'text-sm leading-relaxed';
+  return <p className={`${classes} whitespace-pre-wrap`}>{text}</p>;
 }
 
 function A2UIButton({ node, onEvent }: { node: A2UIElement; onEvent?: (event: A2UIEvent) => void }) {
@@ -115,9 +121,45 @@ function A2UISelect({ node }: { node: A2UIElement }) {
 
 function A2UICard({ node, children }: { node: A2UIElement; children: ReactNode }) {
   const title = typeof node.props?.title === 'string' ? node.props.title : null;
+  const subtitle = typeof node.props?.subtitle === 'string' ? node.props.subtitle : null;
+  const meta = typeof node.props?.meta === 'string' ? node.props.meta : null;
+  const badgeItems = Array.isArray(node.props?.badges) ? node.props.badges : [];
+  const accentColor = typeof node.props?.accent_color === 'string' ? node.props.accent_color : null;
+  const icon = typeof node.props?.icon === 'string' ? node.props.icon : '🕒';
+  const variant = typeof node.props?.variant === 'string' ? node.props.variant : 'default';
+
+  const cardStyle = accentColor ? { borderColor: accentColor, boxShadow: `0 0 0 1px ${accentColor}33` } : undefined;
+  const headerStyle = accentColor ? { color: accentColor } : undefined;
+  const backgroundClass = variant === 'time'
+    ? 'bg-gradient-to-br from-indigo-500/20 via-slate-900/40 to-cyan-500/20'
+    : 'bg-white/5';
+
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-3">
-      {title && <p className="text-xs uppercase tracking-[0.3em] text-current opacity-60">{title}</p>}
+    <div className={`rounded-2xl border border-white/10 ${backgroundClass} p-4 space-y-4`} style={cardStyle}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-white/10 flex items-center justify-center text-xl" style={headerStyle}>
+            {icon}
+          </div>
+          <div>
+            {title && <p className="text-xs uppercase tracking-[0.3em] text-current opacity-60">{title}</p>}
+            {subtitle && <p className="text-sm font-semibold">{subtitle}</p>}
+            {meta && <p className="text-xs opacity-60">{meta}</p>}
+          </div>
+        </div>
+        {badgeItems.length > 0 && (
+          <div className="flex flex-wrap gap-2 justify-end">
+            {badgeItems.slice(0, 4).map((badge: any, idx: number) => (
+              <span
+                key={`${badge?.label || badge}-${idx}`}
+                className="px-2 py-1 rounded-full text-[10px] uppercase tracking-[0.2em] bg-white/10 border border-white/10"
+              >
+                {typeof badge === 'string' ? badge : badge?.label || 'Info'}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
       {children}
     </div>
   );
