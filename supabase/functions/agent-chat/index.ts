@@ -141,7 +141,7 @@ function isOriginAllowed(origin: string | null, allowed: string[]): boolean {
 function buildSystemPrompt(instructions?: string | null, a2uiEnabled?: boolean | null) {
   const base = instructions?.trim() || 'You are a helpful AI assistant. Respond concisely and helpfully.';
   if (!a2uiEnabled) return base;
-  return `${base}\n\nWhen useful, you may include a JSON object with {"a2ui":{"version":"0.8","ui":<tree>},"fallback_text":"..."}.\nIf A2UI is not needed, respond normally with text.\nFor time/weather requests, prefer a Card with props {variant:\"time\", icon, title, subtitle, meta, badges, accent_color} and children Text nodes for the main time/weather values.\nFor appointment confirmations or schedules, ALWAYS include an A2UI Card (variant:\"evolve-appointment\" or a plain Card) that lists date, time, location, and confirmation details when available, plus fallback_text.\nFor location/address questions, include a Map component with props {query: \"<address or place>\", zoom, height, title} inside a Card so it renders a map.`;
+  return `${base}\n\nWhen useful, you may include a JSON object with {"a2ui":{"version":"0.8","ui":<tree>},"fallback_text":"..."}.\nIf A2UI is not needed, respond normally with text.\nFor time/weather requests, prefer a Card with props {variant:\"time\", icon, title, subtitle, meta, badges, accent_color} and children Text nodes for the main time/weather values.\nFor appointment confirmations or schedules, ALWAYS include an A2UI Card (variant:\"evolve-appointment\" or a plain Card) that lists date, time, location, and confirmation details when available, plus fallback_text.\nFor location/address questions, include a Map component with props {query: \"<address or place>\", zoom, height, title} inside a Card so it renders a map.\nFor availability questions, include a Calendar component with props {date, timezone, title, slots:[{time,label,status}]} inside a Card to show available booking slots.`;
 }
 
 function shouldForceA2UI(message?: string | null): boolean {
@@ -159,7 +159,10 @@ function shouldForceA2UI(message?: string | null): boolean {
     normalized.includes('address') ||
     normalized.includes('map') ||
     normalized.includes('where') ||
-    normalized.includes('directions')
+    normalized.includes('directions') ||
+    normalized.includes('availability') ||
+    normalized.includes('available') ||
+    normalized.includes('slots')
   );
 }
 
@@ -1062,7 +1065,7 @@ Deno.serve(async (req: Request) => {
     const lastUserMessage = [...body.messages].reverse().find((msg) => msg.role === 'user')?.content || '';
     const extraA2UIHint =
       agentConfig.a2ui_enabled && shouldForceA2UI(lastUserMessage)
-        ? 'Return a JSON object containing {"a2ui":{"version":"0.8","ui":...},"fallback_text":"..."} for this response. Prefer a Card layout for the main content. If the user asks about location/address/where, include a Map component with props {query, zoom, height, title} inside the Card.'
+        ? 'Return a JSON object containing {"a2ui":{"version":"0.8","ui":...},"fallback_text":"..."} for this response. Prefer a Card layout for the main content. If the user asks about location/address/where, include a Map component with props {query, zoom, height, title} inside the Card. If the user asks about availability, include a Calendar component with props {date, timezone, title, slots:[{time,label,status}]} inside the Card.'
         : null;
     const chatMessages: ChatMessage[] = [
       { role: 'system', content: systemPrompt },

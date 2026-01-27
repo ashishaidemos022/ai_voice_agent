@@ -327,6 +327,54 @@ function A2UIMap({ node }: { node: A2UIElement }) {
   );
 }
 
+type CalendarSlot = {
+  time: string;
+  label?: string;
+  status?: 'available' | 'booked' | 'unavailable';
+};
+
+function A2UICalendar({ node }: { node: A2UIElement }) {
+  const dateLabel = typeof node.props?.date === 'string' ? node.props.date : '';
+  const timezone = typeof node.props?.timezone === 'string' ? node.props.timezone : '';
+  const slots = Array.isArray(node.props?.slots) ? (node.props.slots as CalendarSlot[]) : [];
+  const title = typeof node.props?.title === 'string' ? node.props.title : 'Available slots';
+  return (
+    <div className="a2ui-calendar">
+      <div className="a2ui-calendar__header">
+        <div>
+          <p className="a2ui-text--eyebrow">Availability</p>
+          <p className="a2ui-text--title">{title}</p>
+        </div>
+        <div className="a2ui-calendar__meta">
+          {dateLabel && <span>{dateLabel}</span>}
+          {timezone && <span>{timezone}</span>}
+        </div>
+      </div>
+      <div className="a2ui-calendar__grid">
+        {slots.length === 0 ? (
+          <div className="a2ui-calendar__empty">No availability listed.</div>
+        ) : (
+          slots.map((slot, idx) => {
+            const status = slot.status || 'available';
+            const className =
+              status === 'available'
+                ? 'a2ui-slot a2ui-slot--available'
+                : status === 'booked'
+                ? 'a2ui-slot a2ui-slot--booked'
+                : 'a2ui-slot a2ui-slot--unavailable';
+            return (
+              <div key={`${slot.time}-${idx}`} className={className}>
+                <span className="a2ui-slot__time">{slot.time}</span>
+                {slot.label && <span className="a2ui-slot__label">{slot.label}</span>}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function A2UIRenderer({ ui, fallbackText, onEvent, className }: A2UIRendererProps) {
   const nodes = Array.isArray(ui) ? ui : [ui];
 
@@ -360,6 +408,8 @@ export function A2UIRenderer({ ui, fallbackText, onEvent, className }: A2UIRende
         );
       case 'Map':
         return <A2UIMap key={key} node={node} />;
+      case 'Calendar':
+        return <A2UICalendar key={key} node={node} />;
       default:
         return null;
     }
