@@ -89,6 +89,8 @@ public/
 ```
 src/
 |-- components/
+|   |-- a2ui/
+|   |   `-- A2UIRenderer.tsx
 |   |-- auth/
 |   |   `-- AuthScreen.tsx
 |   |-- chat/
@@ -157,6 +159,7 @@ src/
 |-- embed/
 |   |-- ChatEmbedApp.tsx
 |   |-- embed-api.ts
+|   |-- personaplex-gateway.ts
 |   |-- useEmbedChat.ts
 |   |-- useVoiceEmbed.ts
 |   `-- VoiceEmbedApp.tsx
@@ -168,6 +171,7 @@ src/
 |-- lib/
 |   |-- audio-manager.ts
 |   |-- audio-worklet-processor.ts
+|   |-- a2ui.ts
 |   |-- chat-realtime-client.ts
 |   |-- chat-session-service.ts
 |   |-- config-service.ts
@@ -177,6 +181,8 @@ src/
 |   |-- mcp-client.ts
 |   |-- mcp-normalizer.ts
 |   |-- n8n-service.ts
+|   |-- personaplex/
+|   |   `-- decoderWorker.ts
 |   |-- rag-service.ts
 |   |-- realtime-client.ts
 |   |-- supabase.ts
@@ -185,6 +191,9 @@ src/
 |   |-- usage-pricing.ts
 |   |-- usage-tracker.ts
 |   |-- utils.ts
+|   |-- voice-adapters/
+|   |   |-- personaplex-adapter.ts
+|   |   `-- types.ts
 |   `-- voice-embed-service.ts
 |-- marketing/
 |-- state/
@@ -1548,6 +1557,8 @@ src/
 |-- assets/
 |   `-- react.svg
 |-- components/
+|   |-- a2ui/
+|   |   `-- A2UIRenderer.tsx
 |   `-- ui/
 |       `-- Button.tsx
 |-- embed/
@@ -1557,6 +1568,7 @@ src/
 |   |-- useVoiceEmbed.ts
 |   `-- VoiceEmbedApp.tsx
 |-- lib/
+|   |-- a2ui.ts
 |   |-- audio-manager.ts
 |   |-- audio-worklet-processor.ts
 |   |-- mcp-api-client.ts
@@ -1795,6 +1807,7 @@ public/
 #### Key modules
 - Embed chat: `src/embed/ChatEmbedApp.tsx`, `src/embed/useEmbedChat.ts`, `src/embed/embed-api.ts`.
 - Voice embed: `src/embed/VoiceEmbedApp.tsx`, `src/embed/useVoiceEmbed.ts`.
+- A2UI rendering: `src/components/a2ui/A2UIRenderer.tsx`, `src/lib/a2ui.ts`.
 - Tool registry: `src/lib/tools-registry.ts` (same contract as main app, smaller surface).
 
 #### Important files (File -> Purpose)
@@ -1922,6 +1935,23 @@ public/
   - Loader script injects iframe pointing to `/embed/voice/:public_id`.
   - Embed app requests ephemeral OpenAI token from `voice-ephemeral-key`.
   - Usage gets recorded via `embed-usage`.
+
+### PersonaPlex voice provider (speech-to-speech)
+- Files: `src/lib/voice-adapters/personaplex-adapter.ts`, `src/lib/personaplex/decoderWorker.ts`, `src/lib/personaplex-gateway.ts`, `src/embed/personaplex-gateway.ts`, `src/hooks/useVoiceAgent.ts`, `src/embed/useVoiceEmbed.ts`, `src/components/panels/SettingsPanel.tsx`, `supabase/functions/personaplex-gateway-token/index.ts`, `supabase/migrations/20260122190000_add_personaplex_voice_provider.sql`, `gateway/src/server.js`, `gateway/README.md`.
+- Execution path:
+  - Voice preset sets `voice_provider = personaplex`, plus `voice_id` and `voice_persona_prompt` (`SettingsPanel.tsx` -> `va_agent_configs`).
+  - On session start, `useVoiceAgent.ts` calls `personaplex-gateway-token` with auth; embeds call it via `agent_public_id` to mint a short-lived JWT and gateway WebSocket URL.
+  - `PersonaPlexVoiceAdapter` connects to the gateway, streams Opus frames, and decodes audio via `decoderWorker.ts` into browser playback. Tool calls are disabled for PersonaPlex sessions.
+  - Gateway validates JWTs, checks allowed origins, and proxies frames to the PersonaPlex upstream (`gateway/src/server.js`).
+
+### A2UI (agent-generated UI)
+- Files (ai_voice_agent): `src/lib/a2ui.ts`, `src/components/a2ui/A2UIRenderer.tsx`, `src/components/chat/ChatAgent.tsx`, `src/components/conversation/MessageBubble.tsx`, `src/components/VoiceAgent.tsx`, `src/components/panels/SettingsPanel.tsx`, `src/hooks/useVoiceAgent.ts`, `src/lib/realtime-client.ts`, `src/lib/chat-realtime-client.ts`, `src/embed/ChatEmbedApp.tsx`, `src/embed/VoiceEmbedApp.tsx`, `src/embed/useEmbedChat.ts`, `src/embed/useVoiceEmbed.ts`, `supabase/functions/agent-chat/index.ts`, `supabase/migrations/20260126121500_add_a2ui_enabled_to_agent_configs.sql`.
+- Files updated in `my-agent-embed`: `src/components/a2ui/A2UIRenderer.tsx`, `src/lib/a2ui.ts`, `src/embed/ChatEmbedApp.tsx`, `src/embed/VoiceEmbedApp.tsx`, `src/embed/useEmbedChat.ts`, `src/embed/useVoiceEmbed.ts`, `src/index.css`.
+- Execution path:
+  - `a2ui_enabled` is stored on `va_agent_configs` and toggled in Settings (migration `20260126121500_add_a2ui_enabled_to_agent_configs.sql`).
+  - System prompts (chat + realtime) allow the model to return a JSON payload with `a2ui.version = "0.8"` and `fallback_text` (`agent-chat/index.ts`, `realtime-client.ts`, `chat-realtime-client.ts`).
+  - `parseA2UIPayload()` normalizes and validates A2UI components; `A2UIRenderer` renders Cards, Text, Buttons, Forms, Maps, and Calendar nodes when enabled.
+  - UI events are emitted as `A2UI_EVENT {...}` user messages via `formatA2UIEventMessage()` and parsed with `getA2UIEventDisplay()` for transcript display.
 
 ### Knowledge base / RAG
 - Files: `src/components/rag/KnowledgeBaseDrawer.tsx`, `src/lib/rag-service.ts`, `supabase/functions/rag-service/index.ts`, `supabase/migrations/20251215101500_create_rag_schema.sql`.
