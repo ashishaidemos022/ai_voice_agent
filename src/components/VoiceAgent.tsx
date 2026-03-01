@@ -72,6 +72,8 @@ function mergeRealtimeConfig(prev: RealtimeConfig | null, next: RealtimeConfig):
     ...fallback,
     ...next,
     voice_provider: next.voice_provider ?? fallback?.voice_provider ?? 'openai_realtime',
+    voice_provider_key_id: next.voice_provider_key_id ?? fallback?.voice_provider_key_id ?? null,
+    voice_provider_config: next.voice_provider_config ?? fallback?.voice_provider_config ?? {},
     voice_persona_prompt: next.voice_persona_prompt ?? fallback?.voice_persona_prompt ?? null,
     voice_id: next.voice_id ?? fallback?.voice_id ?? null,
     voice_sample_rate_hz: next.voice_sample_rate_hz ?? fallback?.voice_sample_rate_hz ?? null,

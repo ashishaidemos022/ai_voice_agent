@@ -48,7 +48,9 @@ export interface AgentConfigPreset {
   chat_theme?: Record<string, any> | null;
   a2ui_enabled?: boolean;
   voice: string;
-  voice_provider?: 'openai_realtime' | 'personaplex' | null;
+  voice_provider?: 'openai_realtime' | 'personaplex' | 'elevenlabs_tts' | null;
+  voice_provider_key_id?: string | null;
+  voice_provider_config?: Record<string, any> | null;
   voice_persona_prompt?: string | null;
   voice_id?: string | null;
   voice_sample_rate_hz?: number | null;
@@ -105,6 +107,8 @@ export function configPresetToRealtimeConfig(preset: AgentConfigPreset): Realtim
     max_response_output_tokens: preset.max_response_output_tokens,
     a2ui_enabled: preset.a2ui_enabled ?? false,
     voice_provider: preset.voice_provider ?? 'openai_realtime',
+    voice_provider_key_id: preset.voice_provider_key_id ?? null,
+    voice_provider_config: preset.voice_provider_config ?? {},
     voice_persona_prompt: preset.voice_persona_prompt ?? null,
     voice_id: preset.voice_id ?? null,
     voice_sample_rate_hz: preset.voice_sample_rate_hz ?? null,
@@ -118,12 +122,15 @@ export function configPresetToRealtimeConfig(preset: AgentConfigPreset): Realtim
 }
 
 export function realtimeConfigToPreset(config: RealtimeConfig, name: string): Partial<AgentConfigPreset> {
+  const provider = config.voice_provider ?? 'openai_realtime';
   return {
     name,
     instructions: config.instructions,
     a2ui_enabled: config.a2ui_enabled ?? false,
     voice: config.voice,
-    voice_provider: config.voice_provider ?? 'openai_realtime',
+    voice_provider: provider,
+    voice_provider_key_id: provider === 'elevenlabs_tts' ? (config.voice_provider_key_id ?? null) : null,
+    voice_provider_config: config.voice_provider_config ?? {},
     voice_persona_prompt: config.voice_persona_prompt ?? null,
     voice_id: config.voice_id ?? null,
     voice_sample_rate_hz: config.voice_sample_rate_hz ?? null,

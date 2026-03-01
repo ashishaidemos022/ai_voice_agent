@@ -35,13 +35,68 @@ interface VoiceEmbedResponse {
   error?: string;
 }
 
+async function getAccessToken(options?: { forceRefresh?: boolean }): Promise<string | null> {
+  const forceRefresh = Boolean(options?.forceRefresh);
+  const {
+    data: { session }
+  } = await supabase.auth.getSession();
+  if (!forceRefresh && session?.access_token) return session.access_token;
+
+  const { data: refreshed } = await supabase.auth.refreshSession();
+  return refreshed.session?.access_token ?? null;
+}
+
 async function callVoiceEmbedService(payload: VoiceEmbedRequest): Promise<VoiceEmbedResponse> {
-  const { data, error } = await supabase.functions.invoke<VoiceEmbedResponse>('voice-embed-service', {
-    body: payload
-  });
-  if (error) {
-    throw new Error(error.message || 'Voice embed service request failed');
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+  if (!supabaseUrl || !anonKey) {
+    throw new Error('Supabase client environment is not configured');
   }
+
+  let accessToken = await getAccessToken();
+  if (!accessToken) {
+    throw new Error('Your session expired. Please sign out and sign in again.');
+  }
+
+  const buildHeaders = (token: string): Record<string, string> => ({
+    'Content-Type': 'application/json',
+    apikey: anonKey,
+    Authorization: `Bearer ${token}`
+  });
+
+  const request = async (token: string) => {
+    const response = await fetch(`${supabaseUrl.replace(/\/$/, '')}/functions/v1/voice-embed-service`, {
+      method: 'POST',
+      headers: buildHeaders(token),
+      body: JSON.stringify(payload)
+    });
+
+    let data: VoiceEmbedResponse | null = null;
+    try {
+      data = (await response.json()) as VoiceEmbedResponse;
+    } catch {
+      data = null;
+    }
+
+    return { response, data };
+  };
+
+  let { response, data } = await request(accessToken);
+
+  if (response.status === 401) {
+    accessToken = await getAccessToken({ forceRefresh: true });
+    if (!accessToken) {
+      throw new Error('Your session expired. Please sign out and sign in again.');
+    }
+    const retry = await request(accessToken);
+    response = retry.response;
+    data = retry.data;
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.error || `Voice embed service request failed (${response.status})`);
+  }
+
   return data ?? {};
 }
 

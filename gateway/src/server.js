@@ -6,11 +6,15 @@ import { createClient } from '@supabase/supabase-js';
 
 const PORT = Number(process.env.PORT || 8080);
 const JWT_SECRET = process.env.PERSONAPLEX_GATEWAY_JWT_SECRET;
+const ELEVENLABS_JWT_SECRET = process.env.ELEVENLABS_GATEWAY_JWT_SECRET;
 const PERSONAPLEX_WS_URL = process.env.PERSONAPLEX_WS_URL;
 const HEALTH_INTERVAL_MS = Number(process.env.PERSONAPLEX_HEALTH_INTERVAL_MS || 60000);
 const HEALTH_VOICE_PROMPT = process.env.PERSONAPLEX_HEALTH_VOICE_PROMPT || 'NATF0.pt';
 const HEALTH_TEXT_PROMPT = process.env.PERSONAPLEX_HEALTH_TEXT_PROMPT || '';
 const UPSTREAM_TIMEOUT_MS = Number(process.env.PERSONAPLEX_UPSTREAM_TIMEOUT_MS || 15000);
+const ELEVENLABS_BASE_URL = process.env.ELEVENLABS_BASE_URL || 'https://api.elevenlabs.io';
+const ELEVENLABS_UPSTREAM_TIMEOUT_MS = Number(process.env.ELEVENLABS_UPSTREAM_TIMEOUT_MS || 15000);
+const ELEVENLABS_EXPRESSIVE_TIMEOUT_MS = Number(process.env.ELEVENLABS_EXPRESSIVE_TIMEOUT_MS || 60000);
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -20,6 +24,9 @@ const supabase = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
 
 if (!JWT_SECRET) {
   console.warn('[personaplex-gateway] PERSONAPLEX_GATEWAY_JWT_SECRET is missing');
+}
+if (!ELEVENLABS_JWT_SECRET) {
+  console.warn('[gateway] ELEVENLABS_GATEWAY_JWT_SECRET is missing');
 }
 if (!PERSONAPLEX_WS_URL) {
   console.warn('[personaplex-gateway] PERSONAPLEX_WS_URL is missing');
@@ -67,6 +74,87 @@ const buildPersonaPlexUrl = (tokenPayload) => {
   return url;
 };
 
+const decodeStoredKey = (value) => {
+  if (!value) return '';
+  try {
+    return Buffer.from(value, 'base64').toString('utf8').trim();
+  } catch {
+    return '';
+  }
+};
+
+const chunkBuffer = (buffer, chunkSize = 8192) => {
+  const chunks = [];
+  for (let i = 0; i < buffer.length; i += chunkSize) {
+    chunks.push(buffer.slice(i, i + chunkSize));
+  }
+  return chunks;
+};
+
+const buildElevenLabsBase = () => {
+  const parsed = new URL(ELEVENLABS_BASE_URL);
+  const cleanPath = parsed.pathname.replace(/\/+$/, '');
+  parsed.pathname = cleanPath.endsWith('/v1') ? cleanPath.slice(0, -3) || '/' : cleanPath || '/';
+  parsed.search = '';
+  parsed.hash = '';
+  return parsed;
+};
+
+const synthesizeElevenLabsPcm = async ({ apiKey, voiceId, modelId, voiceSettings, outputFormat, text, expressiveMode }) => {
+  const controller = new AbortController();
+  const timeoutMs = expressiveMode || /(^|_)v3$/i.test(`${modelId || ''}`)
+    ? ELEVENLABS_EXPRESSIVE_TIMEOUT_MS
+    : ELEVENLABS_UPSTREAM_TIMEOUT_MS;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const base = buildElevenLabsBase();
+    const voiceIdEncoded = encodeURIComponent(voiceId);
+    const candidatePaths = [
+      `/v1/text-to-speech/${voiceIdEncoded}`,
+      `/v1/text-to-speech/${voiceIdEncoded}/stream`
+    ];
+
+    let lastError = null;
+    for (const path of candidatePaths) {
+      const url = new URL(path, base);
+      url.searchParams.set('output_format', outputFormat || 'pcm_24000');
+
+      const response = await fetch(url.toString(), {
+        method: 'POST',
+        headers: {
+          'xi-api-key': apiKey,
+          'Content-Type': 'application/json',
+          Accept: 'application/octet-stream'
+        },
+        body: JSON.stringify({
+          text,
+          model_id: modelId || 'eleven_multilingual_v2',
+          voice_settings: voiceSettings || undefined
+        }),
+        signal: controller.signal
+      });
+      if (response.ok) {
+        const arrayBuffer = await response.arrayBuffer();
+        return Buffer.from(arrayBuffer);
+      }
+
+      const body = await response.text();
+      const reason = body?.slice(0, 300) || response.statusText || 'unknown';
+      lastError = new Error(`ElevenLabs request failed: ${response.status} ${reason} (path: ${url.pathname})`);
+      if (response.status !== 404) {
+        throw lastError;
+      }
+    }
+
+    if (lastError && /request failed: 404/i.test(lastError.message)) {
+      throw new Error(`${lastError.message}. Verify voice_id belongs to the same ElevenLabs account as the API key.`);
+    }
+    throw lastError || new Error('ElevenLabs request failed with unknown error');
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
 const server = http.createServer((req, res) => {
   if (!req.url) {
     res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -110,14 +198,27 @@ server.on('upgrade', (req, socket, head) => {
   const agent = url.searchParams.get('agent');
   const session = url.searchParams.get('session');
 
-  if (!token || !JWT_SECRET) {
+  if (!token || (!JWT_SECRET && !ELEVENLABS_JWT_SECRET)) {
     socket.destroy();
     return;
   }
 
   let payload;
   try {
-    payload = jwt.verify(token, JWT_SECRET);
+    const secrets = [JWT_SECRET, ELEVENLABS_JWT_SECRET].filter(Boolean);
+    let verified = null;
+    for (const secret of secrets) {
+      try {
+        verified = jwt.verify(token, secret);
+        break;
+      } catch {
+        // try next secret
+      }
+    }
+    if (!verified) {
+      throw new Error('Invalid token');
+    }
+    payload = verified;
   } catch (err) {
     socket.destroy();
     return;
@@ -160,6 +261,122 @@ wss.on('connection', (client, req) => {
     session_id: payload.session_id,
     sub: payload.sub
   }));
+
+  if (payload?.voice_provider === 'elevenlabs_tts') {
+    const closeClient = (code, reason) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.close(code, reason);
+      }
+    };
+
+    const sendJson = (message) => {
+      if (client.readyState !== WebSocket.OPEN) return;
+      client.send(JSON.stringify(message));
+    };
+
+    let keyValue = '';
+    let isBusy = false;
+
+    const init = async () => {
+      try {
+        if (!supabase) {
+          throw new Error('SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY required for elevenlabs gateway');
+        }
+        if (!payload?.elevenlabs_key_id) {
+          throw new Error('Missing elevenlabs_key_id in token payload');
+        }
+        if (!payload?.voice_id) {
+          throw new Error('Missing voice_id in token payload');
+        }
+        const { data: keyRow, error: keyError } = await supabase
+          .from('va_provider_keys')
+          .select('id, encrypted_key, provider')
+          .eq('id', payload.elevenlabs_key_id)
+          .single();
+        if (keyError || !keyRow) {
+          throw new Error('Unable to resolve ElevenLabs provider key');
+        }
+        if (keyRow.provider !== 'elevenlabs') {
+          throw new Error('Invalid provider key for elevenlabs');
+        }
+        keyValue = decodeStoredKey(keyRow.encrypted_key);
+        if (!keyValue) {
+          throw new Error('Invalid stored ElevenLabs API key');
+        }
+      } catch (err) {
+        console.error('[gateway] elevenlabs init failed', err);
+        closeClient(1011, 'elevenlabs-init-failed');
+      }
+    };
+
+    void init();
+
+    client.on('message', async (data) => {
+      if (isBusy) return;
+      let message;
+      try {
+        message = JSON.parse(data.toString());
+      } catch {
+        sendJson({ type: 'error', error: 'invalid-json' });
+        return;
+      }
+      if (!message || typeof message !== 'object') return;
+
+      if (message.type === 'cancel') {
+        return;
+      }
+
+      if (message.type !== 'speak') {
+        sendJson({ type: 'error', error: 'unsupported-message-type' });
+        return;
+      }
+
+      const text = `${message.text || ''}`.trim();
+      if (!text) return;
+      if (!keyValue) {
+        sendJson({ type: 'error', error: 'elevenlabs-key-not-ready' });
+        return;
+      }
+
+      isBusy = true;
+      try {
+        const pcm = await synthesizeElevenLabsPcm({
+          apiKey: keyValue,
+          voiceId: payload.voice_id,
+          modelId: payload.elevenlabs_model_id,
+          voiceSettings: payload.elevenlabs_voice_settings,
+          outputFormat: payload.elevenlabs_output_format,
+          text,
+          expressiveMode: payload.elevenlabs_expressive_mode
+        });
+        const chunks = chunkBuffer(pcm, 8192);
+        chunks.forEach((chunk) => {
+          sendJson({ type: 'audio.delta', delta: chunk.toString('base64') });
+        });
+        sendJson({ type: 'audio.done' });
+      } catch (err) {
+        console.error('[gateway] elevenlabs synth failed', err);
+        sendJson({ type: 'error', error: `elevenlabs-synthesis-failed: ${err?.message || 'unknown'}` });
+      } finally {
+        isBusy = false;
+      }
+    });
+
+    client.on('close', () => {
+      const durationMs = Date.now() - startTime;
+      console.log(JSON.stringify({
+        event: 'gateway_session_end',
+        connection_id: connectionId,
+        agent_id: payload.agent_id,
+        session_id: payload.session_id,
+        duration_ms: durationMs,
+        bytes_in: bytesIn,
+        bytes_out: bytesOut
+      }));
+    });
+
+    return;
+  }
 
   let upstream;
   let upstreamTimeout;

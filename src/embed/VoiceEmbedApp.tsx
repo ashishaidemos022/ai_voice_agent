@@ -110,6 +110,9 @@ export function VoiceEmbedApp() {
   const helperTextStyle = appearance?.helper_text_color
     ? { color: 'var(--va-embed-helper-text)' }
     : undefined;
+  const idleButtonStyle = !isRecording && helperTextStyle
+    ? { ...(buttonStyle || {}), color: 'var(--va-embed-helper-text)' }
+    : buttonStyle;
   const radiusStyle = appearance?.corner_radius !== null && appearance?.corner_radius !== undefined
     ? { borderRadius: 'var(--va-embed-radius)' }
     : undefined;
@@ -175,7 +178,7 @@ export function VoiceEmbedApp() {
           )}
           <div>
             <p className="text-sm font-semibold">{appearance?.brand_name || agentMeta?.name || 'Voice Agent'}</p>
-            <p className={cn('text-[11px]', theme === 'light' ? 'text-slate-500' : 'text-white/60')}>
+            <p className={cn('text-[11px]', theme === 'light' ? 'text-slate-500' : 'text-white/60')} style={helperTextStyle}>
               {agentMeta?.summary || 'Live AI assistant'}
             </p>
           </div>
@@ -186,6 +189,7 @@ export function VoiceEmbedApp() {
               'px-2 py-0.5 rounded-full text-[11px] uppercase tracking-[0.3em]',
               isConnected ? 'bg-emerald-500/10 text-emerald-200 border border-emerald-400/50' : 'bg-white/10 text-white/60 border border-white/20'
             )}
+            style={!isConnected ? helperTextStyle : undefined}
           >
             {isConnected ? 'Connected' : 'Offline'}
           </span>
@@ -219,7 +223,7 @@ export function VoiceEmbedApp() {
               className={cn('gap-2', isRecording ? 'bg-rose-500 hover:bg-rose-400 text-white' : '')}
               onClick={toggleRecording}
               disabled={isInitializing || isLoadingMeta}
-              style={!isRecording ? buttonStyle : undefined}
+              style={!isRecording ? idleButtonStyle : undefined}
             >
               {isInitializing ? (
                 <Loader2 className="w-4 h-4 animate-spin" />

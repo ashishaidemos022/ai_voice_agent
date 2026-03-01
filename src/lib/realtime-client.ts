@@ -27,6 +27,7 @@ type RealtimeClientOptions = {
   apiKey?: string;
   tools?: ReturnType<typeof getToolSchemas>;
   allowInterruptions?: boolean;
+  textOnly?: boolean;
 };
 
 export class RealtimeAPIClient {
@@ -48,12 +49,14 @@ export class RealtimeAPIClient {
   private activeResponseCount = 0;
   private cancelPending = false;
   private allowInterruptions: boolean;
+  private textOnly: boolean;
 
   constructor(config: RealtimeConfig, options?: RealtimeClientOptions) {
     this.config = config;
     this.overrideApiKey = options?.apiKey;
     this.overrideTools = options?.tools;
     this.allowInterruptions = options?.allowInterruptions ?? true;
+    this.textOnly = options?.textOnly ?? false;
   }
 
   updateSessionConfig(newConfig: RealtimeConfig): void {
@@ -167,14 +170,12 @@ export class RealtimeAPIClient {
     const ragInstructions = this.config.rag_mode === 'guardrail'
       ? `${this.config.instructions}\n\nIf relevant knowledge from the approved knowledge base is unavailable, respond with "I do not have enough knowledge to answer that yet."\n\n${languageGuard}${a2uiInstruction}`
       : `${this.config.instructions}\n\n${languageGuard}${a2uiInstruction}`;
-    const sessionConfig = {
+    const sessionConfig: any = {
       type: 'session.update',
       session: {
-        modalities: ['text', 'audio'],
+        modalities: this.textOnly ? ['text'] : ['text', 'audio'],
         instructions: ragInstructions,
-        voice: this.config.voice,
         input_audio_format: 'pcm16',
-        output_audio_format: 'pcm16',
         input_audio_transcription: {
           model: 'gpt-4o-transcribe',
           language: 'en'
@@ -191,6 +192,10 @@ export class RealtimeAPIClient {
         max_response_output_tokens: this.config.max_response_output_tokens
       }
     };
+    if (!this.textOnly) {
+      sessionConfig.session.voice = this.config.voice;
+      sessionConfig.session.output_audio_format = 'pcm16';
+    }
 
     console.log('📤 Sending session.update', {
       turnDetection: sessionConfig.session.turn_detection,
@@ -270,11 +275,13 @@ export class RealtimeAPIClient {
         break;
 
       case 'response.audio.delta':
+        if (this.textOnly) break;
         this.setAgentState('speaking');
         this.emit({ type: 'audio.delta', delta: message.delta });
         break;
 
       case 'response.audio.done':
+        if (this.textOnly) break;
         this.emit({ type: 'audio.done' });
         break;
 
@@ -298,11 +305,13 @@ export class RealtimeAPIClient {
 
       // Newer Realtime event names (output_*). Mirror the legacy audio.* behavior.
       case 'response.output_audio.delta':
+        if (this.textOnly) break;
         this.setAgentState('speaking');
         this.emit({ type: 'audio.delta', delta: message.delta });
         break;
 
       case 'response.output_audio.done':
+        if (this.textOnly) break;
         this.emit({ type: 'audio.done' });
         break;
       case 'response.output_text.delta':

@@ -8,6 +8,9 @@
 		},
 		{
 			"path": "../../voice-agent-mcp"
+		},
+		{
+			"path": "../../viaana-personaplex-gateway"
 		}
 	],
 	"settings": {}

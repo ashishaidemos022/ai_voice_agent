@@ -36,9 +36,74 @@ interface VoiceEmbedRequestPayload {
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY');
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error('Supabase environment variables are not configured');
+}
+
+// Uses service role to bypass RLS, but we enforce ownership checks explicitly.
+const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+function parseAuthUserId(authBearerToken: string): string {
+  const token = authBearerToken.replace(/^Bearer\s+/i, '').trim();
+  if (!token) {
+    throw new Error('Unauthorized');
+  }
+  const [, payloadBase64] = token.split('.');
+  if (!payloadBase64) {
+    throw new Error('Unauthorized');
+  }
+  const normalized = payloadBase64.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+  let payload: any;
+  try {
+    payload = JSON.parse(atob(padded));
+  } catch {
+    throw new Error('Unauthorized');
+  }
+  const sub = typeof payload?.sub === 'string' ? payload.sub : null;
+  if (!sub) {
+    throw new Error('Unauthorized');
+  }
+  return sub;
+}
+
+async function resolveVaUserId(authBearerToken: string): Promise<string> {
+  const authUserId = parseAuthUserId(authBearerToken);
+
+  const { data: vaUser, error: vaUserError } = await adminClient
+    .from('va_users')
+    .select('id')
+    .eq('auth_user_id', authUserId)
+    .maybeSingle();
+
+  if (vaUserError || !vaUser?.id) {
+    throw new Error('User profile not found');
+  }
+
+  return vaUser.id as string;
+}
+
+async function ensureOwnsAgentConfig(vaUserId: string, agentConfigId: string) {
+  const { data: config, error } = await adminClient
+    .from('va_agent_configs')
+    .select('id, user_id, name, voice, voice_provider')
+    .eq('id', agentConfigId)
+    .single();
+  if (error || !config) {
+    throw error ?? new Error('Agent config not found');
+  }
+  if (config.user_id && config.user_id !== vaUserId) {
+    throw new Error('Forbidden');
+  }
+  return config as {
+    id: string;
+    user_id: string | null;
+    name: string | null;
+    voice: string | null;
+    voice_provider: string | null;
+  };
 }
 
 function extractAuthHeader(req: Request): string | null {
@@ -66,11 +131,13 @@ function extractAuthHeader(req: Request): string | null {
 }
 
 function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 24) || 'voice-agent';
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 24) || 'voice-agent'
+  );
 }
 
 function randomSuffix(length = 4): string {
@@ -91,6 +158,12 @@ function parseOrigins(input?: string[] | string): string[] {
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
+}
+
+async function fetchEmbedById(id: string) {
+  const { data, error } = await adminClient.from('va_voice_embeds').select('*').eq('id', id).single();
+  if (error) throw error;
+  return data;
 }
 
 async function ensureUniqueVoicePublicId(
@@ -146,14 +219,8 @@ async function ensureUniqueVoicePublicId(
       widget_height: defaults.widget_height ?? null,
       button_image_url: defaults.button_image_url ?? null
     };
-    const { data, error } = await client
-      .from('va_voice_embeds')
-      .insert(insertPayload)
-      .select('*')
-      .single();
-    if (!error && data) {
-      return data;
-    }
+    const { data, error } = await client.from('va_voice_embeds').insert(insertPayload).select('*').single();
+    if (!error && data) return data;
     const isUniqueViolation = error?.message?.includes('va_voice_embeds_public_id_key');
     if (!isUniqueViolation) {
       throw error ?? new Error('Failed to create voice embed');
@@ -183,19 +250,12 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      global: { headers: { Authorization: authHeader } }
-    });
-
-    const token = authHeader.replace(/^Bearer\s+/i, '');
-    const {
-      data: { user },
-      error: userError
-    } = await supabase.auth.getUser(token);
-
-    if (userError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
+    let vaUserId: string;
+    try {
+      vaUserId = await resolveVaUserId(authHeader);
+    } catch (authError: any) {
+      return new Response(JSON.stringify({ error: authError?.message || 'Unauthorized' }), {
+        status: authError?.message === 'Forbidden' ? 403 : 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
@@ -215,35 +275,49 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // Always enforce ownership via service role client (bypass RLS but keep security).
+    const agentConfig = await ensureOwnsAgentConfig(vaUserId, payload.agent_config_id);
+    const isOpenAI = !agentConfig.voice_provider || agentConfig.voice_provider === 'openai_realtime';
+
     switch (payload.action) {
       case 'get_embed': {
-        const { data, error } = await supabase
+        const { data, error } = await adminClient
           .from('va_voice_embeds')
           .select('*')
           .eq('agent_config_id', payload.agent_config_id)
+          .eq('user_id', vaUserId)
           .maybeSingle();
-        if (error) {
-          throw error;
+        if (error) throw error;
+
+        // Self-heal legacy rows: tts_voice is an OpenAI-only override.
+        // If this embed belongs to a non-OpenAI provider, always clear tts_voice.
+        // If OpenAI and tts_voice matches the agent preset voice, clear it so future preset changes reflect.
+        if (data?.id && data.tts_voice !== null) {
+          const shouldClear = !isOpenAI || data.tts_voice === agentConfig.voice;
+          if (shouldClear) {
+            const { error: healError } = await adminClient
+              .from('va_voice_embeds')
+              .update({ tts_voice: null })
+              .eq('id', data.id);
+            if (healError) throw healError;
+            const healed = await fetchEmbedById(data.id);
+            return new Response(JSON.stringify({ embed: healed }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            });
+          }
         }
+
         return new Response(JSON.stringify({ embed: data }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       }
 
       case 'create_embed': {
-        const { data: config, error: configError } = await supabase
-          .from('va_agent_configs')
-          .select('id, name, voice')
-          .eq('id', payload.agent_config_id)
-          .single();
-        if (configError || !config) {
-          throw configError ?? new Error('Agent config not found');
-        }
-
-        const existing = await supabase
+        const existing = await adminClient
           .from('va_voice_embeds')
-          .select('id')
+          .select('*')
           .eq('agent_config_id', payload.agent_config_id)
+          .eq('user_id', vaUserId)
           .maybeSingle();
         if (existing.error && existing.error.code !== 'PGRST116') {
           throw existing.error;
@@ -258,7 +332,8 @@ Deno.serve(async (req: Request) => {
         const defaults = {
           allowed_origins: parseOrigins(payload.allowed_origins),
           rtc_enabled: payload.rtc_enabled ?? true,
-          tts_voice: payload.tts_voice || config.voice || null,
+          // tts_voice is an OpenAI-only override. Default NULL so embeds follow the agent preset voice.
+          tts_voice: isOpenAI ? payload.tts_voice ?? null : null,
           logo_url: payload.logo_url ?? null,
           brand_name: payload.brand_name ?? null,
           accent_color: payload.accent_color ?? null,
@@ -276,12 +351,28 @@ Deno.serve(async (req: Request) => {
           widget_height: payload.widget_height ?? null,
           button_image_url: payload.button_image_url ?? null
         };
+
         const created = await ensureUniqueVoicePublicId(
-          supabase,
+          adminClient,
           payload.agent_config_id,
-          config.name || 'voice-agent',
+          agentConfig.name || 'voice-agent',
           defaults
         );
+
+        // Defensive self-heal + deterministic ownership.
+        if (created?.id) {
+          const patch: Record<string, any> = {};
+          if (!isOpenAI && created.tts_voice !== null) patch.tts_voice = null;
+          if (created.user_id !== vaUserId) patch.user_id = vaUserId;
+          if (Object.keys(patch).length > 0) {
+            await adminClient.from('va_voice_embeds').update(patch).eq('id', created.id);
+          }
+          const hydrated = await fetchEmbedById(created.id);
+          return new Response(JSON.stringify({ embed: hydrated }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+
         return new Response(JSON.stringify({ embed: created }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
@@ -289,85 +380,44 @@ Deno.serve(async (req: Request) => {
 
       case 'update_embed': {
         const fields: Record<string, any> = {};
-        if (payload.allowed_origins !== undefined) {
-          fields.allowed_origins = parseOrigins(payload.allowed_origins);
-        }
-        if (payload.logo_url !== undefined) {
-          fields.logo_url = payload.logo_url;
-        }
-        if (payload.brand_name !== undefined) {
-          fields.brand_name = payload.brand_name;
-        }
-        if (payload.accent_color !== undefined) {
-          fields.accent_color = payload.accent_color;
-        }
-        if (payload.background_color !== undefined) {
-          fields.background_color = payload.background_color;
-        }
-        if (payload.surface_color !== undefined) {
-          fields.surface_color = payload.surface_color;
-        }
-        if (payload.text_color !== undefined) {
-          fields.text_color = payload.text_color;
-        }
-        if (payload.button_color !== undefined) {
-          fields.button_color = payload.button_color;
-        }
-        if (payload.button_text_color !== undefined) {
-          fields.button_text_color = payload.button_text_color;
-        }
-        if (payload.helper_text_color !== undefined) {
-          fields.helper_text_color = payload.helper_text_color;
-        }
-        if (payload.corner_radius !== undefined) {
-          fields.corner_radius = payload.corner_radius;
-        }
-        if (payload.font_family !== undefined) {
-          fields.font_family = payload.font_family;
-        }
-        if (payload.wave_color !== undefined) {
-          fields.wave_color = payload.wave_color;
-        }
-        if (payload.bubble_color !== undefined) {
-          fields.bubble_color = payload.bubble_color;
-        }
-        if (payload.widget_width !== undefined) {
-          fields.widget_width = payload.widget_width;
-        }
-        if (payload.widget_height !== undefined) {
-          fields.widget_height = payload.widget_height;
-        }
-        if (payload.button_image_url !== undefined) {
-          fields.button_image_url = payload.button_image_url;
-        }
-        if (payload.is_enabled !== undefined) {
-          fields.is_enabled = payload.is_enabled;
-        }
-        if (payload.rtc_enabled !== undefined) {
-          fields.rtc_enabled = payload.rtc_enabled;
-        }
+        if (payload.allowed_origins !== undefined) fields.allowed_origins = parseOrigins(payload.allowed_origins);
+        if (payload.logo_url !== undefined) fields.logo_url = payload.logo_url;
+        if (payload.brand_name !== undefined) fields.brand_name = payload.brand_name;
+        if (payload.accent_color !== undefined) fields.accent_color = payload.accent_color;
+        if (payload.background_color !== undefined) fields.background_color = payload.background_color;
+        if (payload.surface_color !== undefined) fields.surface_color = payload.surface_color;
+        if (payload.text_color !== undefined) fields.text_color = payload.text_color;
+        if (payload.button_color !== undefined) fields.button_color = payload.button_color;
+        if (payload.button_text_color !== undefined) fields.button_text_color = payload.button_text_color;
+        if (payload.helper_text_color !== undefined) fields.helper_text_color = payload.helper_text_color;
+        if (payload.corner_radius !== undefined) fields.corner_radius = payload.corner_radius;
+        if (payload.font_family !== undefined) fields.font_family = payload.font_family;
+        if (payload.wave_color !== undefined) fields.wave_color = payload.wave_color;
+        if (payload.bubble_color !== undefined) fields.bubble_color = payload.bubble_color;
+        if (payload.widget_width !== undefined) fields.widget_width = payload.widget_width;
+        if (payload.widget_height !== undefined) fields.widget_height = payload.widget_height;
+        if (payload.button_image_url !== undefined) fields.button_image_url = payload.button_image_url;
+        if (payload.is_enabled !== undefined) fields.is_enabled = payload.is_enabled;
+        if (payload.rtc_enabled !== undefined) fields.rtc_enabled = payload.rtc_enabled;
+
         if (payload.tts_voice !== undefined) {
-          fields.tts_voice = payload.tts_voice;
+          // Only OpenAI realtime embeds can override voice via tts_voice.
+          fields.tts_voice = isOpenAI ? payload.tts_voice : null;
+        } else if (!isOpenAI) {
+          // Self-heal on ANY update for non-OpenAI providers: tts_voice must always be NULL.
+          fields.tts_voice = null;
         }
 
         if (payload.rotate_public_id) {
-          const { data: config, error: configError } = await supabase
-            .from('va_agent_configs')
-            .select('id, name')
-            .eq('id', payload.agent_config_id)
-            .single();
-          if (configError || !config) {
-            throw configError ?? new Error('Agent config not found');
-          }
-
-          const base = slugify(config.name || 'voice-agent');
+          const base = slugify(agentConfig.name || 'voice-agent');
           let updatedSlug: string | null = null;
           for (let attempt = 0; attempt < 5; attempt++) {
             const candidate = `${base}-${randomSuffix(5)}`;
-            const { data, error } = await supabase
+            const { data, error } = await adminClient
               .from('va_voice_embeds')
               .update({ public_id: candidate })
               .eq('agent_config_id', payload.agent_config_id)
+              .eq('user_id', vaUserId)
               .select('*')
               .single();
             if (!error && data) {
@@ -379,29 +429,26 @@ Deno.serve(async (req: Request) => {
               throw error ?? new Error('Failed to rotate voice embed id');
             }
           }
-          if (!updatedSlug) {
-            throw new Error('Unable to rotate voice embed id');
-          }
+          if (!updatedSlug) throw new Error('Unable to rotate voice embed id');
         }
 
         if (Object.keys(fields).length > 0) {
-          const { error: updateError } = await supabase
+          const { error: updateError } = await adminClient
             .from('va_voice_embeds')
             .update(fields)
-            .eq('agent_config_id', payload.agent_config_id);
-          if (updateError) {
-            throw updateError;
-          }
+            .eq('agent_config_id', payload.agent_config_id)
+            .eq('user_id', vaUserId);
+          if (updateError) throw updateError;
         }
 
-        const { data, error } = await supabase
+        const { data, error } = await adminClient
           .from('va_voice_embeds')
           .select('*')
           .eq('agent_config_id', payload.agent_config_id)
+          .eq('user_id', vaUserId)
           .single();
-        if (error) {
-          throw error;
-        }
+        if (error) throw error;
+
         return new Response(JSON.stringify({ embed: data }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });

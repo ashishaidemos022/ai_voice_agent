@@ -14,6 +14,8 @@ interface ToolSelectionPanelProps {
   onToolsChanged?: () => void;
 }
 
+const EMPTY_SELECTION: string[] = [];
+
 interface MCPToolInfo {
   id: string;
   tool_name: string;
@@ -47,8 +49,8 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
   const persistedSelection = useAgentState((state) =>
     configId ? state.toolSelections[configId] : undefined
   );
-  const storedMcpSelection = persistedSelection?.mcp ?? [];
-  const storedN8nSelection = persistedSelection?.n8n ?? [];
+  const storedMcpSelection = persistedSelection?.mcp ?? EMPTY_SELECTION;
+  const storedN8nSelection = persistedSelection?.n8n ?? EMPTY_SELECTION;
   const setToolsForConfig = useAgentState((state) => state.setToolsForConfig);
   const [selectedMcpTools, setSelectedMcpTools] = useState<Set<string>>(new Set(storedMcpSelection));
   const [selectedN8nTools, setSelectedN8nTools] = useState<Set<string>>(new Set(storedN8nSelection));

@@ -14,6 +14,7 @@ fly launch
 2) Set secrets:
 ```
 fly secrets set PERSONAPLEX_GATEWAY_JWT_SECRET=... \
+  ELEVENLABS_GATEWAY_JWT_SECRET=... \
   PERSONAPLEX_WS_URL=... \
   SUPABASE_URL=... \
   SUPABASE_SERVICE_ROLE_KEY=...
@@ -21,6 +22,8 @@ fly secrets set PERSONAPLEX_GATEWAY_JWT_SECRET=... \
 
 Notes:
 - `PERSONAPLEX_WS_URL` must include `/api/chat`.
+- `ELEVENLABS_GATEWAY_JWT_SECRET` is required for ElevenLabs gateway tokens.
+- Optional ElevenLabs runtime vars: `ELEVENLABS_BASE_URL`, `ELEVENLABS_UPSTREAM_TIMEOUT_MS`.
 - `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are optional (used for health reporting).
 
 3) Deploy:

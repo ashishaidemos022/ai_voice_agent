@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { AudioManager, getAudioManager } from '../lib/audio-manager';
 import { AgentState, RealtimeAPIClient } from '../lib/realtime-client';
 import { PersonaPlexVoiceAdapter } from '../lib/voice-adapters/personaplex-adapter';
+import { ElevenLabsVoiceAdapter } from '../lib/voice-adapters/elevenlabs-adapter';
 import type { VoiceAdapter } from '../lib/voice-adapters/types';
 import { supabase } from '../lib/supabase';
 import { executeTool, loadMCPTools } from '../lib/tools-registry';
@@ -12,6 +13,7 @@ import { configPresetToRealtimeConfig, getConfigPresetById } from '../lib/config
 import { useAuth } from '../context/AuthContext';
 import { normalizeUsage, recordUsageEvent } from '../lib/usage-tracker';
 import { requestPersonaPlexGatewayToken } from '../lib/personaplex-gateway';
+import { requestElevenLabsGatewayToken } from '../lib/elevenlabs-gateway';
 import { formatA2UIEventMessage, type A2UIEvent } from '../lib/a2ui';
 
 type LiveTranscripts = {
@@ -182,6 +184,8 @@ export function useVoiceAgent() {
       ...fallback,
       ...next,
       voice_provider: next.voice_provider ?? fallback?.voice_provider ?? 'openai_realtime',
+      voice_provider_key_id: next.voice_provider_key_id ?? fallback?.voice_provider_key_id ?? null,
+      voice_provider_config: next.voice_provider_config ?? fallback?.voice_provider_config ?? {},
       voice_persona_prompt: next.voice_persona_prompt ?? fallback?.voice_persona_prompt ?? null,
       voice_id: next.voice_id ?? fallback?.voice_id ?? null,
       voice_sample_rate_hz: next.voice_sample_rate_hz ?? fallback?.voice_sample_rate_hz ?? null,
@@ -694,9 +698,16 @@ export function useVoiceAgent() {
         }
 
         let gatewaySession: { token: string; gateway_ws_url: string } | null = null;
+        let elevenLabsSession: { token: string; gateway_ws_url: string } | null = null;
         const provider = hydratedConfig.voice_provider ?? 'openai_realtime';
         if (provider === 'personaplex') {
           gatewaySession = await requestPersonaPlexGatewayToken({
+            agentId: configId,
+            sessionId: sid,
+            origin: window.location.origin
+          });
+        } else if (provider === 'elevenlabs_tts') {
+          elevenLabsSession = await requestElevenLabsGatewayToken({
             agentId: configId,
             sessionId: sid,
             origin: window.location.origin
@@ -714,7 +725,14 @@ export function useVoiceAgent() {
               agentId: configId,
               sessionId: sid
             })
-          : new RealtimeAPIClient(hydratedConfig);
+          : provider === 'elevenlabs_tts'
+            ? new ElevenLabsVoiceAdapter(hydratedConfig, {
+                gatewayUrl: elevenLabsSession?.gateway_ws_url || '',
+                token: elevenLabsSession?.token || '',
+                agentId: configId,
+                sessionId: sid
+              })
+            : new RealtimeAPIClient(hydratedConfig);
 
         attachRealtimeHandlers();
         const connectTimeoutMs = 15000;

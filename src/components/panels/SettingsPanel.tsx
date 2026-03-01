@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { PostgrestError } from '@supabase/supabase-js';
 import {
   BadgeCheck,
@@ -47,6 +47,14 @@ interface SettingsPanelProps {
   onBack?: () => void;
 }
 
+type ProviderKeyRow = {
+  id: string;
+  provider: 'openai' | 'elevenlabs';
+  key_alias: string;
+  last_four: string | null;
+  created_at: string;
+};
+
 const DEFAULT_INSTRUCTIONS =
   'You are a helpful AI voice assistant. You can help users with various tasks, answer questions, and execute tools when needed. Be conversational and friendly.';
 
@@ -74,6 +82,11 @@ const VOICE_PROVIDERS = [
     value: 'personaplex',
     label: 'NVIDIA PersonaPlex',
     description: 'Full-duplex speech-to-speech at 24kHz (hosted endpoint required).'
+  },
+  {
+    value: 'elevenlabs_tts',
+    label: 'ElevenLabs TTS',
+    description: 'OpenAI realtime input + ElevenLabs voice output via gateway.'
   }
 ];
 
@@ -139,6 +152,8 @@ export function SettingsPanel({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [localProviderKeyId, setLocalProviderKeyId] = useState<string | null>(providerKeyId);
+  const [localElevenLabsKeyId, setLocalElevenLabsKeyId] = useState<string | null>(null);
+  const [providerKeys, setProviderKeys] = useState<ProviderKeyRow[]>([]);
   const [keyAlias, setKeyAlias] = useState('Primary');
   const [apiKey, setApiKey] = useState('');
   const [isSavingKey, setIsSavingKey] = useState(false);
@@ -149,13 +164,31 @@ export function SettingsPanel({
   const [inviteSuccessMessage, setInviteSuccessMessage] = useState<string | null>(null);
   const [isInviting, setIsInviting] = useState(false);
   const activePreset = presets.find((p) => p.id === activeConfigId);
-  const effectiveProviderKeyId = localProviderKeyId ?? providerKeyId;
+  const providerKeyById = useMemo(() => {
+    return new Map(providerKeys.map((key) => [key.id, key]));
+  }, [providerKeys]);
+  const latestOpenAIKeyId = providerKeys.find((key) => key.provider === 'openai')?.id ?? null;
+  const latestElevenLabsKeyId = providerKeys.find((key) => key.provider === 'elevenlabs')?.id ?? null;
+  const latestElevenLabsKey = providerKeys.find((key) => key.provider === 'elevenlabs') ?? null;
+  const effectiveOpenAIKeyId = localProviderKeyId ?? providerKeyId ?? latestOpenAIKeyId;
+  const effectiveElevenLabsKeyId = localElevenLabsKeyId ?? latestElevenLabsKeyId;
   const resolvedProvider = config.voice_provider ?? 'openai_realtime';
   const isPersonaPlex = resolvedProvider === 'personaplex';
+  const isElevenLabs = resolvedProvider === 'elevenlabs_tts';
+  const requiresProviderKey = isElevenLabs;
+  const rawVoiceProviderKeyId = config.voice_provider_key_id ?? null;
+  const isVoiceProviderKeyElevenLabs = rawVoiceProviderKeyId
+    ? providerKeyById.get(rawVoiceProviderKeyId)?.provider === 'elevenlabs'
+    : false;
+  const effectiveVoiceProviderKeyId = isElevenLabs
+    ? (isVoiceProviderKeyElevenLabs ? rawVoiceProviderKeyId : (effectiveElevenLabsKeyId ?? null))
+    : null;
+  const hasRequiredProviderKey = !requiresProviderKey || Boolean(effectiveVoiceProviderKeyId);
 
   useEffect(() => {
     if (embedded || isOpen) {
       void loadPresets();
+      void loadProviderKeys();
     }
   }, [embedded, isOpen]);
 
@@ -184,6 +217,26 @@ export function SettingsPanel({
     }
   };
 
+  const loadProviderKeys = async () => {
+    if (!userId) return;
+    try {
+      const { data, error } = await supabase
+        .from('va_provider_keys')
+        .select('id, provider, key_alias, last_four, created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+      if (error) {
+        throw error;
+      }
+      const rows = (data || []) as ProviderKeyRow[];
+      setProviderKeys(rows);
+      setLocalProviderKeyId((current) => current ?? rows.find((key) => key.provider === 'openai')?.id ?? null);
+      setLocalElevenLabsKeyId((current) => current ?? rows.find((key) => key.provider === 'elevenlabs')?.id ?? null);
+    } catch (error) {
+      console.error('Failed to load provider keys:', error);
+    }
+  };
+
   const handlePresetSelect = (presetId: string) => {
     const preset = presets.find((p) => p.id === presetId);
     if (!preset) return;
@@ -198,8 +251,10 @@ export function SettingsPanel({
       setSaveError('Please enter a preset name');
       return;
     }
-    if (!effectiveProviderKeyId && !isPersonaPlex) {
-      setSaveError('Add an OpenAI API key before saving presets.');
+    if (!hasRequiredProviderKey && requiresProviderKey) {
+      setSaveError(isElevenLabs
+        ? 'Add an ElevenLabs API key before saving presets.'
+        : 'Add an OpenAI API key before saving presets.');
       return;
     }
 
@@ -211,7 +266,11 @@ export function SettingsPanel({
         ...realtimeConfigToPreset(config, newPresetName.trim()),
         is_default: isFirstPreset
       };
-      const savedPreset = await saveConfigPreset(presetData, userId, effectiveProviderKeyId ?? undefined);
+      const savedPreset = await saveConfigPreset(
+        presetData,
+        userId,
+        !isElevenLabs ? (effectiveOpenAIKeyId ?? undefined) : undefined
+      );
       if (isFirstPreset) {
         const { error: profileError } = await supabase
           .from('va_users')
@@ -239,9 +298,9 @@ export function SettingsPanel({
     }
   };
 
-  const handleSaveProviderKey = async () => {
+  const handleSaveProviderKey = async (provider: 'openai' | 'elevenlabs') => {
     if (!apiKey.trim()) {
-      setKeyError('Please provide your OpenAI API key');
+      setKeyError(`Please provide your ${provider === 'elevenlabs' ? 'ElevenLabs' : 'OpenAI'} API key`);
       return;
     }
 
@@ -258,7 +317,7 @@ export function SettingsPanel({
 
       const insertPayload = {
         user_id: userId,
-        provider: 'openai',
+        provider,
         key_alias: keyAlias || 'Primary',
         encrypted_key: encoded,
         last_four: lastFour
@@ -269,7 +328,7 @@ export function SettingsPanel({
       if (insertError) {
         if (isConflict(insertError)) {
           const updatePayload = {
-            provider: 'openai',
+            provider,
             key_alias: keyAlias || 'Primary',
             encrypted_key: encoded,
             last_four: lastFour
@@ -278,7 +337,7 @@ export function SettingsPanel({
             .from('va_provider_keys')
             .update(updatePayload)
             .eq('user_id', userId)
-            .eq('provider', 'openai')
+            .eq('provider', provider)
             .eq('key_alias', keyAlias || 'Primary');
 
           if (updateError) {
@@ -291,9 +350,9 @@ export function SettingsPanel({
 
       const { data: providerKeyRow, error: providerKeyError } = await supabase
         .from('va_provider_keys')
-        .select('id')
+        .select('id, provider')
         .eq('user_id', userId)
-        .eq('provider', 'openai')
+        .eq('provider', provider)
         .order('created_at', { ascending: false })
         .limit(1)
         .single();
@@ -302,9 +361,18 @@ export function SettingsPanel({
         throw providerKeyError;
       }
 
-      setLocalProviderKeyId(providerKeyRow.id);
+      if (providerKeyRow.provider === 'openai') {
+        setLocalProviderKeyId(providerKeyRow.id);
+      }
+      if (providerKeyRow.provider === 'elevenlabs') {
+        setLocalElevenLabsKeyId(providerKeyRow.id);
+      }
+      if (resolvedProvider === 'elevenlabs_tts' && providerKeyRow.provider === 'elevenlabs') {
+        onConfigChange({ ...config, voice_provider_key_id: providerKeyRow.id });
+      }
       setApiKey('');
       setKeySuccessMessage('Key saved. You can finish creating your agent.');
+      await loadProviderKeys();
       await onProfileRefresh?.();
     } catch (error: any) {
       console.error('Failed to save provider key:', error);
@@ -347,10 +415,20 @@ export function SettingsPanel({
 
   const handleUpdateCurrentPreset = async () => {
     if (!activeConfigId) return;
+    if (!hasRequiredProviderKey && requiresProviderKey) {
+      setSaveError(isElevenLabs
+        ? 'Add an ElevenLabs API key before saving presets.'
+        : 'Add an OpenAI API key before saving presets.');
+      return;
+    }
     setIsLoading(true);
+    setSaveError(null);
     try {
       const name = presets.find((p) => p.id === activeConfigId)?.name || 'Unnamed';
-      const updates = realtimeConfigToPreset(config, name);
+      const updates = realtimeConfigToPreset(
+        { ...config, voice_provider_key_id: effectiveVoiceProviderKeyId },
+        name
+      );
       await updateConfigPreset(activeConfigId, updates);
       await loadPresets();
       await onPresetsRefresh?.();
@@ -384,6 +462,28 @@ export function SettingsPanel({
   };
 
   const characterCount = config.instructions.length;
+  const elevenLabsConfig = (config.voice_provider_config || {}) as Record<string, any>;
+  const isElevenLabsExpressiveMode = Boolean(elevenLabsConfig.expressive_mode);
+  const updateElevenLabsConfig = (patch: Record<string, any>) => {
+    onConfigChange({
+      ...config,
+      voice_provider_config: {
+        ...elevenLabsConfig,
+        ...patch
+      }
+    });
+  };
+  const setElevenLabsExpressiveMode = (enabled: boolean) => {
+    const nextConfig: Record<string, any> = {
+      expressive_mode: enabled
+    };
+    if (enabled) {
+      nextConfig.model_id = 'eleven_v3';
+    } else if ((elevenLabsConfig.model_id ?? '') === 'eleven_v3') {
+      nextConfig.model_id = 'eleven_multilingual_v2';
+    }
+    updateElevenLabsConfig(nextConfig);
+  };
 
   const content = (
     <div className="h-full flex flex-col">
@@ -443,7 +543,7 @@ export function SettingsPanel({
           <Button
             size="sm"
             onClick={handleUpdateCurrentPreset}
-            disabled={isLoading || !activeConfigId || !hasUnsavedChanges}
+            disabled={isLoading || !activeConfigId || !hasUnsavedChanges || !hasRequiredProviderKey}
             className="bg-[#90E5E6] text-slate-950 hover:brightness-105 shadow-[0_10px_30px_rgba(144,229,230,0.35)]"
           >
             <Save className="w-3 h-3" />
@@ -453,61 +553,6 @@ export function SettingsPanel({
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-          {!effectiveProviderKeyId && (
-            <Card className="border-amber-400/30 bg-amber-500/5 shadow-[0_12px_40px_rgba(3,6,15,0.4)]">
-              <CardHeader className="flex flex-col gap-4">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-200 flex items-center justify-center border border-amber-400/30">
-                    <BadgeCheck className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <p className="text-xs uppercase text-amber-200/70 tracking-[0.2em]">Required</p>
-                    <h3 className="text-lg font-semibold text-white">Add your OpenAI API key</h3>
-                    <p className="text-sm text-white/60">
-                      Your key is required to create and run agents. Save it once to continue.
-                    </p>
-                  </div>
-                </div>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <label className="text-xs font-semibold text-white/70">Key label</label>
-                    <input
-                      value={keyAlias}
-                      onChange={(e) => setKeyAlias(e.target.value)}
-                      placeholder="Primary, Production, etc."
-                      className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-amber-400/60 focus:border-amber-300 bg-slate-900 text-sm text-white"
-                      disabled={isSavingKey}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-semibold text-white/70">OpenAI API key</label>
-                    <input
-                      type="password"
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      placeholder="sk-..."
-                      className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-amber-400/60 focus:border-amber-300 bg-slate-900 text-sm text-white font-mono"
-                      disabled={isSavingKey}
-                      required
-                    />
-                    <p className="text-xs text-white/50">Stored encrypted (base64) and masked after saving.</p>
-                  </div>
-                </div>
-                {keyError && <p className="text-xs text-rose-300">{keyError}</p>}
-                {keySuccessMessage && <p className="text-xs text-emerald-200">{keySuccessMessage}</p>}
-                <div className="flex justify-end">
-                  <Button
-                    size="sm"
-                    onClick={handleSaveProviderKey}
-                    disabled={isSavingKey}
-                    className="bg-amber-400/90 text-slate-950 hover:bg-amber-300"
-                  >
-                    {isSavingKey ? 'Saving key...' : 'Save API key'}
-                  </Button>
-                </div>
-              </CardHeader>
-            </Card>
-          )}
           <Card className="border-white/10 shadow-[0_12px_40px_rgba(3,6,15,0.5)]">
             <CardHeader className="flex flex-col gap-4">
               <div className="flex items-start gap-3">
@@ -778,10 +823,14 @@ export function SettingsPanel({
                     <select
                       value={resolvedProvider}
                       onChange={(e) => {
-                        const nextProvider = e.target.value as 'openai_realtime' | 'personaplex';
+                        const nextProvider = e.target.value as 'openai_realtime' | 'personaplex' | 'elevenlabs_tts';
                         onConfigChange({
                           ...config,
                           voice_provider: nextProvider,
+                          voice_provider_key_id: nextProvider === 'elevenlabs_tts'
+                            ? (effectiveElevenLabsKeyId ?? null)
+                            : null,
+                          voice_provider_config: config.voice_provider_config ?? {},
                           voice_sample_rate_hz: nextProvider === 'personaplex'
                             ? (config.voice_sample_rate_hz ?? 24000)
                             : (config.voice_sample_rate_hz ?? null),
@@ -801,25 +850,34 @@ export function SettingsPanel({
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-white/80">
-                      {isPersonaPlex ? 'PersonaPlex voice ID' : 'Voice'}
+                      {isPersonaPlex ? 'PersonaPlex voice ID' : isElevenLabs ? 'ElevenLabs voice ID' : 'Voice'}
                     </label>
-                    <select
-                      value={isPersonaPlex ? (config.voice_id ?? 'NATF0') : config.voice}
-                      onChange={(e) => {
-                        if (isPersonaPlex) {
-                          onConfigChange({ ...config, voice_id: e.target.value });
-                        } else {
-                          onConfigChange({ ...config, voice: e.target.value });
-                        }
-                      }}
-                      className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
-                    >
-                      {(isPersonaPlex ? PERSONAPLEX_VOICE_OPTIONS : VOICE_OPTIONS).map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label} — {option.description}
-                        </option>
-                      ))}
-                    </select>
+                    {isElevenLabs ? (
+                      <input
+                        value={config.voice_id ?? ''}
+                        onChange={(e) => onConfigChange({ ...config, voice_id: e.target.value })}
+                        placeholder="ElevenLabs voice id"
+                        className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
+                      />
+                    ) : (
+                      <select
+                        value={isPersonaPlex ? (config.voice_id ?? 'NATF0') : config.voice}
+                        onChange={(e) => {
+                          if (isPersonaPlex) {
+                            onConfigChange({ ...config, voice_id: e.target.value });
+                          } else {
+                            onConfigChange({ ...config, voice: e.target.value });
+                          }
+                        }}
+                        className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
+                      >
+                        {(isPersonaPlex ? PERSONAPLEX_VOICE_OPTIONS : VOICE_OPTIONS).map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label} — {option.description}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <label className="flex items-center gap-2 cursor-pointer">
@@ -872,6 +930,154 @@ export function SettingsPanel({
                     <p className="text-xs text-white/50">
                       PersonaPlex runs at 24kHz mono audio. Your gateway should enforce resampling before streaming.
                     </p>
+                  </div>
+                </div>
+              )}
+              {isElevenLabs && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="md:col-span-2 rounded-xl border border-cyan-400/20 bg-cyan-500/5 p-4 space-y-3">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/70">Credentials</p>
+                        <h4 className="text-sm font-semibold text-white">ElevenLabs API key</h4>
+                        <p className="text-xs text-white/60">
+                          This key is used only for ElevenLabs voice output.
+                        </p>
+                      </div>
+                      {latestElevenLabsKey ? (
+                        <div className="text-xs text-emerald-200 bg-emerald-500/10 border border-emerald-400/30 rounded-lg px-3 py-1.5">
+                          Saved: {latestElevenLabsKey.key_alias} {latestElevenLabsKey.last_four ? `••••${latestElevenLabsKey.last_four}` : ''}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-amber-200 bg-amber-500/10 border border-amber-400/30 rounded-lg px-3 py-1.5">
+                          Required before saving this preset
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div>
+                        <label className="text-xs font-semibold text-white/70">Key label</label>
+                        <input
+                          value={keyAlias}
+                          onChange={(e) => setKeyAlias(e.target.value)}
+                          placeholder="Primary, Production, etc."
+                          className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
+                          disabled={isSavingKey}
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="text-xs font-semibold text-white/70">API key</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="password"
+                            value={apiKey}
+                            onChange={(e) => setApiKey(e.target.value)}
+                            placeholder="xi-api-key..."
+                            className="flex-1 px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white font-mono"
+                            disabled={isSavingKey}
+                          />
+                          <Button
+                            size="sm"
+                            onClick={() => handleSaveProviderKey('elevenlabs')}
+                            disabled={isSavingKey || !apiKey.trim()}
+                            className="bg-cyan-500/80 hover:bg-cyan-400 text-white"
+                          >
+                            {isSavingKey ? 'Saving...' : (latestElevenLabsKey ? 'Update key' : 'Save key')}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-white/50">Stored encrypted (base64) and masked after saving.</p>
+                    {keyError && <p className="text-xs text-rose-300">{keyError}</p>}
+                    {keySuccessMessage && <p className="text-xs text-emerald-200">{keySuccessMessage}</p>}
+                  </div>
+                  <div className="space-y-3">
+                    <label className="flex items-center gap-2 cursor-pointer rounded-lg border border-white/10 bg-slate-900/50 px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={isElevenLabsExpressiveMode}
+                        onChange={(e) => setElevenLabsExpressiveMode(e.target.checked)}
+                        className="w-4 h-4 text-cyan-400 border-white/20 rounded focus:ring-cyan-400"
+                      />
+                      <span className="text-sm font-semibold text-white/80">Expressive mode (Eleven v3)</span>
+                    </label>
+                    {isElevenLabsExpressiveMode && (
+                      <p className="text-xs text-amber-200/90">
+                        Expressive mode increases latency and is best for premium/non-realtime responses.
+                      </p>
+                    )}
+                    <div>
+                      <label className="text-sm font-semibold text-white/80">Model ID</label>
+                      <input
+                        value={elevenLabsConfig.model_id ?? (isElevenLabsExpressiveMode ? 'eleven_v3' : 'eleven_multilingual_v2')}
+                        onChange={(e) => updateElevenLabsConfig({ model_id: e.target.value })}
+                        className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-semibold text-white/80">Output format</label>
+                      <select
+                        value={elevenLabsConfig.output_format ?? 'pcm_24000'}
+                        onChange={(e) => updateElevenLabsConfig({ output_format: e.target.value })}
+                        className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
+                      >
+                        <option value="pcm_16000">PCM 16kHz</option>
+                        <option value="pcm_22050">PCM 22.05kHz</option>
+                        <option value="pcm_24000">PCM 24kHz</option>
+                        <option value="pcm_44100">PCM 44.1kHz</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-sm font-semibold text-white/80">Stability (0-1)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={elevenLabsConfig.voice_settings?.stability ?? 0.5}
+                        onChange={(e) => updateElevenLabsConfig({
+                          voice_settings: {
+                            ...(elevenLabsConfig.voice_settings || {}),
+                            stability: Number(e.target.value || 0.5)
+                          }
+                        })}
+                        className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-semibold text-white/80">Similarity Boost (0-1)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={elevenLabsConfig.voice_settings?.similarity_boost ?? 0.75}
+                        onChange={(e) => updateElevenLabsConfig({
+                          voice_settings: {
+                            ...(elevenLabsConfig.voice_settings || {}),
+                            similarity_boost: Number(e.target.value || 0.75)
+                          }
+                        })}
+                        className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
+                      />
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(elevenLabsConfig.voice_settings?.use_speaker_boost ?? true)}
+                        onChange={(e) => updateElevenLabsConfig({
+                          voice_settings: {
+                            ...(elevenLabsConfig.voice_settings || {}),
+                            use_speaker_boost: e.target.checked
+                          }
+                        })}
+                        className="w-4 h-4 text-cyan-400 border-white/20 rounded focus:ring-cyan-400"
+                      />
+                      <span className="text-sm font-semibold text-white/80">Use speaker boost</span>
+                    </label>
                   </div>
                 </div>
               )}

@@ -62,6 +62,8 @@ type VoiceEmbedRecord = {
     a2ui_enabled?: boolean | null;
     voice?: string | null;
     voice_provider?: string | null;
+    voice_provider_key_id?: string | null;
+    voice_provider_config?: Record<string, any> | null;
     voice_persona_prompt?: string | null;
     voice_id?: string | null;
     voice_sample_rate_hz?: number | null;
@@ -69,6 +71,13 @@ type VoiceEmbedRecord = {
     chat_model?: string | null;
     temperature?: number | null;
     max_response_output_tokens?: number | null;
+    turn_detection_enabled?: boolean | null;
+    turn_detection_config?: {
+      type?: 'server_vad';
+      threshold?: number;
+      prefix_padding_ms?: number;
+      silence_duration_ms?: number;
+    } | null;
     rag_enabled?: boolean | null;
     rag_mode?: 'assist' | 'guardrail' | null;
     rag_default_model?: string | null;
@@ -159,6 +168,50 @@ function sanitizeVoice(raw: string | null | undefined): string {
   return SUPPORTED_REALTIME_VOICES.includes(normalized) ? normalized : 'alloy';
 }
 
+function resolveAgentVoice(
+  provider: string,
+  embedTtsVoice: string | null | undefined,
+  agentVoice: string | null | undefined,
+  agentVoiceId: string | null | undefined
+): string | null {
+  if (provider === 'openai_realtime') {
+    return sanitizeVoice(embedTtsVoice || agentVoice || null);
+  }
+  return agentVoiceId || null;
+}
+
+function resolveTurnDetection(agentConfig: VoiceEmbedRecord['agent_config']) {
+  if (!agentConfig) {
+    return {
+      type: 'server_vad' as const,
+      threshold: 0.75,
+      prefix_padding_ms: 150,
+      silence_duration_ms: 700
+    };
+  }
+
+  if (agentConfig.turn_detection_enabled === false) {
+    return null;
+  }
+
+  const config = agentConfig.turn_detection_config;
+  if (config && config.type === 'server_vad') {
+    return {
+      type: 'server_vad' as const,
+      threshold: config.threshold ?? 0.75,
+      prefix_padding_ms: config.prefix_padding_ms ?? 150,
+      silence_duration_ms: config.silence_duration_ms ?? 700
+    };
+  }
+
+  return {
+    type: 'server_vad' as const,
+    threshold: 0.75,
+    prefix_padding_ms: 150,
+    silence_duration_ms: 700
+  };
+}
+
 async function fetchVoiceEmbed(publicId: string): Promise<VoiceEmbedRecord | null> {
   const { data, error } = await adminClient
     .from('va_voice_embeds')
@@ -174,6 +227,8 @@ async function fetchVoiceEmbed(publicId: string): Promise<VoiceEmbedRecord | nul
           a2ui_enabled,
           voice,
           voice_provider,
+          voice_provider_key_id,
+          voice_provider_config,
           voice_persona_prompt,
           voice_id,
           voice_sample_rate_hz,
@@ -181,6 +236,8 @@ async function fetchVoiceEmbed(publicId: string): Promise<VoiceEmbedRecord | nul
           chat_model,
           temperature,
           max_response_output_tokens,
+          turn_detection_enabled,
+          turn_detection_config,
           rag_enabled,
           rag_mode,
           rag_default_model,
@@ -233,6 +290,7 @@ async function createEphemeralSession(
     description: tool.description || undefined,
     parameters: tool.parameters || { type: 'object', properties: {}, additionalProperties: true }
   }));
+  const turnDetection = resolveTurnDetection(agentConfig);
   const body = {
     model,
     voice,
@@ -240,12 +298,7 @@ async function createEphemeralSession(
     input_audio_format: 'pcm16',
     output_audio_format: 'pcm16',
     modalities: ['text', 'audio'],
-    turn_detection: {
-      type: 'server_vad',
-      threshold: 0.75,
-      prefix_padding_ms: 150,
-      silence_duration_ms: 700
-    },
+    ...(turnDetection ? { turn_detection: turnDetection } : {}),
     temperature: agentConfig.temperature ?? 0.8,
     max_response_output_tokens: agentConfig.max_response_output_tokens ?? 1024,
     tools: openAiTools
@@ -276,6 +329,24 @@ async function createEphemeralSession(
     expires_at: sessionPayload?.client_secret?.expires_at,
     session: sessionPayload
   };
+}
+
+function validateEmbedVoiceProvider(agentConfig: VoiceEmbedRecord['agent_config']) {
+  if (!agentConfig) return;
+  const provider = agentConfig.voice_provider || 'openai_realtime';
+  if (provider === 'elevenlabs_tts') {
+    if (!agentConfig.voice_provider_key_id) {
+      throw new Error('ElevenLabs provider key is missing for this embed preset');
+    }
+    if (!agentConfig.voice_id) {
+      throw new Error('ElevenLabs voice_id is missing for this embed preset');
+    }
+  }
+  if (provider === 'personaplex') {
+    if (!agentConfig.voice_id) {
+      throw new Error('PersonaPlex voice_id is missing for this embed preset');
+    }
+  }
 }
 
 async function ensureSupabaseSession(agent: VoiceEmbedRecord, metadata: Record<string, any>) {
@@ -778,6 +849,7 @@ Deno.serve(async (req: Request) => {
       }
 
       const agentConfig = embed.agent_config;
+      const provider = agentConfig?.voice_provider || 'openai_realtime';
       return new Response(
         JSON.stringify({
           public_id: embed.public_id,
@@ -785,11 +857,19 @@ Deno.serve(async (req: Request) => {
             id: agentConfig?.id || null,
             name: agentConfig?.name || 'Voice Agent',
             summary: agentConfig?.summary || null,
-            voice: sanitizeVoice(embed.tts_voice || agentConfig?.voice || null),
-            voice_provider: agentConfig?.voice_provider || 'openai_realtime',
+            voice: resolveAgentVoice(
+              provider,
+              embed.tts_voice,
+              agentConfig?.voice || null,
+              agentConfig?.voice_id || null
+            ),
+            voice_provider: provider,
+            voice_provider_key_id: agentConfig?.voice_provider_key_id || null,
+            voice_provider_config: agentConfig?.voice_provider_config || null,
             voice_persona_prompt: agentConfig?.voice_persona_prompt || null,
             voice_id: agentConfig?.voice_id || null,
             voice_sample_rate_hz: agentConfig?.voice_sample_rate_hz || null,
+            turn_detection: resolveTurnDetection(agentConfig),
             a2ui_enabled: agentConfig?.a2ui_enabled ?? false,
             rag_enabled: agentConfig?.rag_enabled ?? false,
             rag_mode: agentConfig?.rag_mode || 'assist',
@@ -863,6 +943,7 @@ Deno.serve(async (req: Request) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
+    validateEmbedVoiceProvider(agentConfig);
 
     const tools = await loadEmbedTools(agentConfig.id, agentConfig.user_id);
     const provider = agentConfig.voice_provider || 'openai_realtime';
@@ -888,11 +969,19 @@ Deno.serve(async (req: Request) => {
           id: agentConfig.id,
           name: agentConfig.name,
           summary: agentConfig.summary,
-          voice: sanitizeVoice(embed.tts_voice || agentConfig.voice),
+          voice: resolveAgentVoice(
+            provider,
+            embed.tts_voice,
+            agentConfig.voice,
+            agentConfig.voice_id || null
+          ),
           voice_provider: provider,
+          voice_provider_key_id: agentConfig.voice_provider_key_id || null,
+          voice_provider_config: agentConfig.voice_provider_config || null,
           voice_persona_prompt: agentConfig.voice_persona_prompt || null,
           voice_id: agentConfig.voice_id || null,
           voice_sample_rate_hz: agentConfig.voice_sample_rate_hz || null,
+          turn_detection: resolveTurnDetection(agentConfig),
           model: agentConfig.model || agentConfig.chat_model || 'gpt-4o-realtime-preview',
           instructions: agentConfig.instructions || '',
           a2ui_enabled: agentConfig.a2ui_enabled ?? false,

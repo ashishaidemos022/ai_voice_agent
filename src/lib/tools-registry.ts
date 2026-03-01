@@ -276,6 +276,30 @@ export function getToolByName(name: string): Tool | undefined {
   return mcpTools.find(tool => normalizeIdentifier(tool.name) === normalizedName);
 }
 
+const TOOL_NAME_ALIASES: Record<string, string[]> = {
+  run_query: ['execute_sql', 'query_database', 'query-database'],
+  query_database: ['execute_sql', 'run_query', 'query-database'],
+  execute_query: ['execute_sql', 'run_query', 'query_database']
+};
+
+function resolveToolWithAliases(name: string): Tool | undefined {
+  const direct = getToolByName(name);
+  if (direct) return direct;
+
+  const normalized = normalizeIdentifier(name);
+  const aliasCandidates = TOOL_NAME_ALIASES[normalized] || [];
+  for (const alias of aliasCandidates) {
+    const match = getToolByName(alias);
+    if (match) return match;
+  }
+
+  if ((normalized.includes('query') || normalized.includes('sql')) && getToolByName('execute_sql')) {
+    return getToolByName('execute_sql');
+  }
+
+  return undefined;
+}
+
 function filterToolsBySelection(tools: Tool[]): { tools: Tool[]; fellBack: boolean } {
   const filtered = tools.filter(tool => {
     if (tool.executionType === 'mcp') {
@@ -613,7 +637,7 @@ export async function executeTool(
   if (!context.sessionId && !context.chatSessionId) {
     throw new Error('Tool execution requires a voice session or chat session context');
   }
-  const tool = getToolByName(toolName);
+  const tool = resolveToolWithAliases(toolName);
   if (!tool) {
     throw new Error(`Tool not found: ${toolName}`);
   }
@@ -626,7 +650,7 @@ export async function executeTool(
 
   try {
     // Enforce execute_sql shape: always { query: string }
-    if (toolName === 'execute_sql') {
+    if (tool.name === 'execute_sql') {
       const raw = typeof params === 'string' ? params : (params?.query ?? params?.statement ?? params?.sql ?? '');
       params = { query: String(raw || '') };
     }
@@ -676,7 +700,7 @@ export async function executeTool(
     chat_message_id: context.chatMessageId || null,
     session_id: context.sessionId || null,
     chat_session_id: context.chatSessionId || null,
-    tool_name: toolName,
+    tool_name: tool.name,
     input_params: normalizedParams,
     output_result: result,
     execution_time_ms: executionTimeMs,

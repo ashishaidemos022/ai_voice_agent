@@ -4,17 +4,24 @@ import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { cn } from '../../lib/utils';
 import { useVoiceEmbedConfig } from '../../hooks/useVoiceEmbedConfig';
+import { getConfigPresetById, type AgentConfigPreset } from '../../lib/config-service';
 
 interface VoiceEmbedPanelProps {
   agentConfigId: string | null | undefined;
   agentName?: string;
 }
 
-const VOICE_OPTIONS = [
-  { value: 'alloy', label: 'Alloy', description: 'Balanced, confident' },
-  { value: 'verse', label: 'Verse', description: 'Warm, upbeat' },
-  { value: 'ember', label: 'Ember', description: 'Calm, low register' },
-  { value: 'xelos', label: 'Xelos', description: 'Energetic, expressive' }
+const OPENAI_VOICE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'alloy', label: 'Alloy' },
+  { value: 'ash', label: 'Ash' },
+  { value: 'ballad', label: 'Ballad' },
+  { value: 'coral', label: 'Coral' },
+  { value: 'echo', label: 'Echo' },
+  { value: 'sage', label: 'Sage' },
+  { value: 'shimmer', label: 'Shimmer' },
+  { value: 'verse', label: 'Verse' },
+  { value: 'marin', label: 'Marin' },
+  { value: 'cedar', label: 'Cedar' }
 ];
 
 const EMBED_HOST = import.meta.env.VITE_EMBED_HOST || 'https://embed-chat-agent.vercel.app';
@@ -35,6 +42,10 @@ export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelPro
 
   const [originsInput, setOriginsInput] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
+  const [agentPreset, setAgentPreset] = useState<AgentConfigPreset | null>(null);
+  const [isLoadingPreset, setIsLoadingPreset] = useState(false);
+  const [presetError, setPresetError] = useState<string | null>(null);
+  const [overrideVoice, setOverrideVoice] = useState(false);
   const [selectedVoice, setSelectedVoice] = useState('alloy');
   const [logoUrl, setLogoUrl] = useState('');
   const [brandName, setBrandName] = useState('');
@@ -56,9 +67,49 @@ export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelPro
   const isDisabled = !agentConfigId || isLoading;
 
   useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (!agentConfigId) {
+        setAgentPreset(null);
+        setPresetError(null);
+        return;
+      }
+      setIsLoadingPreset(true);
+      setPresetError(null);
+      try {
+        const preset = await getConfigPresetById(agentConfigId);
+        if (cancelled) return;
+        setAgentPreset(preset);
+      } catch (err: any) {
+        if (cancelled) return;
+        setAgentPreset(null);
+        setPresetError(err?.message || 'Failed to load agent preset');
+      } finally {
+        if (!cancelled) setIsLoadingPreset(false);
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [agentConfigId]);
+
+  const voiceProvider = (agentPreset?.voice_provider ?? 'openai_realtime') as
+    | 'openai_realtime'
+    | 'personaplex'
+    | 'elevenlabs_tts';
+  const canOverrideOpenAIVoice = voiceProvider === 'openai_realtime';
+  const agentVoiceLabel = useMemo(() => {
+    if (!agentPreset) return null;
+    if (voiceProvider === 'openai_realtime') return agentPreset.voice || 'alloy';
+    return agentPreset.voice_id || null;
+  }, [agentPreset, voiceProvider]);
+
+  useEffect(() => {
     if (!embed) {
       setOriginsInput('');
-      setSelectedVoice('alloy');
+      setOverrideVoice(false);
+      setSelectedVoice(agentPreset?.voice || 'alloy');
       setLogoUrl('');
       setBrandName('');
       setAccentColor('');
@@ -78,7 +129,9 @@ export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelPro
       return;
     }
     setOriginsInput(embed.allowed_origins.join(', '));
-    setSelectedVoice(embed.tts_voice || 'alloy');
+    const nextOverride = Boolean(embed.tts_voice);
+    setOverrideVoice(nextOverride);
+    setSelectedVoice(nextOverride ? (embed.tts_voice as string) : (agentPreset?.voice || 'alloy'));
     setLogoUrl(embed.logo_url || '');
     setBrandName(embed.brand_name || '');
     setAccentColor(embed.accent_color || '');
@@ -95,7 +148,7 @@ export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelPro
     setWidgetWidth(String(embed.widget_width ?? 500));
     setWidgetHeight(String(embed.widget_height ?? 760));
     setButtonImageUrl(embed.button_image_url || '');
-  }, [embed]);
+  }, [embed, agentPreset?.voice]);
 
   const host = EMBED_HOST;
 
@@ -156,9 +209,20 @@ export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelPro
     await handleSave({ allowedOrigins: parsedOrigins });
   };
 
-  const saveVoice = async (voice: string) => {
+  const saveVoiceOverrideState = async (nextOverride: boolean) => {
+    if (!embed) return;
+    setOverrideVoice(nextOverride);
+    if (!nextOverride) {
+      await handleSave({ ttsVoice: null });
+      return;
+    }
+    await handleSave({ ttsVoice: selectedVoice || agentPreset?.voice || 'alloy' });
+  };
+
+  const saveOpenAiVoiceOverride = async (voice: string) => {
     if (!embed) return;
     setSelectedVoice(voice);
+    if (!overrideVoice) return;
     await handleSave({ ttsVoice: voice });
   };
 
@@ -338,18 +402,78 @@ export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelPro
               <Globe className="w-4 h-4" />
               Voice
             </label>
-            <select
-              className="w-full rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-300/40"
-              value={selectedVoice}
-              onChange={(e) => saveVoice(e.target.value)}
-              disabled={isSaving}
-            >
-              {VOICE_OPTIONS.map((voice) => (
-                <option key={voice.value} value={voice.value}>
-                  {voice.label} – {voice.description}
-                </option>
-              ))}
-            </select>
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm text-white/80">
+                  <span className="text-white/50">Provider:</span>{' '}
+                  <span className="font-semibold">
+                    {voiceProvider === 'openai_realtime'
+                      ? 'OpenAI (Realtime)'
+                      : voiceProvider === 'elevenlabs_tts'
+                        ? 'ElevenLabs'
+                        : 'PersonaPlex'}
+                  </span>
+                </div>
+                {isLoadingPreset && <span className="text-xs text-white/40">Loading preset…</span>}
+              </div>
+
+              {presetError && <p className="text-xs text-rose-300">{presetError}</p>}
+
+              {voiceProvider !== 'openai_realtime' && (
+                <div className="space-y-1">
+                  <p className="text-xs text-white/50">
+                    This embed follows the agent preset voice selection.
+                  </p>
+                  <p className="text-sm font-mono text-white">
+                    {voiceProvider === 'elevenlabs_tts' ? 'voice_id' : 'persona_voice_id'}:{' '}
+                    {agentVoiceLabel || 'Missing'}
+                  </p>
+                  {!agentVoiceLabel && (
+                    <p className="text-xs text-rose-300">
+                      Missing voice id on the preset. Configure voice selection in Agent Settings.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {voiceProvider === 'openai_realtime' && (
+                <div className="space-y-2">
+                  <p className="text-xs text-white/50">
+                    Agent preset voice: <span className="font-mono text-white">{agentPreset?.voice || 'alloy'}</span>
+                  </p>
+
+                  <label className="text-xs text-white/70 flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={overrideVoice}
+                      onChange={(e) => saveVoiceOverrideState(e.target.checked)}
+                      disabled={!canOverrideOpenAIVoice || isSaving}
+                      className="h-4 w-4 rounded border-white/30 bg-white/5 text-cyan-300 focus:ring-cyan-300/40"
+                    />
+                    Override voice for this embed
+                  </label>
+
+                  <select
+                    className="w-full rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-300/40 disabled:opacity-60"
+                    value={selectedVoice}
+                    onChange={(e) => saveOpenAiVoiceOverride(e.target.value)}
+                    disabled={isSaving || !overrideVoice}
+                  >
+                    {OPENAI_VOICE_OPTIONS.map((voice) => (
+                      <option key={voice.value} value={voice.value}>
+                        {voice.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  {!overrideVoice && (
+                    <p className="text-xs text-white/50">
+                      Using the agent preset voice. Enable override to pick a different OpenAI voice for embeds only.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="space-y-3">

@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAudioManager, AudioManager } from '../lib/audio-manager';
 import { RealtimeAPIClient, AgentState } from '../lib/realtime-client';
 import { PersonaPlexVoiceAdapter } from '../lib/voice-adapters/personaplex-adapter';
+import { ElevenLabsVoiceAdapter } from '../lib/voice-adapters/elevenlabs-adapter';
 import type { VoiceAdapter } from '../lib/voice-adapters/types';
 import { executeTool, registerToolsFromServer } from '../lib/tools-registry';
 import type { RealtimeConfig } from '../types/voice-agent';
 import { buildEmbedFunctionUrl, resolveEmbedApiBase, resolveEmbedUsageBase } from './embed-api';
 import { requestPersonaPlexEmbedToken } from './personaplex-gateway';
+import { requestElevenLabsEmbedToken } from './elevenlabs-gateway';
 import { formatA2UIEventMessage, type A2UIEvent } from '../lib/a2ui';
 
 type TranscriptBuffers = {
@@ -45,7 +47,7 @@ export type UseVoiceEmbedResult = {
     name: string;
     summary?: string | null;
     voice?: string | null;
-    voice_provider?: 'openai_realtime' | 'personaplex' | null;
+    voice_provider?: 'openai_realtime' | 'personaplex' | 'elevenlabs_tts' | null;
     a2ui_enabled?: boolean;
   } | null;
   isLoadingMeta: boolean;
@@ -74,10 +76,27 @@ const REQUEST_HEADERS = {
   'Content-Type': 'application/json'
 };
 const SUPPORTED_REALTIME_VOICES = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse', 'marin', 'cedar'];
+const DEFAULT_TURN_DETECTION: NonNullable<RealtimeConfig['turn_detection']> = {
+  type: 'server_vad',
+  threshold: 0.75,
+  prefix_padding_ms: 150,
+  silence_duration_ms: 700
+};
 const sanitizeVoice = (voice?: string | null) => {
   if (!voice) return 'alloy';
   const normalized = voice.toLowerCase();
   return SUPPORTED_REALTIME_VOICES.includes(normalized) ? normalized : 'alloy';
+};
+const resolveTurnDetection = (raw: any): RealtimeConfig['turn_detection'] => {
+  if (raw === null) return null;
+  if (typeof raw === 'undefined') return DEFAULT_TURN_DETECTION;
+  if (raw.type !== 'server_vad') return DEFAULT_TURN_DETECTION;
+  return {
+    type: 'server_vad',
+    threshold: raw.threshold ?? DEFAULT_TURN_DETECTION.threshold,
+    prefix_padding_ms: raw.prefix_padding_ms ?? DEFAULT_TURN_DETECTION.prefix_padding_ms,
+    silence_duration_ms: raw.silence_duration_ms ?? DEFAULT_TURN_DETECTION.silence_duration_ms
+  };
 };
 const EMBED_LOG_PREFIX = '[voice-embed]';
 
@@ -230,14 +249,15 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
     }
     const content = formatA2UIEventMessage(event);
     client.sendUserMessage(content);
+    const nextMessage: VoiceEmbedMessage = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content,
+      createdAt: new Date().toISOString()
+    };
     setMessages((prev) => [
       ...prev,
-      {
-        id: crypto.randomUUID(),
-        role: 'user',
-        content,
-        createdAt: new Date().toISOString()
-      }
+      nextMessage
     ].slice(-30));
   }, []);
 
@@ -561,8 +581,21 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
       setRtcEnabled(Boolean(json?.settings?.rtc_enabled ?? true));
       setAppearance((json?.settings?.appearance as VoiceEmbedAppearance) || null);
       const provider = json?.agent?.voice_provider || 'openai_realtime';
+      if (provider === 'personaplex' && !json?.agent?.voice_id) {
+        throw new Error('PersonaPlex voice_id is missing for this embed preset');
+      }
+      if (provider === 'elevenlabs_tts') {
+        if (!json?.agent?.voice_id) {
+          throw new Error('ElevenLabs voice_id is missing for this embed preset');
+        }
+        if (!json?.token) {
+          throw new Error('OpenAI realtime token is missing for ElevenLabs embed session');
+        }
+      }
       const resolvedVoice = provider === 'personaplex'
         ? (json?.agent?.voice_id || null)
+        : provider === 'elevenlabs_tts'
+          ? (json?.agent?.voice_id || null)
         : sanitizeVoice(json?.agent?.voice || null);
       setAgentMeta((prev) => ({
         name: json?.agent?.name || prev?.name || 'Voice Agent',
@@ -590,12 +623,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
         instructions: json?.agent?.instructions || 'You are a helpful AI voice assistant.',
         temperature: 0.8,
         max_response_output_tokens: 1024,
-        turn_detection: {
-          type: 'server_vad',
-          threshold: 0.75,
-          prefix_padding_ms: 150,
-          silence_duration_ms: 700
-        }
+        turn_detection: resolveTurnDetection(json?.agent?.turn_detection)
       };
 
       const audioManager = getAudioManager();
@@ -611,6 +639,20 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
           token: gateway.token,
           agentId: nextConfigId || '',
           sessionId: json.session_id
+        });
+      } else if (provider === 'elevenlabs_tts') {
+        const gateway = await requestElevenLabsEmbedToken({
+          publicId,
+          sessionId: json.session_id,
+          origin: window.location.origin
+        });
+        realtimeClient = new ElevenLabsVoiceAdapter(realtimeConfig, {
+          gatewayUrl: gateway.gateway_ws_url,
+          token: gateway.token,
+          agentId: nextConfigId || '',
+          sessionId: json.session_id
+        }, {
+          apiKey: json.token
         });
       } else {
         realtimeClient = new RealtimeAPIClient(realtimeConfig, {
@@ -687,9 +729,14 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
         throw new Error(json?.error || 'Unable to load voice embed');
       }
       const provider = json?.agent?.voice_provider || 'openai_realtime';
+      if ((provider === 'personaplex' || provider === 'elevenlabs_tts') && !json?.agent?.voice_id) {
+        throw new Error(`${provider === 'personaplex' ? 'PersonaPlex' : 'ElevenLabs'} voice_id is missing for this embed preset`);
+      }
       setAgentMeta((prev) => {
         const resolvedVoice = provider === 'personaplex'
           ? (json?.agent?.voice_id || prev?.voice || null)
+          : provider === 'elevenlabs_tts'
+            ? (json?.agent?.voice_id || prev?.voice || null)
           : sanitizeVoice(json?.agent?.voice || prev?.voice || null);
         return {
           name: json?.agent?.name || prev?.name || 'Voice Agent',
