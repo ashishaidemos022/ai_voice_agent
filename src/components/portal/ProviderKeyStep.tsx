@@ -17,7 +17,7 @@ export function ProviderKeyStep() {
       'You are a helpful AI voice assistant. You can help users with various tasks, answer questions, and execute tools when needed. Be conversational and friendly.',
     voice: 'alloy',
     temperature: 0.8,
-    model: 'gpt-realtime',
+    model: 'gpt-realtime-1.5',
     max_response_output_tokens: 4096,
     turn_detection_enabled: true,
     turn_detection_config: {

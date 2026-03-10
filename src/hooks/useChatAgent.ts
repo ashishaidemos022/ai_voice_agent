@@ -23,13 +23,22 @@ import type { RagAugmentationResult } from '../types/rag';
 import { normalizeUsage, recordUsageEvent } from '../lib/usage-tracker';
 
 const MAX_CONTEXT_MESSAGES = 40;
-const DEFAULT_REALTIME_MODEL = 'gpt-realtime';
+const DEFAULT_REALTIME_MODEL = 'gpt-realtime-1.5';
+
+function normalizeRealtimeModel(model: string): string {
+  const normalized = model.trim().toLowerCase();
+  if (!normalized) return DEFAULT_REALTIME_MODEL;
+  if (normalized === 'gpt-realtime' || normalized.startsWith('gpt-4o-realtime')) {
+    return DEFAULT_REALTIME_MODEL;
+  }
+  return model.trim();
+}
 
 function resolveChatRealtimeModel(preset: AgentConfigPreset): string {
   const candidate = (preset.chat_model || preset.model || DEFAULT_REALTIME_MODEL).trim();
   const normalized = candidate.toLowerCase();
   if (normalized.includes('realtime')) {
-    return candidate;
+    return normalizeRealtimeModel(candidate);
   }
   return DEFAULT_REALTIME_MODEL;
 }

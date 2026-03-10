@@ -89,10 +89,18 @@ export interface AgentTemplate {
   turn_detection_config: any;
 }
 
+function normalizeRealtimeModel(model?: string | null): string {
+  const candidate = (model || '').trim();
+  const normalized = candidate.toLowerCase();
+  if (!candidate) return 'gpt-realtime-1.5';
+  if (normalized === 'gpt-realtime' || normalized.startsWith('gpt-4o-realtime')) {
+    return 'gpt-realtime-1.5';
+  }
+  return candidate;
+}
+
 export function configPresetToRealtimeConfig(preset: AgentConfigPreset): RealtimeConfig {
-  const normalizedModel = preset.model && preset.model.startsWith('gpt-4o-realtime')
-    ? 'gpt-realtime'
-    : preset.model;
+  const normalizedModel = normalizeRealtimeModel(preset.model);
   const vectorStoreIds = (preset.knowledge_spaces || [])
     .map((binding) => binding.rag_space?.vector_store_id)
     .filter((id): id is string => Boolean(id));

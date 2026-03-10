@@ -1899,6 +1899,7 @@ public/
 - Execution path:
   - `VoiceAgent.tsx` drives UI and binds to hook state.
   - `useVoiceAgent.ts` connects via `RealtimeAPIClient` (`realtime-client.ts`) and streams audio.
+  - OpenAI realtime model baseline is `gpt-realtime-1.5` (legacy realtime IDs are normalized forward for compatibility).
   - Session + messages stored in `va_sessions` / `va_messages`.
 
 ### Chat session (realtime text)
@@ -1933,7 +1934,7 @@ public/
 - Files: `public/voiceLoader.js`, `src/embed/VoiceEmbedApp.tsx`, `src/embed/useVoiceEmbed.ts`, `supabase/functions/voice-ephemeral-key/index.ts`, `supabase/functions/embed-usage/index.ts`.
 - Execution path:
   - Loader script injects iframe pointing to `/embed/voice/:public_id`.
-  - Embed app requests ephemeral OpenAI token from `voice-ephemeral-key`.
+  - Embed app requests ephemeral OpenAI token from `voice-ephemeral-key` (session model defaults to `gpt-realtime-1.5`).
   - Usage gets recorded via `embed-usage`.
 
 ### PersonaPlex voice provider (speech-to-speech)

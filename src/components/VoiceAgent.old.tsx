@@ -14,7 +14,7 @@ import { mcpTools } from '../lib/tools-registry';
 import { getDefaultConfigPreset, configPresetToRealtimeConfig } from '../lib/config-service';
 
 const defaultConfig: RealtimeConfig = {
-  model: 'gpt-realtime',
+  model: 'gpt-realtime-1.5',
   voice: 'alloy',
   instructions: 'You are a helpful AI voice assistant. You can help users with various tasks, answer questions, and execute tools when needed. Be conversational and friendly.',
   temperature: 0.8,

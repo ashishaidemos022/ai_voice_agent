@@ -613,7 +613,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
       };
 
       const realtimeConfig: RealtimeConfig = {
-        model: json?.agent?.model || 'gpt-4o-realtime-preview',
+        model: json?.agent?.model || 'gpt-realtime-1.5',
         voice: sanitizeVoice(json?.agent?.voice),
         voice_provider: provider,
         voice_persona_prompt: json?.agent?.voice_persona_prompt ?? null,

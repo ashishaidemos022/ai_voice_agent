@@ -30,7 +30,7 @@ import { StartSessionButton } from './welcome/StartSessionButton';
 import { cn } from '../lib/utils';
 
 const defaultConfig: RealtimeConfig = {
-  model: 'gpt-realtime',
+  model: 'gpt-realtime-1.5',
   voice: 'alloy',
   voice_provider: 'openai_realtime',
   voice_persona_prompt: null,

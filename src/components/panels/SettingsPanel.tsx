@@ -112,7 +112,7 @@ const PERSONAPLEX_VOICE_OPTIONS = [
 ];
 
 const BASE_DEFAULT_CONFIG: RealtimeConfig = {
-  model: 'gpt-realtime',
+  model: 'gpt-realtime-1.5',
   voice: 'alloy',
   voice_provider: 'openai_realtime',
   voice_persona_prompt: null,

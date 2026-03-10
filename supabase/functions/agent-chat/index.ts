@@ -50,6 +50,7 @@ type ModelPricing = {
 };
 
 const MODEL_PRICING: Record<string, ModelPricing> = {
+  'gpt-realtime-1.5': { inputPer1K: 0.005, outputPer1K: 0.015 },
   'gpt-realtime': { inputPer1K: 0.005, outputPer1K: 0.015 },
   'gpt-4o-realtime-preview-2024-12-17': { inputPer1K: 0.005, outputPer1K: 0.015 },
   'gpt-4.1-mini': { inputPer1K: 0.00015, outputPer1K: 0.0006 }

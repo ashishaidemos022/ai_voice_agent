@@ -23,7 +23,17 @@ interface AgentUIState {
   setToolsForConfig: (configId: string, tools: ToolSelectionCache) => void;
 }
 
-const defaultModel = 'gpt-realtime';
+const defaultModel = 'gpt-realtime-1.5';
+
+const normalizePreferredModel = (model?: string | null) => {
+  const candidate = (model || '').trim();
+  const normalized = candidate.toLowerCase();
+  if (!normalized) return defaultModel;
+  if (normalized === 'gpt-realtime' || normalized.startsWith('gpt-4o-realtime')) {
+    return defaultModel;
+  }
+  return candidate;
+};
 const defaultVoice = 'alloy';
 
 const fallbackStorage: Storage = {
@@ -58,7 +68,7 @@ export const useAgentState = create<AgentUIState>()(
       toolSelections: {},
       setActiveConfigId: (id) => set({ activeConfigId: id }),
       setActivePanel: (panel) => set({ activePanel: panel }),
-      setPreferredModel: (model) => set({ preferredModel: model || defaultModel }),
+      setPreferredModel: (model) => set({ preferredModel: normalizePreferredModel(model) }),
       setPreferredVoice: (voice) => set({ preferredVoice: voice || defaultVoice }),
       setToolsForConfig: (configId, tools) => set((state) => ({
         toolSelections: {

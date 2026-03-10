@@ -168,6 +168,16 @@ function sanitizeVoice(raw: string | null | undefined): string {
   return SUPPORTED_REALTIME_VOICES.includes(normalized) ? normalized : 'alloy';
 }
 
+function normalizeRealtimeModel(model: string | null | undefined): string {
+  const candidate = (model || '').trim();
+  const normalized = candidate.toLowerCase();
+  if (!candidate) return 'gpt-realtime-1.5';
+  if (normalized === 'gpt-realtime' || normalized.startsWith('gpt-4o-realtime')) {
+    return 'gpt-realtime-1.5';
+  }
+  return candidate;
+}
+
 function resolveAgentVoice(
   provider: string,
   embedTtsVoice: string | null | undefined,
@@ -279,10 +289,11 @@ async function createEphemeralSession(
     throw new Error('Agent configuration missing for embed');
   }
 
-  const model =
+  const model = normalizeRealtimeModel(
     agentConfig.model ||
     agentConfig.chat_model ||
-    'gpt-4o-realtime-preview';
+    'gpt-realtime-1.5'
+  );
   const voice = sanitizeVoice(agent.tts_voice || agentConfig.voice);
   const openAiTools = (tools || []).map((tool) => ({
     type: 'function',
@@ -982,7 +993,7 @@ Deno.serve(async (req: Request) => {
           voice_id: agentConfig.voice_id || null,
           voice_sample_rate_hz: agentConfig.voice_sample_rate_hz || null,
           turn_detection: resolveTurnDetection(agentConfig),
-          model: agentConfig.model || agentConfig.chat_model || 'gpt-4o-realtime-preview',
+          model: normalizeRealtimeModel(agentConfig.model || agentConfig.chat_model || 'gpt-realtime-1.5'),
           instructions: agentConfig.instructions || '',
           a2ui_enabled: agentConfig.a2ui_enabled ?? false,
           rag_enabled: agentConfig.rag_enabled ?? false,
