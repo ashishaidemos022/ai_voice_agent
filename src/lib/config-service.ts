@@ -21,10 +21,21 @@ const RAG_RELATION_SELECT = `
   )
 `;
 
-function isRagRelationError(error: any | null) {
-  if (!error) return false;
-  const message = `${error.message || ''} ${error.details || ''}`.toLowerCase();
-  return message.includes('va_rag_agent_spaces') || message.includes('va_rag_spaces');
+async function selectPresetRows<T>(
+  buildQuery: (withRelations: boolean) => Promise<{ data: T | null; error: any | null }>
+): Promise<T | null> {
+  let { data, error } = await buildQuery(true);
+
+  if (error) {
+    console.warn('[config-service] Preset query with RAG relations failed, retrying without joins', error);
+    ({ data, error } = await buildQuery(false));
+  }
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
 }
 
 export interface SelectedTool {
@@ -156,73 +167,56 @@ export function realtimeConfigToPreset(config: RealtimeConfig, name: string): Pa
 }
 
 export async function getAllConfigPresets(): Promise<AgentConfigPreset[]> {
-  let { data, error } = await supabase
-    .from('va_agent_configs')
-    .select(RAG_RELATION_SELECT)
-    .order('created_at', { ascending: false });
+  try {
+    const data = await selectPresetRows<any[]>((withRelations) => {
+      const select = withRelations ? RAG_RELATION_SELECT : '*';
+      return supabase
+        .from('va_agent_configs')
+        .select(select)
+        .order('created_at', { ascending: false });
+    });
 
-  if (error && isRagRelationError(error)) {
-    console.warn('[config-service] va_rag_* tables missing, loading presets without knowledge bindings');
-    ({ data, error } = await supabase
-      .from('va_agent_configs')
-      .select('*')
-      .order('created_at', { ascending: false }));
-  }
-
-  if (error) {
+    return (data || []).map(transformPresetRow);
+  } catch (error) {
     console.error('Failed to fetch config presets:', error);
     throw error;
   }
-
-  return (data || []).map(transformPresetRow);
 }
 
 export async function getDefaultConfigPreset(): Promise<AgentConfigPreset | null> {
-  let { data, error } = await supabase
-    .from('va_agent_configs')
-    .select(RAG_RELATION_SELECT)
-    .eq('is_default', true)
-    .maybeSingle();
+  try {
+    const data = await selectPresetRows<any>((withRelations) => {
+      const select = withRelations ? RAG_RELATION_SELECT : '*';
+      return supabase
+        .from('va_agent_configs')
+        .select(select)
+        .eq('is_default', true)
+        .maybeSingle();
+    });
 
-  if (error && isRagRelationError(error)) {
-    console.warn('[config-service] Default preset fallback without RAG relations');
-    ({ data, error } = await supabase
-      .from('va_agent_configs')
-      .select('*')
-      .eq('is_default', true)
-      .maybeSingle());
-  }
-
-  if (error) {
+    return data ? transformPresetRow(data) : null;
+  } catch (error) {
     console.error('Failed to fetch default config preset:', error);
     throw error;
   }
-
-  return data ? transformPresetRow(data) : null;
 }
 
 export async function getConfigPresetById(id: string): Promise<AgentConfigPreset | null> {
-  let { data, error } = await supabase
-    .from('va_agent_configs')
-    .select(RAG_RELATION_SELECT)
-    .eq('id', id)
-    .maybeSingle();
+  try {
+    const data = await selectPresetRows<any>((withRelations) => {
+      const select = withRelations ? RAG_RELATION_SELECT : '*';
+      return supabase
+        .from('va_agent_configs')
+        .select(select)
+        .eq('id', id)
+        .maybeSingle();
+    });
 
-  if (error && isRagRelationError(error)) {
-    console.warn(`[config-service] Preset ${id} fallback without RAG relations`);
-    ({ data, error } = await supabase
-      .from('va_agent_configs')
-      .select('*')
-      .eq('id', id)
-      .maybeSingle());
-  }
-
-  if (error) {
+    return data ? transformPresetRow(data) : null;
+  } catch (error) {
     console.error('Failed to fetch config preset:', error);
     throw error;
   }
-
-  return data ? transformPresetRow(data) : null;
 }
 
 export async function saveConfigPreset(
