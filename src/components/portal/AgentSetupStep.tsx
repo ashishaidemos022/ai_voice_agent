@@ -32,30 +32,43 @@ export function AgentSetupStep({ embedded = false }: AgentSetupStepProps) {
   }, [providerKeys]);
 
   useEffect(() => {
+    if (!vaUser) {
+      setIsLoading(true);
+      return;
+    }
+
     let isMounted = true;
-    supabase
-      .from('va_agent_presets')
-      .select('*')
-      .order('created_at', { ascending: true })
-      .then(({ data, error }) => {
-        if (!isMounted) return;
-        if (error) {
-          console.error('Failed to load presets', error);
-          setError(error.message);
-        } else {
-          setPresets(data || []);
-          if (!selectedPresetId && data && data.length > 0) {
-            setSelectedPresetId(data[0].id);
-          }
-        }
-        setIsLoading(false);
-      });
+
+    const loadPresets = async () => {
+      setIsLoading(true);
+      setError(null);
+
+      const { data, error: presetError } = await supabase
+        .from('va_agent_presets')
+        .select('*')
+        .order('created_at', { ascending: true });
+
+      if (!isMounted) return;
+
+      if (presetError) {
+        console.error('Failed to load presets', presetError);
+        setPresets([]);
+        setError(presetError.message);
+      } else {
+        const nextPresets = data || [];
+        setPresets(nextPresets);
+        setSelectedPresetId((current) => current || nextPresets[0]?.id || null);
+      }
+
+      setIsLoading(false);
+    };
+
+    void loadPresets();
 
     return () => {
       isMounted = false;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [vaUser]);
 
   if (!vaUser) return null;
 
@@ -154,6 +167,9 @@ export function AgentSetupStep({ embedded = false }: AgentSetupStepProps) {
         <div className="grid md:grid-cols-3 gap-4">
           {isLoading && (
             <p className="text-white/50 col-span-3">Loading presets...</p>
+          )}
+          {!isLoading && !presets.length && !error && (
+            <p className="text-white/50 col-span-3">No agent presets are available.</p>
           )}
           {!isLoading && presets.map((preset) => {
             const isActive = preset.id === selectedPresetId;
