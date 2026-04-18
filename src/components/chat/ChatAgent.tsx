@@ -15,6 +15,7 @@ import {
 import { useChatAgent } from '../../hooks/useChatAgent';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '../ui/Button';
+import { MarkdownContent, containsMarkdownMedia } from '../ui/MarkdownContent';
 import { Card } from '../ui/Card';
 import { ChatMessage } from '../../types/chat';
 import { cn } from '../../lib/utils';
@@ -633,6 +634,9 @@ function ChatBubble({ message, a2uiEnabled, onA2UIEvent }: {
   const shouldRenderA2UI = !isUser && a2uiEnabled && Boolean(parsedA2UI?.ui);
   const eventDisplay = isUser ? getA2UIEventDisplay(message.content) : null;
   const displayText = eventDisplay ? `Action: ${eventDisplay}` : message.content;
+  const shouldRenderMarkdown = !shouldRenderA2UI && !isUser && containsMarkdownMedia(
+    parsedA2UI?.fallbackText || displayText
+  );
   return (
     <div className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
       <div
@@ -653,6 +657,10 @@ function ChatBubble({ message, a2uiEnabled, onA2UIEvent }: {
             ui={parsedA2UI!.ui}
             fallbackText={parsedA2UI!.fallbackText || message.content}
             onEvent={onA2UIEvent}
+          />
+        ) : shouldRenderMarkdown ? (
+          <MarkdownContent
+            content={parsedA2UI?.fallbackText && !isUser ? parsedA2UI.fallbackText : displayText}
           />
         ) : (
           <p className="text-sm leading-relaxed whitespace-pre-wrap">

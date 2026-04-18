@@ -3,6 +3,7 @@ import { Loader2, MessageCircle, Shield, Sparkles } from 'lucide-react';
 import { useChatAgent } from '../../hooks/useChatAgent';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '../ui/Button';
+import { MarkdownContent, containsMarkdownMedia } from '../ui/MarkdownContent';
 import { cn } from '../../lib/utils';
 
 const params = new URLSearchParams(window.location.search);
@@ -97,7 +98,9 @@ export function ChatWidget() {
             Ask anything to begin the session.
           </div>
         )}
-        {visibleMessages.map((message) => (
+        {visibleMessages.map((message) => {
+          const shouldRenderMarkdown = message.sender !== 'user' && containsMarkdownMedia(message.content);
+          return (
           <div
             key={message.id}
             className={cn(
@@ -115,9 +118,13 @@ export function ChatWidget() {
               {message.sender === 'user' ? 'You' : 'Agent'}
               {message.isStreaming && <Loader2 className="w-3 h-3 animate-spin" />}
             </div>
-            <p className="leading-relaxed whitespace-pre-wrap">{message.content}</p>
+            {shouldRenderMarkdown ? (
+              <MarkdownContent content={message.content} />
+            ) : (
+              <p className="leading-relaxed whitespace-pre-wrap">{message.content}</p>
+            )}
           </div>
-        ))}
+        )})}
       </div>
 
       <div className={cn('px-4 py-3 border-t', theme === 'light' ? 'border-slate-200 bg-white' : 'border-white/10 bg-slate-950/80')}>

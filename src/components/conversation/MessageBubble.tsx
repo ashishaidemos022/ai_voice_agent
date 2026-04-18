@@ -3,6 +3,7 @@ import { User, Bot } from 'lucide-react';
 import { Message } from '../../types/voice-agent';
 import { ToolCallIndicator } from './ToolCallIndicator';
 import { A2UIRenderer } from '../a2ui/A2UIRenderer';
+import { MarkdownContent, containsMarkdownMedia } from '../ui/MarkdownContent';
 import { getA2UIEventDisplay, parseA2UIPayload, type A2UIEvent } from '../../lib/a2ui';
 
 interface MessageBubbleProps {
@@ -18,6 +19,9 @@ export function MessageBubble({ message, a2uiEnabled = false, onA2UIEvent }: Mes
   const shouldRenderA2UI = !isUser && a2uiEnabled && Boolean(parsedA2UI?.ui);
   const eventDisplay = isUser ? getA2UIEventDisplay(message.content) : null;
   const displayText = eventDisplay ? `Action: ${eventDisplay}` : message.content;
+  const shouldRenderMarkdown = !shouldRenderA2UI && !isUser && containsMarkdownMedia(
+    parsedA2UI?.fallbackText || displayText
+  );
 
   const time = new Date(message.timestamp).toLocaleTimeString('en-US', {
     hour: '2-digit',
@@ -52,6 +56,10 @@ export function MessageBubble({ message, a2uiEnabled = false, onA2UIEvent }: Mes
               ui={parsedA2UI!.ui}
               fallbackText={parsedA2UI!.fallbackText || message.content}
               onEvent={onA2UIEvent}
+            />
+          ) : shouldRenderMarkdown ? (
+            <MarkdownContent
+              content={parsedA2UI?.fallbackText && !isUser ? parsedA2UI.fallbackText : displayText}
             />
           ) : (
             <p className="text-sm whitespace-pre-wrap leading-relaxed">

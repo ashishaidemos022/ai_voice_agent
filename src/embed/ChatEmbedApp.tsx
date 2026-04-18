@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { Loader2, MessageCircle, RotateCcw, Sparkles } from 'lucide-react';
 import { useEmbedChat, type ChatEmbedAppearance } from './useEmbedChat';
 import { Button } from '../components/ui/Button';
+import { MarkdownContent, containsMarkdownMedia } from '../components/ui/MarkdownContent';
 import { cn } from '../lib/utils';
 import { A2UIRenderer } from '../components/a2ui/A2UIRenderer';
 import { formatA2UIEventMessage, getA2UIEventDisplay, parseA2UIPayload, type A2UIEvent } from '../lib/a2ui';
@@ -209,6 +210,9 @@ export function ChatEmbedView({ publicId, theme, isWidget }: ChatEmbedViewProps)
           const shouldRenderA2UI = !isUser && a2uiEnabled && Boolean(parsedA2UI?.ui);
           const eventDisplay = isUser ? getA2UIEventDisplay(message.content) : null;
           const displayText = eventDisplay ? `Action: ${eventDisplay}` : message.content;
+          const shouldRenderMarkdown = !shouldRenderA2UI && !isUser && containsMarkdownMedia(
+            parsedA2UI?.fallbackText || displayText
+          );
           return (
           <div
             key={message.id}
@@ -237,6 +241,11 @@ export function ChatEmbedView({ publicId, theme, isWidget }: ChatEmbedViewProps)
                 fallbackText={parsedA2UI!.fallbackText || message.content}
                 onEvent={handleA2UIEvent}
                 className="space-y-3 text-current"
+              />
+            ) : shouldRenderMarkdown ? (
+              <MarkdownContent
+                content={parsedA2UI?.fallbackText && !isUser ? parsedA2UI.fallbackText : displayText}
+                className="text-current"
               />
             ) : (
               <p className="leading-relaxed whitespace-pre-wrap">
