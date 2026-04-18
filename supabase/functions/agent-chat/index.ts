@@ -56,6 +56,8 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'gpt-4.1-mini': { inputPer1K: 0.00015, outputPer1K: 0.0006 }
 };
 
+const DEFAULT_CHAT_COMPLETIONS_MODEL = 'gpt-4.1-mini';
+
 function mergeUsage(base: UsageTotals, next?: Partial<UsageTotals> | null): UsageTotals {
   if (!next) return base;
   return {
@@ -69,6 +71,18 @@ function estimateUsageCost(model: string, usage: UsageTotals) {
   const pricing = MODEL_PRICING[model];
   if (!pricing) return 0;
   return (usage.prompt_tokens / 1000) * pricing.inputPer1K + (usage.completion_tokens / 1000) * pricing.outputPer1K;
+}
+
+function normalizeChatCompletionsModel(model?: string | null): string {
+  const candidate = (model || '').trim();
+  if (!candidate) return DEFAULT_CHAT_COMPLETIONS_MODEL;
+
+  const normalized = candidate.toLowerCase();
+  if (normalized === 'gpt-realtime' || normalized === 'gpt-realtime-1.5' || normalized.includes('realtime')) {
+    return DEFAULT_CHAT_COMPLETIONS_MODEL;
+  }
+
+  return candidate;
 }
 
 type AgentChatPayload = {
@@ -1049,7 +1063,15 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const model = agentConfig.chat_model || agentConfig.model || 'gpt-4o-mini';
+    const requestedModel = agentConfig.chat_model || agentConfig.model || DEFAULT_CHAT_COMPLETIONS_MODEL;
+    const model = normalizeChatCompletionsModel(requestedModel);
+    if (model !== requestedModel) {
+      console.warn('[agent-chat] Replaced realtime model for chat/completions request', {
+        requested_model: requestedModel,
+        resolved_model: model,
+        agent_config_id: agentConfig.id
+      });
+    }
     const temperature = agentConfig.temperature ?? 0.7;
 
     const sessionId = await ensureSession({
