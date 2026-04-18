@@ -13,5 +13,7 @@
 			"path": "../../viaana-personaplex-gateway"
 		}
 	],
-	"settings": {}
+	"settings": {
+		"chat.mcp.serverSampling": {}
+	}
 }
