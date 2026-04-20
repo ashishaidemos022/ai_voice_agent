@@ -24,6 +24,7 @@ import { MainLayout } from '../layout/MainLayout';
 import { Sidebar } from '../layout/Sidebar';
 import { WorkspaceSidePanels } from '../layout/WorkspaceSidePanels';
 import { ToolsList } from '../tools/ToolsList';
+import { ToolExecutionFeed } from '../tools/ToolExecutionFeed';
 import { TopBar } from '../layout/TopBar';
 import { MCPPanel } from '../panels/MCPPanel';
 import { N8NPanel } from '../panels/N8NPanel';
@@ -343,81 +344,12 @@ export function ChatAgent({
         </div>
 
         <div className="flex flex-col gap-6 min-h-0 overflow-y-auto pr-1">
-          <Card className="p-5 bg-slate-900/40 border-white/5 flex flex-col">
-            <div className="flex items-center gap-3 mb-4">
-              <PlugZapIcon />
-              <div>
-                <p className="font-semibold">Tool executions</p>
-                <p className="text-xs text-white/50">Every MCP + workflow call in this session</p>
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto space-y-3">
-              {toolEvents.length === 0 ? (
-                <p className="text-sm text-white/50">No tools called yet.</p>
-              ) : toolEvents.map((event) => (
-                <div
-                  key={event.id}
-                  className={cn(
-                    'rounded-2xl border px-3 py-2',
-                    event.status === 'failed'
-                      ? 'border-rose-400/40 bg-rose-500/10'
-                      : event.status === 'succeeded'
-                      ? 'border-emerald-400/40 bg-emerald-500/10'
-                      : 'border-white/5 bg-white/5'
-                  )}
-                >
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="font-semibold text-white/90">{event.toolName}</span>
-                    <span className="text-xs text-white/50">{event.status}</span>
-                  </div>
-                  {event.error && (
-                    <p className="text-xs text-rose-200 mt-1">{event.error}</p>
-                  )}
-                  {event.response && (
-                    <p className="text-xs text-white/60 mt-1 truncate">
-                      {JSON.stringify(event.response).slice(0, 80)}…
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-            <div className="mt-4 border-t border-white/5 pt-4">
-              <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.3em] text-white/40">
-                <span>Connected automations</span>
-                <span>{toolSummary.total}</span>
-              </div>
-              {toolSummary.total === 0 ? (
-                <p className="text-xs text-white/50 mt-2">No MCP or n8n tools configured for this preset.</p>
-              ) : (
-                <>
-                  <div className="flex gap-4 text-[11px] text-white/60 mt-3">
-                    <span>MCP: {toolSummary.mcpCount}</span>
-                    <span>n8n: {toolSummary.n8nCount}</span>
-                  </div>
-                  <div className="flex flex-wrap gap-2 mt-3">
-                    {toolSummary.preview.map((tool) => (
-                      <span
-                        key={tool.name}
-                        className={cn(
-                          'px-2 py-1 rounded-full border text-[11px]',
-                          tool.source === 'n8n'
-                            ? 'border-amber-400/50 text-amber-200/90 bg-amber-500/10'
-                            : 'border-white/10 text-white/70 bg-white/5'
-                        )}
-                      >
-                        {tool.name}
-                      </span>
-                    ))}
-                    {toolSummary.total > toolSummary.preview.length && (
-                      <span className="text-[11px] text-white/60">
-                        +{toolSummary.total - toolSummary.preview.length} more
-                      </span>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          </Card>
+          <ToolExecutionFeed
+            events={toolEvents}
+            toolSummary={toolSummary}
+            className="bg-slate-900/40"
+            headerCopy="Every MCP + workflow call in this session"
+          />
 
           <Card className="p-5 bg-slate-900/40 border-white/5 flex flex-col">
             <div className="flex items-center gap-3 mb-4">
@@ -674,14 +606,6 @@ function ChatBubble({ message, a2uiEnabled, onA2UIEvent }: {
           </p>
         )}
       </div>
-    </div>
-  );
-}
-
-function PlugZapIcon() {
-  return (
-    <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-400 to-pink-500 flex items-center justify-center">
-      <Sparkles className="w-5 h-5 text-slate-950" />
     </div>
   );
 }
