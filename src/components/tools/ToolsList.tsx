@@ -8,7 +8,7 @@ import { Separator } from '../ui/Separator';
 interface Tool {
   name: string;
   description?: string;
-  source?: 'mcp' | 'n8n';
+  source?: 'mcp' | 'n8n' | 'client';
 }
 
 interface ToolsListProps {

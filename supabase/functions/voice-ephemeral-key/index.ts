@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
+import { OPENAI_MODELS, normalizeRealtimeModel } from '../../../shared/openai-models.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -168,14 +169,10 @@ function sanitizeVoice(raw: string | null | undefined): string {
   return SUPPORTED_REALTIME_VOICES.includes(normalized) ? normalized : 'alloy';
 }
 
-function normalizeRealtimeModel(model: string | null | undefined): string {
-  const candidate = (model || '').trim();
-  const normalized = candidate.toLowerCase();
-  if (!candidate) return 'gpt-realtime-1.5';
-  if (normalized === 'gpt-realtime' || normalized.startsWith('gpt-4o-realtime')) {
-    return 'gpt-realtime-1.5';
-  }
-  return candidate;
+async function hashSafetyIdentifier(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 function resolveAgentVoice(
@@ -291,8 +288,7 @@ async function createEphemeralSession(
 
   const model = normalizeRealtimeModel(
     agentConfig.model ||
-    agentConfig.chat_model ||
-    'gpt-realtime-1.5'
+    OPENAI_MODELS.realtime.default
   );
   const voice = sanitizeVoice(agent.tts_voice || agentConfig.voice);
   const openAiTools = (tools || []).map((tool) => ({
@@ -302,24 +298,35 @@ async function createEphemeralSession(
     parameters: tool.parameters || { type: 'object', properties: {}, additionalProperties: true }
   }));
   const turnDetection = resolveTurnDetection(agentConfig);
+  const safetyIdentifier = await hashSafetyIdentifier(agentConfig.user_id);
   const body = {
-    model,
-    voice,
-    instructions: agentConfig.instructions || undefined,
-    input_audio_format: 'pcm16',
-    output_audio_format: 'pcm16',
-    modalities: ['text', 'audio'],
-    ...(turnDetection ? { turn_detection: turnDetection } : {}),
-    temperature: agentConfig.temperature ?? 0.8,
-    max_response_output_tokens: agentConfig.max_response_output_tokens ?? 1024,
-    tools: openAiTools
+    session: {
+      type: 'realtime',
+      model,
+      output_modalities: ['audio'],
+      instructions: agentConfig.instructions || undefined,
+      audio: {
+        input: {
+          format: { type: 'audio/pcm', rate: 24000 },
+          ...(turnDetection ? { turn_detection: turnDetection } : {})
+        },
+        output: {
+          format: { type: 'audio/pcm' },
+          voice
+        }
+      },
+      max_output_tokens: agentConfig.max_response_output_tokens ?? 1024,
+      tools: openAiTools,
+      tool_choice: 'auto'
+    }
   };
 
-  const response = await fetch(`${OPENAI_BASE_URL}/realtime/sessions`, {
+  const response = await fetch(`${OPENAI_BASE_URL}/realtime/client_secrets`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${OPENAI_API_KEY}`
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      'OpenAI-Safety-Identifier': safetyIdentifier
     },
     body: JSON.stringify(body)
   });
@@ -330,16 +337,56 @@ async function createEphemeralSession(
     throw new Error(message);
   }
 
-  const token = sessionPayload?.client_secret?.value;
+  const token = sessionPayload?.value ?? sessionPayload?.client_secret?.value;
   if (!token) {
     throw new Error('Realtime API did not return a client secret');
   }
 
   return {
     token,
-    expires_at: sessionPayload?.client_secret?.expires_at,
+    expires_at: sessionPayload?.expires_at ?? sessionPayload?.client_secret?.expires_at,
     session: sessionPayload
   };
+}
+
+async function createWebRTCSession(agent: VoiceEmbedRecord, sdp: string): Promise<Response> {
+  if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY not set');
+  const agentConfig = agent.agent_config;
+  if (!agentConfig) throw new Error('Agent configuration missing for embed');
+
+  const turnDetection = resolveTurnDetection(agentConfig);
+  const session = {
+    type: 'realtime',
+    model: normalizeRealtimeModel(agentConfig.model || OPENAI_MODELS.realtime.default),
+    output_modalities: ['audio'],
+    instructions: agentConfig.instructions || undefined,
+    audio: {
+      input: {
+        ...(turnDetection ? { turn_detection: turnDetection } : { turn_detection: null })
+      },
+      output: { voice: sanitizeVoice(agent.tts_voice || agentConfig.voice) }
+    },
+    max_output_tokens: agentConfig.max_response_output_tokens ?? 1024
+  };
+  const form = new FormData();
+  form.set('sdp', sdp);
+  form.set('session', JSON.stringify(session));
+  const response = await fetch(`${OPENAI_BASE_URL}/realtime/calls`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      'OpenAI-Safety-Identifier': await hashSafetyIdentifier(agentConfig.user_id)
+    },
+    body: form
+  });
+  const responseBody = await response.text();
+  return new Response(responseBody, {
+    status: response.status,
+    headers: {
+      ...corsHeaders,
+      'Content-Type': response.ok ? 'application/sdp' : 'text/plain'
+    }
+  });
 }
 
 function validateEmbedVoiceProvider(agentConfig: VoiceEmbedRecord['agent_config']) {
@@ -924,6 +971,25 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    if (req.headers.get('content-type')?.includes('application/sdp')) {
+      const publicId = new URL(req.url).searchParams.get('public_id');
+      if (!publicId) {
+        return new Response('public_id is required', { status: 400, headers: corsHeaders });
+      }
+      const embed = await fetchVoiceEmbed(publicId);
+      if (!embed) return new Response('Voice embed not found', { status: 404, headers: corsHeaders });
+      if (!isOriginAllowed(originHeader, embed.allowed_origins || [])) {
+        return new Response('Origin not allowed', { status: 403, headers: corsHeaders });
+      }
+      if (!embed.rtc_enabled) {
+        return new Response('WebRTC is disabled for this embed', { status: 409, headers: corsHeaders });
+      }
+      if ((embed.agent_config?.voice_provider || 'openai_realtime') !== 'openai_realtime') {
+        return new Response('WebRTC relay is only available for OpenAI Realtime', { status: 400, headers: corsHeaders });
+      }
+      return createWebRTCSession(embed, await req.text());
+    }
+
     const body = (await req.json()) as CreateSessionPayload;
     if (!body?.public_id) {
       return new Response(JSON.stringify({ error: 'public_id is required' }), {
@@ -958,7 +1024,7 @@ Deno.serve(async (req: Request) => {
 
     const tools = await loadEmbedTools(agentConfig.id, agentConfig.user_id);
     const provider = agentConfig.voice_provider || 'openai_realtime';
-    const session = provider === 'personaplex'
+    const session = provider === 'personaplex' || (provider === 'openai_realtime' && embed.rtc_enabled)
       ? { token: null, expires_at: null, session: null }
       : await createEphemeralSession(embed, originHeader, tools);
     const metadata = {
@@ -993,7 +1059,7 @@ Deno.serve(async (req: Request) => {
           voice_id: agentConfig.voice_id || null,
           voice_sample_rate_hz: agentConfig.voice_sample_rate_hz || null,
           turn_detection: resolveTurnDetection(agentConfig),
-          model: normalizeRealtimeModel(agentConfig.model || agentConfig.chat_model || 'gpt-realtime-1.5'),
+          model: normalizeRealtimeModel(agentConfig.model || OPENAI_MODELS.realtime.default),
           instructions: agentConfig.instructions || '',
           a2ui_enabled: agentConfig.a2ui_enabled ?? false,
           rag_enabled: agentConfig.rag_enabled ?? false,

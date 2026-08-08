@@ -21,26 +21,13 @@ import { supabase } from '../lib/supabase';
 import { runRagAugmentation } from '../lib/rag-service';
 import type { RagAugmentationResult } from '../types/rag';
 import { normalizeUsage, recordUsageEvent } from '../lib/usage-tracker';
+import { OPENAI_MODELS, normalizeChatModel } from '../../shared/openai-models';
 
 const MAX_CONTEXT_MESSAGES = 40;
-const DEFAULT_REALTIME_MODEL = 'gpt-realtime-1.5';
-
-function normalizeRealtimeModel(model: string): string {
-  const normalized = model.trim().toLowerCase();
-  if (!normalized) return DEFAULT_REALTIME_MODEL;
-  if (normalized === 'gpt-realtime' || normalized.startsWith('gpt-4o-realtime')) {
-    return DEFAULT_REALTIME_MODEL;
-  }
-  return model.trim();
-}
+const DEFAULT_CHAT_MODEL = OPENAI_MODELS.chat.default;
 
 function resolveChatRealtimeModel(preset: AgentConfigPreset): string {
-  const candidate = (preset.chat_model || preset.model || DEFAULT_REALTIME_MODEL).trim();
-  const normalized = candidate.toLowerCase();
-  if (normalized.includes('realtime')) {
-    return normalizeRealtimeModel(candidate);
-  }
-  return DEFAULT_REALTIME_MODEL;
+  return normalizeChatModel(preset.chat_model || preset.model || DEFAULT_CHAT_MODEL);
 }
 
 export type ChatViewMode = 'current' | 'history';
@@ -257,7 +244,7 @@ export function useChatAgent() {
       const usage = normalizeUsage(evt.usage);
       if (!usage || !vaUser) return;
       const preset = activePresetRef.current;
-      const model = evt.model || (preset ? resolveChatRealtimeModel(preset) : DEFAULT_REALTIME_MODEL);
+      const model = evt.model || (preset ? resolveChatRealtimeModel(preset) : DEFAULT_CHAT_MODEL);
       await recordUsageEvent({
         userId: vaUser.id,
         source: 'chat',
@@ -354,6 +341,7 @@ export function useChatAgent() {
         .filter((id): id is string => Boolean(id));
 
       realtimeRef.current = new ChatRealtimeClient({
+        agentId: preset.id,
         model: resolveChatRealtimeModel(preset),
         instructions: preset.instructions,
         temperature: preset.temperature,

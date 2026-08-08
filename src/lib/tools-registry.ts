@@ -73,11 +73,6 @@ function buildWebSearchQuery(query: string, allowedDomains: string[], timeRange?
 }
 
 async function executeWebSearch(params: any, defaults?: Record<string, any>) {
-  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('Missing OpenAI API key');
-  }
-
   const mergedDefaults = { ...WEB_SEARCH_DEFAULTS, ...(defaults || {}) };
   const query = typeof params?.query === 'string' ? params.query : '';
   if (!query.trim()) {
@@ -93,36 +88,19 @@ async function executeWebSearch(params: any, defaults?: Record<string, any>) {
 
   const searchQuery = buildWebSearchQuery(query, allowedDomains, timeRange);
 
-  const payload = {
-    model: 'gpt-4.1-mini',
-    input: `Search the web for: ${searchQuery}\nReturn the top ${maxResults} results with title, url, and snippet.`,
-    tools: [{ type: 'web_search' }],
-    tool_choice: 'auto',
-    max_output_tokens: 800
-  };
-
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
+  const { data, error } = await supabase.functions.invoke('openai-web-search', {
+    body: {
+      query: `Search the web for: ${searchQuery}\nReturn the top ${maxResults} results with title, URL, and snippet.`
+    }
   });
-
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || 'Web search failed');
-  }
-
-  const data = await response.json();
+  if (error) throw new Error(error.message || 'Web search failed');
   const usage = normalizeUsage(data?.usage);
   if (usage) {
-    const { data: authData } = await supabase.auth.getUser();
+    const { data: vaUser } = await supabase.from('va_users').select('id').maybeSingle();
     await recordUsageEvent({
-      userId: authData?.user?.id,
+      userId: vaUser?.id,
       source: 'web_search',
-      model: data?.model || 'gpt-4.1-mini',
+      model: data?.model || 'gpt-5.6-luna',
       usage,
       metadata: {
         tool_name: WEB_SEARCH_TOOL_NAME,

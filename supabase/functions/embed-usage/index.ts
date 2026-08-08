@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
+import { getOpenAIModelPricing } from '../../../shared/openai-models.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -40,18 +41,6 @@ type EmbedRecord = {
   } | null;
 };
 
-type ModelPricing = {
-  inputPer1K: number;
-  outputPer1K: number;
-};
-
-const MODEL_PRICING: Record<string, ModelPricing> = {
-  'gpt-realtime-1.5': { inputPer1K: 0.005, outputPer1K: 0.015 },
-  'gpt-realtime': { inputPer1K: 0.005, outputPer1K: 0.015 },
-  'gpt-4o-realtime-preview-2024-12-17': { inputPer1K: 0.005, outputPer1K: 0.015 },
-  'gpt-4.1-mini': { inputPer1K: 0.00015, outputPer1K: 0.0006 }
-};
-
 function normalizeOrigin(value: string | null): string | null {
   if (!value) return null;
   try {
@@ -86,9 +75,10 @@ function isOriginAllowed(origin: string | null, allowed: string[]): boolean {
 
 function estimateUsageCost(model: string | null | undefined, inputTokens: number, outputTokens: number) {
   if (!model) return 0;
-  const pricing = MODEL_PRICING[model];
+  const pricing = getOpenAIModelPricing(model);
   if (!pricing) return 0;
-  return (inputTokens / 1000) * pricing.inputPer1K + (outputTokens / 1000) * pricing.outputPer1K;
+  return (inputTokens / 1_000_000) * pricing.textInputPer1M
+    + (outputTokens / 1_000_000) * pricing.textOutputPer1M;
 }
 
 function normalizeUsage(usage?: UsagePayload['usage'] & Record<string, any>) {

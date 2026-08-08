@@ -168,13 +168,13 @@ Add to your `.env` file:
 # Existing variables
 VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
 VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_OPENAI_API_KEY=your-openai-api-key
 
 # Vercel backend URL
 VITE_MCP_API_BASE_URL=https://voiceaiagent.vercel.app
 ```
 
 The `VITE_MCP_API_BASE_URL` environment variable configures the base URL for the Vercel backend API.
+Keep `OPENAI_API_KEY` in Supabase Edge Function secrets; never prefix it with `VITE_` or ship it to the browser.
 
 ## Database Schema
 

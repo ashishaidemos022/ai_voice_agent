@@ -1,5 +1,6 @@
 type EmbedRuntimeConfig = {
   apiBaseUrl?: string;
+  usageBaseUrl?: string;
 };
 
 type EmbedWindow = Window & {

@@ -3,6 +3,7 @@ import type { PostgrestError } from '@supabase/supabase-js';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { Card } from '../ui/Card';
+import { OPENAI_MODELS } from '../../../shared/openai-models';
 
 export function ProviderKeyStep() {
   const { vaUser, refreshProfile, signOut } = useAuth();
@@ -17,7 +18,7 @@ export function ProviderKeyStep() {
       'You are a helpful AI voice assistant. You can help users with various tasks, answer questions, and execute tools when needed. Be conversational and friendly.',
     voice: 'alloy',
     temperature: 0.8,
-    model: 'gpt-realtime-1.5',
+    model: OPENAI_MODELS.realtime.default,
     max_response_output_tokens: 4096,
     turn_detection_enabled: true,
     turn_detection_config: {

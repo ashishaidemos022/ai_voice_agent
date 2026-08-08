@@ -10,6 +10,7 @@ import { buildEmbedFunctionUrl, resolveEmbedApiBase, resolveEmbedUsageBase } fro
 import { requestPersonaPlexEmbedToken } from './personaplex-gateway';
 import { requestElevenLabsEmbedToken } from './elevenlabs-gateway';
 import { formatA2UIEventMessage, type A2UIEvent } from '../lib/a2ui';
+import { OPENAI_MODELS } from '../../shared/openai-models';
 
 type TranscriptBuffers = {
   user: Record<string, string>;
@@ -613,7 +614,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
       };
 
       const realtimeConfig: RealtimeConfig = {
-        model: json?.agent?.model || 'gpt-realtime-1.5',
+        model: json?.agent?.model || OPENAI_MODELS.realtime.default,
         voice: sanitizeVoice(json?.agent?.voice),
         voice_provider: provider,
         voice_persona_prompt: json?.agent?.voice_persona_prompt ?? null,
@@ -655,10 +656,18 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
           apiKey: json.token
         });
       } else {
-        realtimeClient = new RealtimeAPIClient(realtimeConfig, {
-          apiKey: json.token,
-          allowInterruptions: true
-        });
+        const useWebRTC = Boolean(json?.settings?.rtc_enabled);
+        const sessionUrl = new URL(voiceEmbedUrl);
+        sessionUrl.searchParams.set('public_id', publicId);
+        realtimeClient = new RealtimeAPIClient(realtimeConfig, useWebRTC
+          ? {
+              allowInterruptions: true,
+              webrtc: { sessionUrl: sessionUrl.toString() }
+            }
+          : {
+              apiKey: json.token,
+              allowInterruptions: true
+            });
       }
       modelRef.current = realtimeConfig.model;
       audioManagerRef.current = audioManager;
@@ -684,10 +693,10 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
       throw new Error('Voice session is not ready yet');
     }
     console.debug(EMBED_LOG_PREFIX, 'Starting capture');
-    await audioManagerRef.current.initialize();
     if (typeof realtimeClientRef.current.startCapture === 'function') {
       await realtimeClientRef.current.startCapture();
     } else {
+      await audioManagerRef.current.initialize();
       await audioManagerRef.current.startCapture((data: Int16Array) => {
         realtimeClientRef.current?.sendAudio(data);
       });

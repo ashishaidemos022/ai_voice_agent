@@ -29,9 +29,10 @@ import { EmbedUsageDashboard } from './usage/EmbedUsageDashboard';
 import { WelcomeHero } from './welcome/WelcomeHero';
 import { StartSessionButton } from './welcome/StartSessionButton';
 import { cn } from '../lib/utils';
+import { OPENAI_MODELS } from '../../shared/openai-models';
 
 const defaultConfig: RealtimeConfig = {
-  model: 'gpt-realtime-1.5',
+  model: OPENAI_MODELS.realtime.default,
   voice: 'alloy',
   voice_provider: 'openai_realtime',
   voice_persona_prompt: null,
@@ -1072,7 +1073,7 @@ export function VoiceAgent({
 
                                   <div className="flex-1 min-h-0 overflow-hidden">
                                     <ConversationThread
-                                      key={viewMode === 'history' ? `history-${selectedHistoricalSessionId}` : 'current'}
+                                      key="current"
                                       messages={messages}
                                       isProcessing={isProcessing}
                                       liveAssistantTranscript={liveAssistantTranscript}

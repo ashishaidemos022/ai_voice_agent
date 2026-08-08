@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
+import { getOpenAIModelPricing, normalizeChatModel, OPENAI_MODELS } from '../../../shared/openai-models.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -44,19 +45,7 @@ type UsageTotals = {
   total_tokens: number;
 };
 
-type ModelPricing = {
-  inputPer1K: number;
-  outputPer1K: number;
-};
-
-const MODEL_PRICING: Record<string, ModelPricing> = {
-  'gpt-realtime-1.5': { inputPer1K: 0.005, outputPer1K: 0.015 },
-  'gpt-realtime': { inputPer1K: 0.005, outputPer1K: 0.015 },
-  'gpt-4o-realtime-preview-2024-12-17': { inputPer1K: 0.005, outputPer1K: 0.015 },
-  'gpt-4.1-mini': { inputPer1K: 0.00015, outputPer1K: 0.0006 }
-};
-
-const DEFAULT_CHAT_COMPLETIONS_MODEL = 'gpt-4.1-mini';
+const DEFAULT_CHAT_MODEL = OPENAI_MODELS.chat.default;
 
 function mergeUsage(base: UsageTotals, next?: Partial<UsageTotals> | null): UsageTotals {
   if (!next) return base;
@@ -68,21 +57,10 @@ function mergeUsage(base: UsageTotals, next?: Partial<UsageTotals> | null): Usag
 }
 
 function estimateUsageCost(model: string, usage: UsageTotals) {
-  const pricing = MODEL_PRICING[model];
+  const pricing = getOpenAIModelPricing(model);
   if (!pricing) return 0;
-  return (usage.prompt_tokens / 1000) * pricing.inputPer1K + (usage.completion_tokens / 1000) * pricing.outputPer1K;
-}
-
-function normalizeChatCompletionsModel(model?: string | null): string {
-  const candidate = (model || '').trim();
-  if (!candidate) return DEFAULT_CHAT_COMPLETIONS_MODEL;
-
-  const normalized = candidate.toLowerCase();
-  if (normalized === 'gpt-realtime' || normalized === 'gpt-realtime-1.5' || normalized.includes('realtime')) {
-    return DEFAULT_CHAT_COMPLETIONS_MODEL;
-  }
-
-  return candidate;
+  return (usage.prompt_tokens / 1_000_000) * pricing.textInputPer1M
+    + (usage.completion_tokens / 1_000_000) * pricing.textOutputPer1M;
 }
 
 type AgentChatPayload = {
@@ -728,7 +706,6 @@ async function handleToolCalls(params: {
 
 async function runAgenticAssistant(params: {
   model: string;
-  temperature: number;
   chatMessages: ChatMessage[];
   maxTokens?: number;
   tools: LoadedTool[];
@@ -744,55 +721,43 @@ async function runAgenticAssistant(params: {
     total_tokens: 0
   };
 
-  const recordAssistantMessage = (message: ChatMessage) => {
-    params.chatMessages.push({
-      role: 'assistant',
-      content: message.content || '',
-      tool_calls: message.tool_calls
-    });
-  };
+  const instructions = params.chatMessages
+    .filter((message) => message.role === 'system')
+    .map((message) => message.content)
+    .join('\n\n');
+  const input: any[] = params.chatMessages
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .map((message) => ({ role: message.role, content: message.content }));
 
-  let result = await callOpenAI(
-    params.model,
-    params.temperature,
-    params.chatMessages,
-    params.maxTokens,
-    params.tools
-  );
-
-  recordAssistantMessage(result.message);
+  let result = await callOpenAIResponses(params.model, instructions, input, params.maxTokens, params.tools, params.userId);
   usageTotals = mergeUsage(usageTotals, result.usage as Partial<UsageTotals>);
 
-  while (result.message.tool_calls?.length && iteration < safeMaxIterations) {
+  while (result.toolCalls.length && iteration < safeMaxIterations) {
     iteration += 1;
     const toolMessages = await handleToolCalls({
-      toolCalls: result.message.tool_calls,
+      toolCalls: result.toolCalls,
       tools: params.tools,
       sessionId: params.sessionId,
       agentId: params.agentId,
       userId: params.userId
     });
 
-    params.chatMessages.push(...toolMessages);
-
-    result = await callOpenAI(
-      params.model,
-      params.temperature,
-      params.chatMessages,
-      params.maxTokens,
-      params.tools
-    );
-
-    recordAssistantMessage(result.message);
+    input.push(...result.outputItems);
+    input.push(...toolMessages.map((message) => ({
+      type: 'function_call_output',
+      call_id: message.tool_call_id,
+      output: message.content
+    })));
+    result = await callOpenAIResponses(params.model, instructions, input, params.maxTokens, params.tools, params.userId);
     usageTotals = mergeUsage(usageTotals, result.usage as Partial<UsageTotals>);
   }
 
-  if (result.message.tool_calls?.length) {
+  if (result.toolCalls.length) {
     throw new Error('Tool execution limit reached without completion');
   }
 
   return {
-    message: result.message,
+    message: { role: 'assistant' as const, content: result.outputText, tool_calls: [] },
     usage: usageTotals
   };
 }
@@ -919,38 +884,42 @@ async function logMessage(params: {
   }
 }
 
-async function callOpenAI(
+async function callOpenAIResponses(
   model: string,
-  temperature: number,
-  messages: ChatMessage[],
+  instructions: string,
+  input: any[],
   maxTokens?: number,
-  tools?: LoadedTool[]
+  tools?: LoadedTool[],
+  safetySubject?: string
 ) {
   if (!OPENAI_API_KEY) {
     throw new Error('OPENAI_API_KEY not configured');
   }
 
-  const cleanedMessages = messages.slice(-30).map((msg) => ({
-    role: msg.role,
-    content: msg.content,
-    name: msg.name,
-    tool_call_id: msg.tool_call_id,
-    tool_calls: msg.tool_calls
-  }));
-
   const toolDefs = tools?.length
-    ? tools.map((tool) => tool.definition)
+    ? tools.map((tool) => ({
+        type: 'function',
+        name: tool.definition.function.name,
+        description: tool.definition.function.description,
+        parameters: tool.definition.function.parameters
+      }))
     : undefined;
 
-  const payload = {
+  const payload: Record<string, any> = {
     model,
-    temperature,
-    max_tokens: Math.min(Math.max(maxTokens || 900, 1), 2000),
-    messages: cleanedMessages,
-    tools: toolDefs
+    instructions,
+    input,
+    max_output_tokens: Math.min(Math.max(maxTokens || 900, 1), 4000),
+    tools: toolDefs,
+    store: false,
+    safety_identifier: safetySubject ? await hashIdentifier(safetySubject) : undefined
   };
+  if (model.startsWith('gpt-5.6')) {
+    payload.reasoning = { effort: 'low' };
+    payload.text = { verbosity: 'low' };
+  }
 
-  const response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
+  const response = await fetch(`${OPENAI_BASE_URL}/responses`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -961,22 +930,38 @@ async function callOpenAI(
 
   const json = await response.json();
   if (!response.ok) {
-    throw new Error(json?.error?.message || 'Failed to fetch completion');
+    throw new Error(json?.error?.message || 'Failed to create response');
   }
 
-  const message = json?.choices?.[0]?.message;
-  if (!message) {
-    throw new Error('Assistant returned empty response');
-  }
+  const outputItems = Array.isArray(json?.output) ? json.output : [];
+  const toolCalls: OpenAIToolCall[] = outputItems
+    .filter((item: any) => item?.type === 'function_call')
+    .map((item: any) => ({
+      id: item.call_id,
+      type: 'function' as const,
+      function: { name: item.name, arguments: item.arguments || '{}' }
+    }));
+  const outputText = (json?.output_text || outputItems
+    .flatMap((item: any) => item?.content || [])
+    .filter((content: any) => content?.type === 'output_text')
+    .map((content: any) => content.text || '')
+    .join('')).trim();
 
   return {
-    message: {
-      role: message.role as ChatMessage['role'],
-      content: (message.content || '').trim?.() || '',
-      tool_calls: message.tool_calls || []
+    outputText,
+    outputItems,
+    toolCalls,
+    usage: {
+      prompt_tokens: json?.usage?.input_tokens || 0,
+      completion_tokens: json?.usage?.output_tokens || 0,
+      total_tokens: json?.usage?.total_tokens || 0
     },
-    usage: json.usage
   };
+}
+
+async function hashIdentifier(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 Deno.serve(async (req: Request) => {
@@ -1063,16 +1048,15 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const requestedModel = agentConfig.chat_model || agentConfig.model || DEFAULT_CHAT_COMPLETIONS_MODEL;
-    const model = normalizeChatCompletionsModel(requestedModel);
+    const requestedModel = agentConfig.chat_model || agentConfig.model || DEFAULT_CHAT_MODEL;
+    const model = normalizeChatModel(requestedModel);
     if (model !== requestedModel) {
-      console.warn('[agent-chat] Replaced realtime model for chat/completions request', {
+      console.warn('[agent-chat] Replaced non-chat model for Responses request', {
         requested_model: requestedModel,
         resolved_model: model,
         agent_config_id: agentConfig.id
       });
     }
-    const temperature = agentConfig.temperature ?? 0.7;
 
     const sessionId = await ensureSession({
       agentId: agentConfig.id,
@@ -1099,7 +1083,6 @@ Deno.serve(async (req: Request) => {
 
     const assistantResult = await runAgenticAssistant({
       model,
-      temperature,
       chatMessages,
       maxTokens: agentConfig.max_response_output_tokens || 900,
       tools,

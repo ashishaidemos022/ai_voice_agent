@@ -39,15 +39,17 @@ Located in `.env`:
 ```
 VITE_SUPABASE_URL=<your-supabase-url>
 VITE_SUPABASE_ANON_KEY=<your-supabase-anon-key>
-VITE_OPENAI_API_KEY=<your-openai-api-key>
 ```
+
+Configure `OPENAI_API_KEY` as a Supabase Edge Function secret. OpenAI credentials are not used by the browser bundle.
 
 ### Voice Agent Settings (Configurable via UI)
 - **Voice**: Choose between Alloy, Echo, or Shimmer
 - **System Instructions**: Customize AI behavior
 - **Temperature**: Control response creativity (0-1)
 - **Voice Activity Detection**: Auto-detect when user stops speaking
-- **Model**: Uses gpt-realtime
+- **Voice model**: GPT Realtime 2.1 (or 2.1 mini for lower cost)
+- **Chat model**: GPT-5.6 Terra through the Responses API
 
 ## Usage
 

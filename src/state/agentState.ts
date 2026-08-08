@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { OPENAI_MODELS, normalizeRealtimeModel } from '../../shared/openai-models';
 
 export type AgentPanel = 'session' | 'settings' | 'logs';
 
@@ -23,16 +24,10 @@ interface AgentUIState {
   setToolsForConfig: (configId: string, tools: ToolSelectionCache) => void;
 }
 
-const defaultModel = 'gpt-realtime-1.5';
+const defaultModel = OPENAI_MODELS.realtime.default;
 
 const normalizePreferredModel = (model?: string | null) => {
-  const candidate = (model || '').trim();
-  const normalized = candidate.toLowerCase();
-  if (!normalized) return defaultModel;
-  if (normalized === 'gpt-realtime' || normalized.startsWith('gpt-4o-realtime')) {
-    return defaultModel;
-  }
-  return candidate;
+  return normalizeRealtimeModel(model);
 };
 const defaultVoice = 'alloy';
 

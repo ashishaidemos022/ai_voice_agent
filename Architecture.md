@@ -2113,7 +2113,6 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | `VITE_SUPABASE_URL` | ai_voice_agent, my-agent-embed | `src/lib/supabase.ts` | Supabase project URL used in browser client. | `https://xyz.supabase.co` |
 | `VITE_SUPABASE_ANON_KEY` | ai_voice_agent, my-agent-embed | `src/lib/supabase.ts` | Supabase anon key for browser client. | `eyJ...` |
-| `VITE_OPENAI_API_KEY` | ai_voice_agent, my-agent-embed | `src/lib/realtime-client.ts`, `src/lib/chat-realtime-client.ts`, `src/lib/tools-registry.ts` | OpenAI API key for client-side realtime and web_search. | `sk-...` |
 | `VITE_MCP_API_BASE_URL` | ai_voice_agent, my-agent-embed | `src/lib/mcp-api-client.ts` | Base URL for MCP proxy API (voice-agent-mcp). | `https://voiceaiagent.vercel.app` |
 | `VITE_MCP_REFERRER` | ai_voice_agent, my-agent-embed | `src/lib/mcp-api-client.ts` | Referrer header for MCP calls. | `https://ai-voice-agent-sage.vercel.app/` |
 | `VITE_EMBED_API_BASE_URL` | ai_voice_agent, my-agent-embed | `src/embed/embed-api.ts` | Supabase Edge Functions base override for embed apps. | `https://xyz.supabase.co` |
@@ -2121,7 +2120,7 @@ sequenceDiagram
 | `SUPABASE_URL` | Supabase Edge Functions, voice-agent-mcp | `supabase/functions/*`, `voice-agent-mcp/lib/db.ts` | Supabase project URL for server/admin clients. | `https://xyz.supabase.co` |
 | `SUPABASE_ANON_KEY` | Supabase Edge Functions | `supabase/functions/embed-service/index.ts`, `invite-user`, `n8n-webhook-proxy` | Supabase anon key for authed user lookups. | `eyJ...` |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase Edge Functions, voice-agent-mcp | `supabase/functions/*`, `voice-agent-mcp/lib/db.ts` | Service role key for admin DB access. | `service_role` |
-| `OPENAI_API_KEY` | Supabase Edge Functions | `supabase/functions/agent-chat/index.ts`, `voice-ephemeral-key`, `rag-service` | OpenAI server-side API key. | `sk-...` |
+| `OPENAI_API_KEY` | Supabase Edge Functions | `supabase/functions/agent-chat/index.ts`, `voice-ephemeral-key`, `realtime-session`, `responses-chat`, `openai-web-search`, `rag-service` | OpenAI server-side API key. Never expose it through a `VITE_` variable. | `sk-...` |
 | `OPENAI_BASE_URL` | Supabase Edge Functions | `supabase/functions/agent-chat/index.ts`, `voice-ephemeral-key`, `rag-service` | Override OpenAI API base URL. | `https://api.openai.com/v1` |
 | `OPENAI_ORGANIZATION` | Supabase Edge Functions | `supabase/functions/rag-service/index.ts` | OpenAI org header for vector store API. | `org_...` |
 | `OPENAI_PROJECT` | Supabase Edge Functions | `supabase/functions/rag-service/index.ts` | OpenAI project header for vector store API. | `proj_...` |
@@ -2176,12 +2175,12 @@ sequenceDiagram
 - Verify `VITE_*` env variables in the client app and `SUPABASE_*` / `OPENAI_*` env vars in edge functions.
 - Confirm Supabase RLS policies for `va_rag_*`, `va_usage_*`, embeds, and chat tables if auth failures occur (see migration files).
 - Check MCP connection status and `server_url` validity in `va_mcp_connections` when tool listing/execution fails.
-- Inspect browser console for realtime socket errors and reconnection attempts.
+- Inspect browser console for WebRTC peer-connection, SDP relay, and Realtime data-channel errors.
 - Validate embed `public_id` and allowed origins in `va_agent_embeds` / `va_voice_embeds`.
 
 ## 10. Security Notes and Hardening Checklist
 
-- Secrets in client bundle: `VITE_OPENAI_API_KEY` is used client-side in `src/lib/realtime-client.ts` and `src/lib/chat-realtime-client.ts`. That key is shipped to the browser; if this is not intended, move realtime calls server-side.
+- OpenAI credentials: Realtime SDP, Responses chat, embed credentials, and web search are relayed through Supabase Edge Functions. Keep `OPENAI_API_KEY` only in Edge Function secrets.
 - Supabase service role key usage: Used by edge functions and `voice-agent-mcp` (`supabase/functions/*`, `voice-agent-mcp/lib/db.ts`). Ensure these env vars are not exposed to clients.
 - Embed origin allow-listing: Enforced in `supabase/functions/agent-chat/index.ts`, `embed-usage/index.ts`, and `voice-ephemeral-key/index.ts`.
 - RLS policies: Several tables enable RLS and depend on `current_va_user_id()` (see `supabase/migrations/20251120120000_create_va_users_and_keys.sql`, `20251215101500_create_rag_schema.sql`, `20251220120000_create_usage_tracking.sql`).

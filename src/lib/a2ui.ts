@@ -153,10 +153,6 @@ function normalizeNode(node: any): A2UIElement | null {
   return normalized;
 }
 
-function validateNode(node: any): node is A2UIElement {
-  return Boolean(normalizeNode(node));
-}
-
 function normalizeUi(ui: any): A2UIElement | A2UIElement[] | null {
   if (Array.isArray(ui)) {
     const normalized = ui.map(normalizeNode).filter(Boolean) as A2UIElement[];
@@ -187,10 +183,6 @@ function normalizeUi(ui: any): A2UIElement | A2UIElement[] | null {
     };
   }
   return normalizeNode(ui);
-}
-
-function validateUi(ui: any): ui is A2UIElement | A2UIElement[] {
-  return Boolean(normalizeUi(ui));
 }
 
 export function parseA2UIPayload(text: string): ParsedA2UI | null {
