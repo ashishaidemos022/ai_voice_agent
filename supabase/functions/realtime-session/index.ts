@@ -35,10 +35,20 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    if (req.method !== 'POST' || !req.headers.get('content-type')?.includes('application/sdp')) {
-      return new Response('Expected an application/sdp POST request', { status: 415, headers: corsHeaders });
+    if (req.method !== 'POST') {
+      return new Response('Method not allowed', { status: 405, headers: corsHeaders });
     }
     if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not configured');
+
+    const contentType = req.headers.get('content-type') || '';
+    const isWebRTCRequest = contentType.includes('application/sdp');
+    const isClientSecretRequest = contentType.includes('application/json');
+    if (!isWebRTCRequest && !isClientSecretRequest) {
+      return new Response('Expected an application/sdp or application/json POST request', {
+        status: 415,
+        headers: corsHeaders
+      });
+    }
 
     const authorization = req.headers.get('authorization');
     const accessToken = authorization?.replace(/^Bearer\s+/i, '');
@@ -88,7 +98,7 @@ Deno.serve(async (req: Request) => {
     const session = {
       type: 'realtime',
       model: normalizeRealtimeModel(agent.model || OPENAI_MODELS.realtime.default),
-      output_modalities: ['audio'],
+      output_modalities: isClientSecretRequest ? ['text'] : ['audio'],
       instructions: agent.instructions || undefined,
       audio: {
         input: {
@@ -99,6 +109,45 @@ Deno.serve(async (req: Request) => {
       max_output_tokens: agent.max_response_output_tokens || 4096
     };
 
+    const safetyIdentifier = await hashSafetyIdentifier(vaUser.id);
+    if (isClientSecretRequest) {
+      const requestBody = await req.json().catch(() => ({}));
+      if (requestBody?.transport !== 'websocket') {
+        return new Response(JSON.stringify({ error: 'transport must be websocket' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+
+      const openAIResponse = await fetch(`${OPENAI_BASE_URL}/realtime/client_secrets`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+          'OpenAI-Safety-Identifier': safetyIdentifier
+        },
+        body: JSON.stringify({ session })
+      });
+      const responseBody = await openAIResponse.text();
+      if (!openAIResponse.ok) {
+        return new Response(responseBody, {
+          status: openAIResponse.status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+
+      const payload = JSON.parse(responseBody);
+      const token = payload?.value ?? payload?.client_secret?.value;
+      if (!token) throw new Error('Realtime API did not return a client secret');
+      return new Response(JSON.stringify({
+        token,
+        expires_at: payload?.expires_at ?? payload?.client_secret?.expires_at ?? null
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
     const form = new FormData();
     form.set('sdp', await req.text());
     form.set('session', JSON.stringify(session));
@@ -106,7 +155,7 @@ Deno.serve(async (req: Request) => {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
-        'OpenAI-Safety-Identifier': await hashSafetyIdentifier(vaUser.id)
+        'OpenAI-Safety-Identifier': safetyIdentifier
       },
       body: form
     });

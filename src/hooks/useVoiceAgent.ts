@@ -14,6 +14,7 @@ import { useAuth } from '../context/AuthContext';
 import { normalizeUsage, recordUsageEvent } from '../lib/usage-tracker';
 import { requestPersonaPlexGatewayToken } from '../lib/personaplex-gateway';
 import { requestElevenLabsGatewayToken } from '../lib/elevenlabs-gateway';
+import { requestRealtimeWebSocketSecret } from '../lib/realtime-session';
 import { formatA2UIEventMessage, type A2UIEvent } from '../lib/a2ui';
 
 type LiveTranscripts = {
@@ -701,6 +702,7 @@ export function useVoiceAgent() {
 
         let gatewaySession: { token: string; gateway_ws_url: string } | null = null;
         let elevenLabsSession: { token: string; gateway_ws_url: string } | null = null;
+        let realtimeWebSocketToken: string | null = null;
         if (provider === 'personaplex') {
           gatewaySession = await requestPersonaPlexGatewayToken({
             agentId: configId,
@@ -708,11 +710,16 @@ export function useVoiceAgent() {
             origin: window.location.origin
           });
         } else if (provider === 'elevenlabs_tts') {
-          elevenLabsSession = await requestElevenLabsGatewayToken({
-            agentId: configId,
-            sessionId: sid,
-            origin: window.location.origin
-          });
+          const [gateway, realtimeSecret] = await Promise.all([
+            requestElevenLabsGatewayToken({
+              agentId: configId,
+              sessionId: sid,
+              origin: window.location.origin
+            }),
+            requestRealtimeWebSocketSecret(configId)
+          ]);
+          elevenLabsSession = gateway;
+          realtimeWebSocketToken = realtimeSecret.token;
         }
 
         if (realtimeClientRef.current) {
@@ -732,6 +739,8 @@ export function useVoiceAgent() {
                 token: elevenLabsSession?.token || '',
                 agentId: configId,
                 sessionId: sid
+              }, {
+                apiKey: realtimeWebSocketToken || undefined
               })
             : await (async () => {
                 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
