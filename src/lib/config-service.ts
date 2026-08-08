@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { RealtimeConfig } from '../types/voice-agent';
 import type { RagMode, RagSpace } from '../types/rag';
+import { normalizeRealtimeModel } from '../../shared/openai-models';
 
 const RAG_RELATION_SELECT = `
   *,
@@ -100,16 +101,6 @@ export interface AgentTemplate {
   turn_detection_config: any;
 }
 
-function normalizeRealtimeModel(model?: string | null): string {
-  const candidate = (model || '').trim();
-  const normalized = candidate.toLowerCase();
-  if (!candidate) return 'gpt-realtime-1.5';
-  if (normalized === 'gpt-realtime' || normalized.startsWith('gpt-4o-realtime')) {
-    return 'gpt-realtime-1.5';
-  }
-  return candidate;
-}
-
 export function configPresetToRealtimeConfig(preset: AgentConfigPreset): RealtimeConfig {
   const normalizedModel = normalizeRealtimeModel(preset.model);
   const vectorStoreIds = (preset.knowledge_spaces || [])
@@ -168,9 +159,9 @@ export function realtimeConfigToPreset(config: RealtimeConfig, name: string): Pa
 
 export async function getAllConfigPresets(): Promise<AgentConfigPreset[]> {
   try {
-    const data = await selectPresetRows<any[]>((withRelations) => {
-      const select = withRelations ? RAG_RELATION_SELECT : '*';
-      return supabase
+    const data = await selectPresetRows<any[]>(async (withRelations) => {
+      const select: string = withRelations ? RAG_RELATION_SELECT : '*';
+      return await supabase
         .from('va_agent_configs')
         .select(select)
         .order('created_at', { ascending: false });
@@ -185,9 +176,9 @@ export async function getAllConfigPresets(): Promise<AgentConfigPreset[]> {
 
 export async function getDefaultConfigPreset(): Promise<AgentConfigPreset | null> {
   try {
-    const data = await selectPresetRows<any>((withRelations) => {
-      const select = withRelations ? RAG_RELATION_SELECT : '*';
-      return supabase
+    const data = await selectPresetRows<any>(async (withRelations) => {
+      const select: string = withRelations ? RAG_RELATION_SELECT : '*';
+      return await supabase
         .from('va_agent_configs')
         .select(select)
         .eq('is_default', true)
@@ -203,9 +194,9 @@ export async function getDefaultConfigPreset(): Promise<AgentConfigPreset | null
 
 export async function getConfigPresetById(id: string): Promise<AgentConfigPreset | null> {
   try {
-    const data = await selectPresetRows<any>((withRelations) => {
-      const select = withRelations ? RAG_RELATION_SELECT : '*';
-      return supabase
+    const data = await selectPresetRows<any>(async (withRelations) => {
+      const select: string = withRelations ? RAG_RELATION_SELECT : '*';
+      return await supabase
         .from('va_agent_configs')
         .select(select)
         .eq('id', id)

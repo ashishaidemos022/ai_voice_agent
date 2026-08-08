@@ -30,6 +30,7 @@ import { Button } from '../ui/Button';
 import { Card, CardHeader } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { ToolSelectionPanel } from '../settings/ToolSelectionPanel';
+import { OPENAI_MODELS } from '../../../shared/openai-models';
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -112,7 +113,7 @@ const PERSONAPLEX_VOICE_OPTIONS = [
 ];
 
 const BASE_DEFAULT_CONFIG: RealtimeConfig = {
-  model: 'gpt-realtime-1.5',
+  model: OPENAI_MODELS.realtime.default,
   voice: 'alloy',
   voice_provider: 'openai_realtime',
   voice_persona_prompt: null,
@@ -757,7 +758,19 @@ export function SettingsPanel({
                   <p className="text-sm text-white/60">Balance creativity vs. determinism for this agent.</p>
                 </div>
               </div>
-              <div className="col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="col-span-2 grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-sm font-semibold text-white/80">OpenAI voice model</label>
+                  <select
+                    value={config.model}
+                    onChange={(e) => onConfigChange({ ...config, model: e.target.value })}
+                    className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
+                  >
+                    <option value={OPENAI_MODELS.realtime.default}>GPT Realtime 2.1 · best quality</option>
+                    <option value={OPENAI_MODELS.realtime.economy}>GPT Realtime 2.1 mini · lower cost</option>
+                  </select>
+                  <p className="text-xs text-white/50 mt-1">Realtime 2.1 is the recommended production default.</p>
+                </div>
                 <div>
                   <label className="text-sm font-semibold text-white/80 flex items-center justify-between">
                     Temperature

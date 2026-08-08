@@ -685,10 +685,12 @@ export function useVoiceAgent() {
         setSessionId(sid);
         console.log('[useVoiceAgent] session row created', { sessionId: sid });
 
+        const provider = hydratedConfig.voice_provider ?? 'openai_realtime';
+
         if (!audioManagerRef.current) {
           audioManagerRef.current = getAudioManager();
         }
-        if (audioManagerRef.current) {
+        if (audioManagerRef.current && provider !== 'openai_realtime') {
           if (audioManagerRef.current.isReady()) {
             console.warn('[useVoiceAgent] AudioManager already ready - reusing singleton');
           } else {
@@ -699,7 +701,6 @@ export function useVoiceAgent() {
 
         let gatewaySession: { token: string; gateway_ws_url: string } | null = null;
         let elevenLabsSession: { token: string; gateway_ws_url: string } | null = null;
-        const provider = hydratedConfig.voice_provider ?? 'openai_realtime';
         if (provider === 'personaplex') {
           gatewaySession = await requestPersonaPlexGatewayToken({
             agentId: configId,
@@ -732,7 +733,25 @@ export function useVoiceAgent() {
                 agentId: configId,
                 sessionId: sid
               })
-            : new RealtimeAPIClient(hydratedConfig);
+            : await (async () => {
+                const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+                const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+                const { data: { session } } = await supabase.auth.getSession();
+                if (!supabaseUrl || !anonKey || !session?.access_token) {
+                  throw new Error('Authenticated Realtime session configuration is unavailable');
+                }
+                const sessionUrl = new URL(`${supabaseUrl.replace(/\/$/, '')}/functions/v1/realtime-session`);
+                sessionUrl.searchParams.set('agent_id', configId);
+                return new RealtimeAPIClient(hydratedConfig, {
+                  webrtc: {
+                    sessionUrl: sessionUrl.toString(),
+                    headers: {
+                      apikey: anonKey,
+                      Authorization: `Bearer ${session.access_token}`
+                    }
+                  }
+                });
+              })();
 
         attachRealtimeHandlers();
         const connectTimeoutMs = 15000;

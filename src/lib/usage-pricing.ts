@@ -1,18 +1,11 @@
-export type ModelPricing = {
-  inputPer1K: number;
-  outputPer1K: number;
-};
+import { getOpenAIModelPricing, OPENAI_MODEL_PRICING } from '../../shared/openai-models';
 
-export const MODEL_PRICING: Record<string, ModelPricing> = {
-  'gpt-realtime-1.5': { inputPer1K: 0.005, outputPer1K: 0.015 },
-  'gpt-realtime': { inputPer1K: 0.005, outputPer1K: 0.015 },
-  'gpt-4.1-mini': { inputPer1K: 0.00015, outputPer1K: 0.0006 },
-  'gpt-4o-realtime-preview-2024-12-17': { inputPer1K: 0.005, outputPer1K: 0.015 }
-};
+export { OPENAI_MODEL_PRICING as MODEL_PRICING };
 
 export function estimateUsageCost(model: string | null | undefined, inputTokens: number, outputTokens: number): number {
   if (!model) return 0;
-  const pricing = MODEL_PRICING[model];
+  const pricing = getOpenAIModelPricing(model);
   if (!pricing) return 0;
-  return (inputTokens / 1000) * pricing.inputPer1K + (outputTokens / 1000) * pricing.outputPer1K;
+  return (inputTokens / 1_000_000) * pricing.textInputPer1M
+    + (outputTokens / 1_000_000) * pricing.textOutputPer1M;
 }
