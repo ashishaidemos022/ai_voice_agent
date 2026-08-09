@@ -314,7 +314,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
 
     client.on('transcript.delta', (event: any) => {
       const isUser = event.role === 'user';
-      if (!isUser && agentMetaRef.current?.a2ui_enabled && assistantTextBufferRef.current.length > 0) {
+      if (!isUser && assistantTextBufferRef.current.length > 0) {
         return;
       }
       const buffers = isUser ? transcriptsRef.current.user : transcriptsRef.current.assistant;
@@ -339,7 +339,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
 
     client.on('transcript.done', async (event: any) => {
       const isUser = event.role === 'user';
-      if (!isUser && agentMetaRef.current?.a2ui_enabled && usedAssistantTextRef.current) {
+      if (!isUser && usedAssistantTextRef.current) {
         if (transcriptsRef.current.activeAssistantId) {
           transcriptsRef.current.activeAssistantId = null;
           setLiveAssistantTranscript('');
@@ -402,7 +402,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
         transcriptsRef.current.activeUserId = null;
         setLiveUserTranscript('');
       } else {
-        if (agentMetaRef.current?.a2ui_enabled && assistantTextBufferRef.current.length > 0) {
+        if (assistantTextBufferRef.current.length > 0) {
           return;
         }
         transcriptsRef.current.assistant = {};
@@ -412,13 +412,11 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
     });
 
     client.on('text.delta', (event: any) => {
-      if (!agentMetaRef.current?.a2ui_enabled) return;
       assistantTextBufferRef.current += event.delta || '';
       setLiveAssistantTranscript(assistantTextBufferRef.current);
     });
 
     client.on('text.done', async (event: any) => {
-      if (!agentMetaRef.current?.a2ui_enabled) return;
       const transcriptText = (event.text || assistantTextBufferRef.current || '').trim();
       assistantTextBufferRef.current = '';
       if (!transcriptText) return;

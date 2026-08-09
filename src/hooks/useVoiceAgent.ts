@@ -368,7 +368,7 @@ export function useVoiceAgent() {
         itemId: event.itemId
       });
       const isUser = event.role === 'user';
-      if (!isUser && configRef.current?.a2ui_enabled && assistantTextBufferRef.current.length > 0) {
+      if (!isUser && assistantTextBufferRef.current.length > 0) {
         return;
       }
       const buffer = isUser ? transcriptsRef.current.user : transcriptsRef.current.assistant;
@@ -397,7 +397,7 @@ export function useVoiceAgent() {
         itemId: event.itemId
       });
       const isUser = event.role === 'user';
-      if (!isUser && configRef.current?.a2ui_enabled && usedAssistantTextRef.current) {
+      if (!isUser && usedAssistantTextRef.current) {
         if (transcriptsRef.current.activeAssistantId) {
           transcriptsRef.current.activeAssistantId = null;
           setLiveAssistantTranscript('');
@@ -454,7 +454,7 @@ export function useVoiceAgent() {
           setLiveUserTranscript('');
         }
       } else {
-        if (configRef.current?.a2ui_enabled && assistantTextBufferRef.current.length > 0) {
+        if (assistantTextBufferRef.current.length > 0) {
           return;
         }
         if (event.itemId) {
@@ -472,13 +472,11 @@ export function useVoiceAgent() {
     });
 
     client.on('text.delta', (event: any) => {
-      if (!configRef.current?.a2ui_enabled) return;
       assistantTextBufferRef.current += event.delta || '';
       setLiveAssistantTranscript(assistantTextBufferRef.current);
     });
 
     client.on('text.done', async (event: any) => {
-      if (!configRef.current?.a2ui_enabled) return;
       const transcriptText = (event.text || assistantTextBufferRef.current || '').trim();
       assistantTextBufferRef.current = '';
       if (!transcriptText) return;
