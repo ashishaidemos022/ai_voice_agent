@@ -9,7 +9,7 @@ const corsHeaders = {
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-const GATEWAY_WS_URL = Deno.env.get('VERCEL_ELEVENLABS_GATEWAY_WS_URL') ||
+const DEFAULT_GATEWAY_WS_URL = Deno.env.get('VERCEL_ELEVENLABS_GATEWAY_WS_URL') ||
   'wss://ai-voice-agent-sage.vercel.app/api/ws';
 const JWT_SECRET = Deno.env.get('ELEVENLABS_GATEWAY_JWT_SECRET');
 const TOKEN_TTL_SECONDS = Number(Deno.env.get('ELEVENLABS_GATEWAY_TOKEN_TTL_SECONDS') || 90);
@@ -67,6 +67,22 @@ function normalizeGatewayWsUrl(raw: string): string {
   return parsed.toString();
 }
 
+function resolveGatewayWsUrl(origin: string | null): string {
+  if (origin) {
+    try {
+      const parsed = new URL(origin);
+      const isProductionHost = parsed.hostname === 'ai-voice-agent-sage.vercel.app';
+      const isProjectPreview = parsed.hostname.endsWith('-ashishs-projects-cb76c7ca.vercel.app');
+      if (parsed.protocol === 'https:' && (isProductionHost || isProjectPreview)) {
+        return `wss://${parsed.host}/api/ws`;
+      }
+    } catch {
+      // Fall through to the configured production gateway.
+    }
+  }
+  return normalizeGatewayWsUrl(DEFAULT_GATEWAY_WS_URL);
+}
+
 async function signGatewayToken(payload: Record<string, unknown>) {
   if (!JWT_SECRET) {
     throw new Error('ELEVENLABS_GATEWAY_JWT_SECRET not configured');
@@ -92,11 +108,10 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const gatewayWsUrl = normalizeGatewayWsUrl(GATEWAY_WS_URL);
-
     const payload = (await req.json()) as GatewayTokenRequest;
     const originHeader = payload.origin || req.headers.get('origin') || req.headers.get('referer');
     const origin = normalizeOrigin(originHeader);
+    const gatewayWsUrl = resolveGatewayWsUrl(origin);
 
     if (!payload.agent_id && !payload.agent_public_id) {
       return new Response(JSON.stringify({ error: 'agent_id or agent_public_id is required' }), {
