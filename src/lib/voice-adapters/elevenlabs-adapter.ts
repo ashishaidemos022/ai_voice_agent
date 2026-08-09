@@ -33,9 +33,14 @@ export class ElevenLabsVoiceAdapter implements VoiceAdapter {
   private readonly session: ElevenLabsGatewaySession;
   private ws: WebSocket | null = null;
   private handlers = new Map<string, Set<(event: any) => void>>();
+  private readonly supportsStreamingInput: boolean;
+  private sawTextDelta = false;
 
   constructor(config: RealtimeConfig, session: ElevenLabsGatewaySession, options?: { apiKey?: string }) {
     this.session = session;
+    const providerConfig = config.voice_provider_config || {};
+    this.supportsStreamingInput = providerConfig.model_id !== 'eleven_v3'
+      && !providerConfig.expressive_mode;
     this.realtime = new RealtimeAPIClient(config, {
       apiKey: options?.apiKey,
       allowInterruptions: true,
@@ -44,8 +49,21 @@ export class ElevenLabsVoiceAdapter implements VoiceAdapter {
 
     FORWARDED_EVENTS.forEach((eventType) => {
       this.realtime.on(eventType, (event: RealtimeEvent) => {
-        if (eventType === 'text.done' && (event as any)?.text) {
-          this.sendTextToGateway((event as any).text);
+        if (eventType === 'response.created') {
+          this.sawTextDelta = false;
+        } else if (eventType === 'text.delta' && this.supportsStreamingInput) {
+          const delta = (event as any)?.delta || '';
+          if (delta) {
+            this.sawTextDelta = true;
+            this.sendTextToGateway(delta);
+          }
+        } else if (eventType === 'text.done') {
+          const text = (event as any)?.text || '';
+          if (this.supportsStreamingInput && this.sawTextDelta) {
+            this.sendGatewayMessage({ type: 'speak', text: '', flush: true });
+          } else if (text) {
+            this.sendGatewayMessage({ type: 'speak', text, flush: true });
+          }
         }
         this.emit(eventType, event);
       });
@@ -109,6 +127,7 @@ export class ElevenLabsVoiceAdapter implements VoiceAdapter {
 
   cancelResponse(options?: { suppressState?: boolean }): void {
     this.realtime.cancelResponse(options);
+    this.sawTextDelta = false;
     this.sendGatewayMessage({ type: 'cancel' });
   }
 

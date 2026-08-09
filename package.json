@@ -7,11 +7,12 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
+    "test:gateway": "node --test tests/elevenlabs-gateway.test.js",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.57.4",
+    "@supabase/supabase-js": "^2.112.2",
     "clsx": "^2.1.1",
     "express": "^5.2.1",
     "framer-motion": "^12.23.24",

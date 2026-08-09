@@ -481,7 +481,7 @@ export function SettingsPanel({
     if (enabled) {
       nextConfig.model_id = 'eleven_v3';
     } else if ((elevenLabsConfig.model_id ?? '') === 'eleven_v3') {
-      nextConfig.model_id = 'eleven_multilingual_v2';
+      nextConfig.model_id = 'eleven_flash_v2_5';
     }
     updateElevenLabsConfig(nextConfig);
   };
@@ -1023,7 +1023,7 @@ export function SettingsPanel({
                     <div>
                       <label className="text-sm font-semibold text-white/80">Model ID</label>
                       <input
-                        value={elevenLabsConfig.model_id ?? (isElevenLabsExpressiveMode ? 'eleven_v3' : 'eleven_multilingual_v2')}
+                        value={elevenLabsConfig.model_id ?? (isElevenLabsExpressiveMode ? 'eleven_v3' : 'eleven_flash_v2_5')}
                         onChange={(e) => updateElevenLabsConfig({ model_id: e.target.value })}
                         className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
                       />
@@ -1080,7 +1080,7 @@ export function SettingsPanel({
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={Boolean(elevenLabsConfig.voice_settings?.use_speaker_boost ?? true)}
+                        checked={Boolean(elevenLabsConfig.voice_settings?.use_speaker_boost ?? false)}
                         onChange={(e) => updateElevenLabsConfig({
                           voice_settings: {
                             ...(elevenLabsConfig.voice_settings || {}),
@@ -1089,7 +1089,7 @@ export function SettingsPanel({
                         })}
                         className="w-4 h-4 text-cyan-400 border-white/20 rounded focus:ring-cyan-400"
                       />
-                      <span className="text-sm font-semibold text-white/80">Use speaker boost</span>
+                      <span className="text-sm font-semibold text-white/80">Use speaker boost (adds latency)</span>
                     </label>
                   </div>
                 </div>
