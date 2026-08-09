@@ -62,7 +62,27 @@ wss.on('connection', async (client, req) => {
   let keepaliveTimer = null;
   const pendingMessages = [];
   let legacyTextBuffer = '';
+  let pcmCarry = Buffer.alloc(0);
   let isBusy = false;
+
+  const sendPcmBytes = (bytes, final = false) => {
+    const incoming = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+    const pcm = pcmCarry.length ? Buffer.concat([pcmCarry, incoming]) : incoming;
+    const alignedLength = pcm.length - (pcm.length % 2);
+    if (alignedLength > 0) {
+      sendJson(client, {
+        type: 'audio.delta',
+        delta: pcm.subarray(0, alignedLength).toString('base64')
+      });
+    }
+    pcmCarry = alignedLength < pcm.length ? pcm.subarray(alignedLength) : Buffer.alloc(0);
+    if (final) {
+      if (pcmCarry.length) {
+        console.warn('[elevenlabs-gateway] dropping incomplete trailing PCM16 byte');
+      }
+      pcmCarry = Buffer.alloc(0);
+    }
+  };
 
   const closeUpstream = () => {
     upstreamGeneration += 1;
@@ -72,6 +92,7 @@ wss.on('connection', async (client, req) => {
       try { upstream.close(); } catch { /* ignore */ }
     }
     upstream = null;
+    pcmCarry = Buffer.alloc(0);
   };
 
   const connectUpstream = async (config) => {
@@ -121,9 +142,10 @@ wss.on('connection', async (client, req) => {
         try {
           const message = JSON.parse(data.toString());
           if (message.audio) {
-            sendJson(client, { type: 'audio.delta', delta: message.audio });
+            sendPcmBytes(Buffer.from(message.audio, 'base64'));
           }
           if (message.is_final || message.isFinal) {
+            sendPcmBytes(Buffer.alloc(0), true);
             sendJson(client, { type: 'audio.done' });
           }
           if (message.error) {
@@ -207,6 +229,7 @@ wss.on('connection', async (client, req) => {
     if (message?.type === 'cancel') {
       pendingMessages.length = 0;
       legacyTextBuffer = '';
+      pcmCarry = Buffer.alloc(0);
       if (transport === 'websocket') {
         closeUpstream();
         refreshUpstream().catch((error) => {
@@ -256,11 +279,9 @@ wss.on('connection', async (client, req) => {
         const { done, value } = await reader.read();
         if (done) break;
         if (!value?.length) continue;
-        sendJson(client, {
-          type: 'audio.delta',
-          delta: Buffer.from(value).toString('base64')
-        });
+        sendPcmBytes(Buffer.from(value));
       }
+      sendPcmBytes(Buffer.alloc(0), true);
       sendJson(client, { type: 'audio.done' });
     } catch (error) {
       console.error('[elevenlabs-gateway] synthesis failed', error?.message || error);
