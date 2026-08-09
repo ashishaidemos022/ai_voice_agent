@@ -289,27 +289,27 @@ export class RealtimeAPIClient {
         max_output_tokens: this.config.max_response_output_tokens
       }
     };
-    if (!this.textOnly) {
-      sessionConfig.session.audio = {
-        input: {
-          ...(!this.webrtc ? { format: { type: 'audio/pcm', rate: 24000 } } : {}),
-          transcription: {
-            model: OPENAI_MODELS.transcription.accurate,
-            language: 'en'
-          },
-          turn_detection: this.config.turn_detection ?? {
-            type: 'server_vad',
-            threshold: 0.75,
-            prefix_padding_ms: 150,
-            silence_duration_ms: 700
-          }
+    sessionConfig.session.audio = {
+      input: {
+        ...(!this.webrtc ? { format: { type: 'audio/pcm', rate: 24000 } } : {}),
+        transcription: {
+          model: OPENAI_MODELS.transcription.accurate,
+          language: 'en'
         },
+        turn_detection: this.config.turn_detection ?? {
+          type: 'server_vad',
+          threshold: 0.75,
+          prefix_padding_ms: 150,
+          silence_duration_ms: 700
+        }
+      },
+      ...(!this.textOnly ? {
         output: {
           ...(!this.webrtc ? { format: { type: 'audio/pcm' } } : {}),
           voice: this.config.voice
         }
-      };
-    }
+      } : {})
+    };
 
     console.log('📤 Sending session.update', {
       turnDetection: sessionConfig.session.audio?.input?.turn_detection,
