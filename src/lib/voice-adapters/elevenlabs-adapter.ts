@@ -150,25 +150,46 @@ export class ElevenLabsVoiceAdapter implements VoiceAdapter {
       const ws = new WebSocket(url.toString());
       this.ws = ws;
       let settled = false;
+      const handshakeTimeout = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        ws.close();
+        reject(new Error('ElevenLabs gateway initialization timed out'));
+      }, 10_000);
+
+      const settle = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(handshakeTimeout);
+        callback();
+      };
 
       ws.onopen = () => {
-        settled = true;
-        resolve();
+        // The gateway confirms readiness after it resolves the stored provider key.
       };
       ws.onerror = () => {
-        if (!settled) {
-          settled = true;
-          reject(new Error('Failed to connect ElevenLabs gateway'));
-        }
+        settle(() => reject(new Error('Failed to connect ElevenLabs gateway')));
       };
-      ws.onclose = () => {
-        if (!settled) {
-          settled = true;
-          reject(new Error('ElevenLabs gateway closed during handshake'));
-        }
-        this.emit('disconnected', { type: 'disconnected', reason: 'elevenlabs-gateway-closed' });
+      ws.onclose = (event) => {
+        settle(() => reject(new Error(
+          `ElevenLabs gateway closed during handshake (${event.code}${event.reason ? `: ${event.reason}` : ''})`
+        )));
+        this.emit('disconnected', {
+          type: 'disconnected',
+          reason: event.reason || 'elevenlabs-gateway-closed',
+          code: event.code
+        });
       };
       ws.onmessage = (event) => {
+        try {
+          const message = typeof event.data === 'string' ? JSON.parse(event.data) : null;
+          if (message?.type === 'ready') {
+            settle(resolve);
+            return;
+          }
+        } catch {
+          // The normal message handler will ignore malformed gateway frames.
+        }
         this.handleGatewayMessage(event.data);
       };
     });
