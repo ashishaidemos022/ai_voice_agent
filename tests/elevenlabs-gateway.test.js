@@ -15,6 +15,20 @@ const waitForMessage = (ws, predicate) => new Promise((resolve, reject) => {
   ws.on('message', onMessage);
 });
 
+const collectAudio = (ws) => new Promise((resolve, reject) => {
+  const chunks = [];
+  const timeout = setTimeout(() => reject(new Error('Timed out waiting for audio stream')), 3000);
+  const onMessage = (data) => {
+    const message = JSON.parse(data.toString());
+    if (message.type === 'audio.delta') chunks.push(Buffer.from(message.delta, 'base64'));
+    if (message.type !== 'audio.done') return;
+    clearTimeout(timeout);
+    ws.off('message', onMessage);
+    resolve(Buffer.concat(chunks));
+  };
+  ws.on('message', onMessage);
+});
+
 test('streams OpenAI text through ElevenLabs and forwards audio immediately', async (t) => {
   const upstreamServer = createServer();
   const upstreamWss = new WebSocketServer({ server: upstreamServer });
@@ -28,7 +42,9 @@ test('streams OpenAI text through ElevenLabs and forwards audio immediately', as
       const message = JSON.parse(data.toString());
       upstreamMessages.push(message);
       if (message.flush) {
-        ws.send(JSON.stringify({ audio: Buffer.from('pcm').toString('base64'), is_final: false }));
+        const pcm = Buffer.from('pcm!');
+        ws.send(JSON.stringify({ audio: pcm.subarray(0, 3).toString('base64'), is_final: false }));
+        ws.send(JSON.stringify({ audio: pcm.subarray(3).toString('base64'), is_final: false }));
         ws.send(JSON.stringify({ is_final: true }));
       }
     });
@@ -68,15 +84,13 @@ test('streams OpenAI text through ElevenLabs and forwards audio immediately', as
   t.after(() => client.close());
 
   await waitForMessage(client, (message) => message.type === 'ready');
-  const audioPromise = waitForMessage(client, (message) => message.type === 'audio.delta');
-  const donePromise = waitForMessage(client, (message) => message.type === 'audio.done');
+  const audioPromise = collectAudio(client);
   client.send(JSON.stringify({ type: 'speak', text: 'Hello ' }));
   client.send(JSON.stringify({ type: 'speak', text: 'world.', flush: true }));
 
-  const [audio, done] = await Promise.all([audioPromise, donePromise]);
+  const audio = await audioPromise;
 
-  assert.equal(Buffer.from(audio.delta, 'base64').toString(), 'pcm');
-  assert.equal(done.type, 'audio.done');
+  assert.equal(audio.toString(), 'pcm!');
   assert.equal(upstreamMessages[0].text, ' ');
   assert.deepEqual(upstreamMessages[0].generation_config.chunk_length_schedule, [50, 120, 160, 290]);
   assert.equal(upstreamMessages[1].text, 'Hello ');
