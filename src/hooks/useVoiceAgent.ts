@@ -47,7 +47,7 @@ export function useVoiceAgent() {
 
   const audioManagerRef = useRef<AudioManager | null>(null);
   const realtimeClientRef = useRef<VoiceAdapter | null>(null);
-  const audioIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const audioIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const configRef = useRef<RealtimeConfig | null>(null);
   const transcriptsRef = useRef<LiveTranscripts>({

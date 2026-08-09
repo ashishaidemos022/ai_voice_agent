@@ -1,4 +1,4 @@
-import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
+import { createClient } from 'npm:@supabase/supabase-js@2.112.2';
 import { SignJWT } from 'npm:jose@5.2.4';
 
 const corsHeaders = {
@@ -277,7 +277,7 @@ Deno.serve(async (req: Request) => {
       ? agentConfig.voice_provider_config
       : {};
     const expressiveMode = Boolean(providerConfig.expressive_mode);
-    const resolvedModelId = providerConfig.model_id || (expressiveMode ? 'eleven_v3' : 'eleven_multilingual_v2');
+    const resolvedModelId = providerConfig.model_id || (expressiveMode ? 'eleven_v3' : 'eleven_flash_v2_5');
 
     const token = await signGatewayToken({
       sub: subject,
