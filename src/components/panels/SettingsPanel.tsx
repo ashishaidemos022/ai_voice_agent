@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  UploadCloud,
   Trash2,
   Wand2,
   Workflow
@@ -30,7 +31,11 @@ import { Card, CardHeader } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { ToolSelectionPanel } from '../settings/ToolSelectionPanel';
 import { OPENAI_MODELS } from '../../../shared/openai-models';
-import { listElevenLabsAgents, type ElevenLabsAgentSummary } from '../../lib/elevenlabs-agent';
+import {
+  listElevenLabsAgents,
+  syncElevenLabsAgent,
+  type ElevenLabsAgentSummary
+} from '../../lib/elevenlabs-agent';
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -168,6 +173,9 @@ export function SettingsPanel({
   const [elevenLabsAgents, setElevenLabsAgents] = useState<ElevenLabsAgentSummary[]>([]);
   const [isLoadingElevenLabsAgents, setIsLoadingElevenLabsAgents] = useState(false);
   const [elevenLabsAgentsError, setElevenLabsAgentsError] = useState<string | null>(null);
+  const [isPublishingElevenLabs, setIsPublishingElevenLabs] = useState(false);
+  const [elevenLabsPublishError, setElevenLabsPublishError] = useState<string | null>(null);
+  const [elevenLabsPublishSuccess, setElevenLabsPublishSuccess] = useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSuccessMessage, setInviteSuccessMessage] = useState<string | null>(null);
@@ -185,6 +193,8 @@ export function SettingsPanel({
   const isPersonaPlex = resolvedProvider === 'personaplex';
   const isElevenLabsTts = resolvedProvider === 'elevenlabs_tts';
   const isElevenLabsAgent = resolvedProvider === 'elevenlabs_agent';
+  const isAppManagedElevenLabs = isElevenLabsAgent
+    && config.voice_provider_config?.configuration_authority === 'app_managed';
   const isElevenLabs = isElevenLabsTts || isElevenLabsAgent;
   const requiresProviderKey = isElevenLabs;
   const rawVoiceProviderKeyId = config.voice_provider_key_id ?? null;
@@ -195,7 +205,7 @@ export function SettingsPanel({
     ? (isVoiceProviderKeyElevenLabs ? rawVoiceProviderKeyId : (effectiveElevenLabsKeyId ?? null))
     : null;
   const hasRequiredProviderKey = !requiresProviderKey || Boolean(effectiveVoiceProviderKeyId);
-  const hasDirectAgentId = !isElevenLabsAgent || Boolean(
+  const hasDirectAgentId = !isElevenLabsAgent || isAppManagedElevenLabs || Boolean(
     `${config.voice_provider_config?.agent_id || ''}`.trim()
   );
 
@@ -303,7 +313,10 @@ export function SettingsPanel({
     try {
       const isFirstPreset = presets.length === 0;
       const presetData = {
-        ...realtimeConfigToPreset(config, newPresetName.trim()),
+        ...realtimeConfigToPreset(
+          { ...config, voice_provider_key_id: effectiveVoiceProviderKeyId },
+          newPresetName.trim()
+        ),
         is_default: isFirstPreset
       };
       const savedPreset = await saveConfigPreset(
@@ -497,6 +510,18 @@ export function SettingsPanel({
 
   const characterCount = config.instructions.length;
   const elevenLabsConfig = (config.voice_provider_config || {}) as Record<string, any>;
+  const elevenLabsSync = (elevenLabsConfig.app_managed || {}) as Record<string, any>;
+  const elevenLabsSyncedAt = typeof elevenLabsSync.synced_at === 'string'
+    ? elevenLabsSync.synced_at
+    : null;
+  const isElevenLabsSyncStale = isAppManagedElevenLabs && (
+    !elevenLabsSyncedAt
+    || hasUnsavedChanges
+    || Boolean(
+      activePreset?.updated_at
+      && Date.parse(activePreset.updated_at) > Date.parse(elevenLabsSyncedAt) + 1000
+    )
+  );
   const isElevenLabsExpressiveMode = Boolean(elevenLabsConfig.expressive_mode);
   const updateElevenLabsConfig = (patch: Record<string, any>) => {
     onConfigChange({
@@ -517,6 +542,42 @@ export function SettingsPanel({
       nextConfig.model_id = 'eleven_flash_v2_5';
     }
     updateElevenLabsConfig(nextConfig);
+  };
+
+  const handlePublishElevenLabs = async () => {
+    if (!activeConfigId) {
+      setElevenLabsPublishError('Save this preset before publishing it to ElevenLabs.');
+      return;
+    }
+    if (hasUnsavedChanges) {
+      setElevenLabsPublishError('Save your latest changes before publishing.');
+      return;
+    }
+    if (!effectiveVoiceProviderKeyId) {
+      setElevenLabsPublishError('Add an ElevenLabs API key before publishing.');
+      return;
+    }
+    setIsPublishingElevenLabs(true);
+    setElevenLabsPublishError(null);
+    setElevenLabsPublishSuccess(null);
+    try {
+      const result = await syncElevenLabsAgent(activeConfigId);
+      onConfigChange({
+        ...config,
+        voice_provider_config: result.voice_provider_config
+      });
+      await loadPresets();
+      await onPresetsRefresh?.();
+      setHasUnsavedChanges(false);
+      setElevenLabsPublishSuccess(
+        `${result.created ? 'Created' : 'Published'} Agent ${result.agent_id} with ${result.tool_count} tool${result.tool_count === 1 ? '' : 's'}.`
+      );
+    } catch (error: any) {
+      console.error('Failed to publish ElevenLabs Agent:', error);
+      setElevenLabsPublishError(error?.message || 'Unable to publish the ElevenLabs Agent.');
+    } finally {
+      setIsPublishingElevenLabs(false);
+    }
   };
 
   const content = (
@@ -1050,15 +1111,46 @@ export function SettingsPanel({
                         <p className="text-xs uppercase tracking-[0.2em] text-violet-200/70">Direct agent</p>
                         <h4 className="text-sm font-semibold text-white">ElevenLabs Agent</h4>
                         <p className="text-xs text-white/60">
-                          ElevenLabs owns the microphone, VAD, turn-taking, configured LLM, and voice path. This app does not open an OpenAI Realtime session in this mode.
-                        </p>
-                        <p className="text-xs text-amber-200/90 mt-1">
-                          Configure knowledge and tool definitions on the ElevenLabs Agent for a controlled provider comparison.
+                          Audio connects directly to ElevenLabs. Choose whether ElevenLabs or this app is the source of truth for the agent profile.
                         </p>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => updateElevenLabsConfig({
+                            configuration_authority: 'app_managed',
+                            sync_local_instructions: false
+                          })}
+                          className={`text-left rounded-xl border p-3 transition-colors ${isAppManagedElevenLabs
+                            ? 'border-violet-300/70 bg-violet-400/15'
+                            : 'border-white/10 bg-slate-900/50 hover:border-white/25'}`}
+                        >
+                          <span className="block text-sm font-semibold text-white">App-managed profile</span>
+                          <span className="block text-xs text-white/55 mt-1">
+                            Publish this preset, voice, turn settings, and selected tools to ElevenLabs.
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateElevenLabsConfig({
+                            configuration_authority: 'provider_managed',
+                            sync_local_instructions: false
+                          })}
+                          className={`text-left rounded-xl border p-3 transition-colors ${!isAppManagedElevenLabs
+                            ? 'border-violet-300/70 bg-violet-400/15'
+                            : 'border-white/10 bg-slate-900/50 hover:border-white/25'}`}
+                        >
+                          <span className="block text-sm font-semibold text-white">ElevenLabs-managed profile</span>
+                          <span className="block text-xs text-white/55 mt-1">
+                            Use an agent configured manually in the ElevenLabs dashboard.
+                          </span>
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
-                          <label className="text-sm font-semibold text-white/80">Agent</label>
+                          <label className="text-sm font-semibold text-white/80">
+                            {isAppManagedElevenLabs ? 'Deployment target (optional)' : 'Agent'}
+                          </label>
                           <select
                             value={elevenLabsConfig.agent_id ?? ''}
                             onChange={(e) => updateElevenLabsConfig({ agent_id: e.target.value })}
@@ -1066,7 +1158,11 @@ export function SettingsPanel({
                             className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-violet-400/60 focus:border-violet-300 bg-slate-900 text-sm text-white"
                           >
                             <option value="">
-                              {isLoadingElevenLabsAgents ? 'Loading agents…' : 'Select an ElevenLabs Agent'}
+                              {isLoadingElevenLabsAgents
+                                ? 'Loading agents…'
+                                : isAppManagedElevenLabs
+                                  ? 'Create a new Agent when published'
+                                  : 'Select an ElevenLabs Agent'}
                             </option>
                             {elevenLabsAgents.map((agent) => (
                               <option key={agent.agent_id} value={agent.agent_id}>
@@ -1079,43 +1175,126 @@ export function SettingsPanel({
                           )}
                           {!isLoadingElevenLabsAgents && effectiveVoiceProviderKeyId && elevenLabsAgents.length === 0 && !elevenLabsAgentsError && (
                             <p className="text-xs text-amber-200/90 mt-1">
-                              No Agents were found. Create one in ElevenLabs, then reopen settings to refresh.
+                              {isAppManagedElevenLabs
+                                ? 'No existing Agents found. Publishing will create one.'
+                                : 'No Agents were found. Create one in ElevenLabs, then reopen settings to refresh.'}
                             </p>
                           )}
                         </div>
                         <div>
-                          <label className="text-sm font-semibold text-white/80">Language override</label>
+                          <label className="text-sm font-semibold text-white/80">Language</label>
                           <input
-                            value={elevenLabsConfig.language ?? ''}
+                            value={elevenLabsConfig.language ?? (isAppManagedElevenLabs ? 'en' : '')}
                             onChange={(e) => updateElevenLabsConfig({ language: e.target.value })}
-                            placeholder="Optional, for example en"
+                            placeholder="For example en"
                             className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-violet-400/60 focus:border-violet-300 bg-slate-900 text-sm text-white"
                           />
                         </div>
                       </div>
                       <div>
-                        <label className="text-sm font-semibold text-white/80">First message override</label>
+                        <label className="text-sm font-semibold text-white/80">First message</label>
                         <input
                           value={elevenLabsConfig.first_message ?? ''}
                           onChange={(e) => updateElevenLabsConfig({ first_message: e.target.value })}
-                          placeholder="Optional; otherwise use the ElevenLabs Agent default"
+                          placeholder={isAppManagedElevenLabs ? 'The opening message for this agent' : 'Optional; use the ElevenLabs Agent default'}
                           className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-violet-400/60 focus:border-violet-300 bg-slate-900 text-sm text-white"
                         />
                       </div>
-                      <label className="flex items-start gap-2 cursor-pointer rounded-lg border border-white/10 bg-slate-900/50 px-3 py-2">
-                        <input
-                          type="checkbox"
-                          checked={elevenLabsConfig.sync_local_instructions === true}
-                          onChange={(e) => updateElevenLabsConfig({ sync_local_instructions: e.target.checked })}
-                          className="w-4 h-4 mt-0.5 text-violet-400 border-white/20 rounded focus:ring-violet-400"
-                        />
-                        <span>
-                          <span className="block text-sm font-semibold text-white/80">Use this preset's instructions and voice override</span>
-                          <span className="block text-xs text-white/50">
-                            Enable prompt, first-message, language, and voice overrides in the ElevenLabs Agent security settings.
+                      {isAppManagedElevenLabs ? (
+                        <>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div>
+                              <label className="text-sm font-semibold text-white/80">LLM</label>
+                              <select
+                                value={elevenLabsConfig.llm ?? 'gpt-5.4-mini'}
+                                onChange={(e) => updateElevenLabsConfig({ llm: e.target.value })}
+                                className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-violet-400/60 focus:border-violet-300 bg-slate-900 text-sm text-white"
+                              >
+                                <option value="gpt-5.4-mini">GPT-5.4 mini</option>
+                                <option value="gpt-5.4">GPT-5.4</option>
+                                <option value="gpt-5.6-luna">GPT-5.6 Luna</option>
+                                <option value="gpt-5.6-terra">GPT-5.6 Terra</option>
+                                <option value="gpt-5.6-sol">GPT-5.6 Sol</option>
+                                <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+                                <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-sm font-semibold text-white/80">Turn eagerness</label>
+                              <select
+                                value={elevenLabsConfig.turn_eagerness ?? 'normal'}
+                                onChange={(e) => updateElevenLabsConfig({ turn_eagerness: e.target.value })}
+                                className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-violet-400/60 focus:border-violet-300 bg-slate-900 text-sm text-white"
+                              >
+                                <option value="low">Low — wait longer</option>
+                                <option value="normal">Normal</option>
+                                <option value="high">High — respond sooner</option>
+                              </select>
+                            </div>
+                            <label className="flex items-center gap-2 cursor-pointer rounded-lg border border-white/10 bg-slate-900/50 px-3 py-2 mt-5">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(elevenLabsConfig.speculative_turn)}
+                                onChange={(e) => updateElevenLabsConfig({ speculative_turn: e.target.checked })}
+                                className="w-4 h-4 text-violet-400 border-white/20 rounded focus:ring-violet-400"
+                              />
+                              <span className="text-sm font-semibold text-white/80">Speculative turn</span>
+                            </label>
+                          </div>
+                          <div className="rounded-xl border border-violet-300/25 bg-slate-950/50 p-4 space-y-3">
+                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-semibold text-white">ElevenLabs deployment</p>
+                                  <Badge variant={isElevenLabsSyncStale ? 'warning' : 'secondary'}>
+                                    {isElevenLabsSyncStale ? 'Publish needed' : 'In sync'}
+                                  </Badge>
+                                </div>
+                                <p className="text-xs text-white/55 mt-1">
+                                  Your saved prompt, voice, model, pacing, and selected client tools are compiled into the remote Agent.
+                                </p>
+                                {elevenLabsSyncedAt && (
+                                  <p className="text-[11px] text-white/45 mt-1">
+                                    Last published {new Date(elevenLabsSyncedAt).toLocaleString()} · {elevenLabsSync.tool_count ?? 0} tools
+                                  </p>
+                                )}
+                              </div>
+                              <Button
+                                size="sm"
+                                onClick={handlePublishElevenLabs}
+                                disabled={isPublishingElevenLabs || !activeConfigId || hasUnsavedChanges || !effectiveVoiceProviderKeyId}
+                                className="bg-violet-400 text-slate-950 hover:bg-violet-300"
+                              >
+                                <UploadCloud className="w-3 h-3" />
+                                {isPublishingElevenLabs
+                                  ? 'Publishing…'
+                                  : elevenLabsConfig.agent_id
+                                    ? 'Publish changes'
+                                    : 'Create & publish'}
+                              </Button>
+                            </div>
+                            {!activeConfigId && <p className="text-xs text-amber-200">Save this preset to enable publishing.</p>}
+                            {hasUnsavedChanges && activeConfigId && <p className="text-xs text-amber-200">Save changes before publishing.</p>}
+                            {elevenLabsPublishError && <p className="text-xs text-rose-300">{elevenLabsPublishError}</p>}
+                            {elevenLabsPublishSuccess && <p className="text-xs text-emerald-200">{elevenLabsPublishSuccess}</p>}
+                          </div>
+                        </>
+                      ) : (
+                        <label className="flex items-start gap-2 cursor-pointer rounded-lg border border-white/10 bg-slate-900/50 px-3 py-2">
+                          <input
+                            type="checkbox"
+                            checked={elevenLabsConfig.sync_local_instructions === true}
+                            onChange={(e) => updateElevenLabsConfig({ sync_local_instructions: e.target.checked })}
+                            className="w-4 h-4 mt-0.5 text-violet-400 border-white/20 rounded focus:ring-violet-400"
+                          />
+                          <span>
+                            <span className="block text-sm font-semibold text-white/80">Apply runtime overrides from this preset</span>
+                            <span className="block text-xs text-white/50">
+                              Requires prompt, first-message, language, and voice overrides in the ElevenLabs Agent security settings.
+                            </span>
                           </span>
-                        </span>
-                      </label>
+                        </label>
+                      )}
                     </div>
                   )}
                   {isElevenLabsTts && (
