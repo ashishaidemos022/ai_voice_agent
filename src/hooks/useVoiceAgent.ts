@@ -343,6 +343,7 @@ export function useVoiceAgent() {
 
     client.on('connected', () => {
       console.log('[useVoiceAgent] realtime event: connected');
+      setError(null);
       setIsConnected(true);
       setAgentState('idle');
     });
@@ -352,6 +353,24 @@ export function useVoiceAgent() {
       setIsConnected(false);
       setAgentState('idle');
       setIsRecording(false);
+      if (configRef.current?.voice_provider === 'elevenlabs_agent' && event?.reason !== 'user') {
+        const detailMessage = event?.details?.message || event?.details?.reason;
+        setError(detailMessage
+          ? `ElevenLabs Agent disconnected: ${detailMessage}`
+          : 'ElevenLabs Agent disconnected unexpectedly. Verify the API key and Agent access, then start again.');
+        const disconnectedSessionId = sessionIdRef.current;
+        if (disconnectedSessionId) {
+          void supabase
+            .from('va_sessions')
+            .update({ status: 'ended', updated_at: new Date().toISOString() })
+            .eq('id', disconnectedSessionId)
+            .then(({ error: sessionError }) => {
+              if (sessionError) {
+                console.warn('[useVoiceAgent] failed to close disconnected session row', sessionError);
+              }
+            });
+        }
+      }
     });
 
     client.on('agent_state', (event) => {
@@ -689,6 +708,25 @@ export function useVoiceAgent() {
 
         await loadMCPTools(configId, vaUser?.id);
 
+        if (realtimeClientRef.current) {
+          console.log('[useVoiceAgent] disposing previous realtime client instance');
+          realtimeClientRef.current.disconnect();
+          realtimeClientRef.current = null;
+        }
+
+        const previousSessionId = sessionIdRef.current;
+        if (previousSessionId) {
+          const { error: previousSessionError } = await supabase
+            .from('va_sessions')
+            .update({ status: 'ended', updated_at: new Date().toISOString() })
+            .eq('id', previousSessionId);
+          if (previousSessionError) {
+            console.warn('[useVoiceAgent] failed to close previous session row', previousSessionError);
+          }
+          sessionIdRef.current = null;
+          setSessionId(null);
+        }
+
         const sid = await createSession(hydratedConfig, configId);
         if (!sid) throw new Error('Failed to create session');
 
@@ -732,10 +770,6 @@ export function useVoiceAgent() {
           realtimeWebSocketToken = realtimeSecret.token;
         }
 
-        if (realtimeClientRef.current) {
-          console.log('[useVoiceAgent] disposing previous realtime client instance');
-          realtimeClientRef.current.disconnect();
-        }
         realtimeClientRef.current = provider === 'personaplex'
           ? new PersonaPlexVoiceAdapter(hydratedConfig, {
               gatewayUrl: gatewaySession?.gateway_ws_url || '',
@@ -802,6 +836,19 @@ export function useVoiceAgent() {
         setAgentState('idle');
       } catch (err: any) {
         console.error('[useVoiceAgent] Failed to initialize agent:', err);
+
+        const failedSessionId = sessionIdRef.current;
+        if (failedSessionId) {
+          const { error: failedSessionError } = await supabase
+            .from('va_sessions')
+            .update({ status: 'ended', updated_at: new Date().toISOString() })
+            .eq('id', failedSessionId);
+          if (failedSessionError) {
+            console.warn('[useVoiceAgent] failed to close unsuccessful session row', failedSessionError);
+          }
+          sessionIdRef.current = null;
+          setSessionId(null);
+        }
 
         if (audioManagerRef.current && !audioManagerRef.current.isCurrentlyInitializing()) {
           audioManagerRef.current.close(true);
