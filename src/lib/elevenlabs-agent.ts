@@ -8,6 +8,16 @@ export type ElevenLabsAgentSummary = {
   archived?: boolean;
 };
 
+export type ElevenLabsAgentSyncResult = {
+  agent_id: string;
+  created: boolean;
+  synced_at: string;
+  sync_hash: string;
+  tool_count: number;
+  remote_version_id?: string | null;
+  voice_provider_config: Record<string, any>;
+};
+
 type AgentSessionRequest = {
   agentId?: string;
   publicId?: string;
@@ -45,6 +55,19 @@ export async function listElevenLabsAgents(providerKeyId: string): Promise<Eleve
     throw new Error(payload?.error || `Unable to load ElevenLabs Agents (${response.status})`);
   }
   return Array.isArray(payload?.agents) ? payload.agents : [];
+}
+
+export async function syncElevenLabsAgent(configId: string): Promise<ElevenLabsAgentSyncResult> {
+  const response = await fetch(functionUrl(), {
+    method: 'POST',
+    headers: await authenticatedHeaders(),
+    body: JSON.stringify({ action: 'sync_agent', config_id: configId })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload?.agent_id) {
+    throw new Error(payload?.error || `Unable to publish ElevenLabs Agent (${response.status})`);
+  }
+  return payload as ElevenLabsAgentSyncResult;
 }
 
 export async function requestElevenLabsAgentSignedUrl(request: AgentSessionRequest): Promise<string> {
