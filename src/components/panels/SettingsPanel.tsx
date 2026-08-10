@@ -352,24 +352,42 @@ export function SettingsPanel({
       const masked = apiKey.trim();
       const encoded = btoa(masked);
       const lastFour = masked.slice(-4);
+      const normalizedAlias = keyAlias || 'Primary';
 
       const insertPayload = {
         user_id: userId,
         provider,
-        key_alias: keyAlias || 'Primary',
+        key_alias: normalizedAlias,
         encrypted_key: encoded,
         last_four: lastFour
       };
 
-      const { data: providerKeyRow, error: providerKeyError } = await supabase
+      const { data: existingKey, error: existingKeyError } = await supabase
         .from('va_provider_keys')
-        .upsert(
-          {
-            ...insertPayload,
+        .select('id')
+        .eq('user_id', userId)
+        .eq('provider', provider)
+        .eq('key_alias', normalizedAlias)
+        .maybeSingle();
+
+      if (existingKeyError) {
+        throw existingKeyError;
+      }
+
+      const keyWrite = existingKey
+        ? supabase
+          .from('va_provider_keys')
+          .update({
+            encrypted_key: encoded,
+            last_four: lastFour,
             updated_at: new Date().toISOString()
-          },
-          { onConflict: 'user_id,provider,key_alias' }
-        )
+          })
+          .eq('id', existingKey.id)
+        : supabase
+          .from('va_provider_keys')
+          .insert(insertPayload);
+
+      const { data: providerKeyRow, error: providerKeyError } = await keyWrite
         .select('id, provider, last_four')
         .single();
 
