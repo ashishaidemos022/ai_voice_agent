@@ -216,18 +216,14 @@ export function SettingsPanel({
   );
   const filteredElevenLabsVoices = useMemo(() => {
     const search = elevenLabsVoiceSearch.trim().toLowerCase();
-    const selectedId = config.voice_id || '';
     if (!search) return elevenLabsVoices;
-    return elevenLabsVoices.filter((voice) => {
-      if (voice.voice_id === selectedId) return true;
-      return [
+    return elevenLabsVoices.filter((voice) => [
         voice.name,
         voice.category,
         voice.description,
         ...Object.values(voice.labels || {})
-      ].some((value) => `${value || ''}`.toLowerCase().includes(search));
-    });
-  }, [config.voice_id, elevenLabsVoiceSearch, elevenLabsVoices]);
+      ].some((value) => `${value || ''}`.toLowerCase().includes(search)));
+  }, [elevenLabsVoiceSearch, elevenLabsVoices]);
   const selectedElevenLabsVoice = elevenLabsVoices.find((voice) => voice.voice_id === config.voice_id);
 
   useEffect(() => {
@@ -1016,10 +1012,51 @@ export function SettingsPanel({
                           type="search"
                           value={elevenLabsVoiceSearch}
                           onChange={(e) => setElevenLabsVoiceSearch(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && filteredElevenLabsVoices[0]) {
+                              e.preventDefault();
+                              onConfigChange({ ...config, voice_id: filteredElevenLabsVoices[0].voice_id });
+                              setElevenLabsVoiceSearch('');
+                            }
+                            if (e.key === 'Escape') setElevenLabsVoiceSearch('');
+                          }}
                           placeholder="Search voices by name, accent, or style"
                           disabled={!effectiveVoiceProviderKeyId || isLoadingElevenLabsVoices}
                           className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
                         />
+                        {elevenLabsVoiceSearch.trim() && (
+                          <div
+                            role="listbox"
+                            aria-label="ElevenLabs voice search results"
+                            className="max-h-56 overflow-y-auto rounded-lg border border-cyan-300/25 bg-slate-950 shadow-xl divide-y divide-white/5"
+                          >
+                            {filteredElevenLabsVoices.length ? filteredElevenLabsVoices.map((voice) => {
+                              const details = [voice.category, voice.labels?.accent, voice.labels?.gender]
+                                .filter(Boolean)
+                                .join(' · ');
+                              return (
+                                <button
+                                  key={voice.voice_id}
+                                  type="button"
+                                  role="option"
+                                  aria-selected={voice.voice_id === config.voice_id}
+                                  onClick={() => {
+                                    onConfigChange({ ...config, voice_id: voice.voice_id });
+                                    setElevenLabsVoiceSearch('');
+                                  }}
+                                  className={`w-full px-3 py-2 text-left hover:bg-cyan-400/10 transition-colors ${voice.voice_id === config.voice_id ? 'bg-cyan-400/10' : ''}`}
+                                >
+                                  <span className="block text-sm font-semibold text-white">{voice.name}</span>
+                                  <span className="block text-[11px] text-white/50">
+                                    {details || voice.description || voice.voice_id}
+                                  </span>
+                                </button>
+                              );
+                            }) : (
+                              <p className="px-3 py-3 text-xs text-white/50">No matching voices.</p>
+                            )}
+                          </div>
+                        )}
                         <select
                           value={config.voice_id ?? ''}
                           onChange={(e) => onConfigChange({ ...config, voice_id: e.target.value || null })}
@@ -1036,6 +1073,13 @@ export function SettingsPanel({
                           {config.voice_id && !elevenLabsVoices.some((voice) => voice.voice_id === config.voice_id) && (
                             <option value={config.voice_id}>Current voice — {config.voice_id}</option>
                           )}
+                          {selectedElevenLabsVoice
+                            && elevenLabsVoiceSearch.trim()
+                            && !filteredElevenLabsVoices.some((voice) => voice.voice_id === selectedElevenLabsVoice.voice_id) && (
+                              <option value={selectedElevenLabsVoice.voice_id}>
+                                Current: {selectedElevenLabsVoice.name}
+                              </option>
+                            )}
                           {filteredElevenLabsVoices.map((voice) => {
                             const details = [voice.category, voice.labels?.accent, voice.labels?.gender]
                               .filter(Boolean)
