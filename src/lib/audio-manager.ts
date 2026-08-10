@@ -1,3 +1,5 @@
+import { emitBenchmarkEvent, emitBenchmarkMilestone, recordBenchmarkWaveform } from './benchmark-instrumentation';
+
 export class AudioManager {
   private audioContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
@@ -16,6 +18,7 @@ export class AudioManager {
   private workletReady = false;
   private readonly targetSampleRate = 24000;
   private readonly initialPlaybackBufferSeconds = 0.04;
+  private lastScheduledPlaybackEndMs = 0;
 
   async initialize(): Promise<void> {
     if (this.isInitializing && this.initializationPromise) {
@@ -43,7 +46,6 @@ export class AudioManager {
   }
 
   private async performInitialization(): Promise<void> {
-
     try {
       if (!window.AudioContext && !(window as any).webkitAudioContext) {
         throw new Error('Web Audio API is not supported in this browser');
@@ -56,7 +58,9 @@ export class AudioManager {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
 
       try {
-        this.audioContext = new AudioContextClass({ sampleRate: this.targetSampleRate });
+        this.audioContext = new AudioContextClass({
+          sampleRate: this.targetSampleRate
+        });
       } catch (sampleRateError) {
         console.warn('Failed to create AudioContext with 24kHz, using default sample rate:', sampleRateError);
         this.audioContext = new AudioContextClass();
@@ -87,11 +91,9 @@ export class AudioManager {
               echoCancellation: true,
               noiseSuppression: true,
               autoGainControl: false
-            },
+            }
           }),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('Microphone access timeout')), 10000)
-          )
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Microphone access timeout')), 10000))
         ]);
       } catch (streamError: any) {
         console.error('getUserMedia error:', streamError);
@@ -163,6 +165,9 @@ export class AudioManager {
     }
 
     this.onAudioDataCallback = onAudioData;
+    emitBenchmarkEvent('microphone.capture_started', {
+      sample_rate_hz: this.targetSampleRate
+    });
 
     if (!this.workletReady) {
       try {
@@ -181,6 +186,9 @@ export class AudioManager {
 
     this.workletNode.port.onmessage = (event: MessageEvent<Int16Array>) => {
       if (this.onAudioDataCallback) {
+        emitBenchmarkMilestone('input.first_audio', {
+          samples: event.data.length
+        });
         this.onAudioDataCallback(event.data);
       }
     };
@@ -244,20 +252,19 @@ export class AudioManager {
         const sampleCount = Math.floor(bytes.byteLength / 2);
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         const float32Array = new Float32Array(sampleCount);
+        let energy = 0;
         for (let i = 0; i < sampleCount; i++) {
           float32Array[i] = view.getInt16(i * 2, true) / 32768.0;
+          energy += float32Array[i] * float32Array[i];
         }
+        recordBenchmarkWaveform('output', Math.sqrt(energy / Math.max(1, sampleCount)));
 
         if (float32Array.length === 0) {
           resolve();
           return;
         }
 
-        const audioBuffer = this.audioContext.createBuffer(
-          1,
-          float32Array.length,
-          24000
-        );
+        const audioBuffer = this.audioContext.createBuffer(1, float32Array.length, 24000);
         audioBuffer.getChannelData(0).set(float32Array);
 
         this.scheduleAudioBuffer(audioBuffer, resolve);
@@ -279,10 +286,16 @@ export class AudioManager {
       source.connect(this.audioContext.destination);
 
       const now = this.audioContext.currentTime;
-      const startAt = this.isPlayingAudio && this.nextPlaybackTime > now
-        ? this.nextPlaybackTime
-        : now + this.initialPlaybackBufferSeconds;
+      const audioGapMs = this.lastScheduledPlaybackEndMs ? now * 1000 - this.lastScheduledPlaybackEndMs : 0;
+      if (audioGapMs > 120 && audioGapMs < 5000) {
+        emitBenchmarkEvent('audio.gap', { gap_ms: audioGapMs });
+      }
+      const startAt =
+        this.isPlayingAudio && this.nextPlaybackTime > now
+          ? this.nextPlaybackTime
+          : now + this.initialPlaybackBufferSeconds;
       this.nextPlaybackTime = startAt + buffer.duration;
+      this.lastScheduledPlaybackEndMs = this.nextPlaybackTime * 1000;
       this.isPlayingAudio = true;
       this.scheduledSources.set(source, resolve);
 
@@ -298,6 +311,10 @@ export class AudioManager {
       };
 
       source.start(startAt);
+      emitBenchmarkMilestone('playback.started', {
+        scheduled_delay_ms: Math.max(0, (startAt - now) * 1000),
+        buffer_duration_ms: buffer.duration * 1000
+      });
     } catch (error) {
       console.error('Failed to play audio chunk:', error);
       resolve();
@@ -305,8 +322,10 @@ export class AudioManager {
   }
 
   stopPlayback(): void {
+    const wasPlaying = this.isPlayingAudio || this.scheduledSources.size > 0;
     this.isPlayingAudio = false;
     this.nextPlaybackTime = 0;
+    this.lastScheduledPlaybackEndMs = 0;
     for (const [source, resolve] of this.scheduledSources) {
       try {
         source.onended = null;
@@ -318,6 +337,7 @@ export class AudioManager {
       resolve();
     }
     this.scheduledSources.clear();
+    if (wasPlaying) emitBenchmarkEvent('interruption.audio_stopped');
   }
 
   private performCleanup(): void {
@@ -332,7 +352,7 @@ export class AudioManager {
     this.stopPlayback();
 
     if (this.stream) {
-      this.stream.getTracks().forEach(track => track.stop());
+      this.stream.getTracks().forEach((track) => track.stop());
       this.stream = null;
     }
 

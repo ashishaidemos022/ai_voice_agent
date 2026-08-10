@@ -76,15 +76,47 @@ Deno.serve(async (req: Request) => {
       return new Response('agent_id is required', { status: 400, headers: corsHeaders });
     }
 
-    const { data: agent, error: agentError } = await adminClient
+    const { data: storedAgent, error: agentError } = await adminClient
       .from('va_agent_configs')
       .select('id,user_id,model,voice,instructions,max_response_output_tokens,turn_detection_enabled,turn_detection_config')
       .eq('id', agentId)
       .eq('user_id', vaUser.id)
       .maybeSingle();
     if (agentError) throw agentError;
-    if (!agent) {
+    if (!storedAgent) {
       return new Response('Agent configuration not found', { status: 404, headers: corsHeaders });
+    }
+    let agent = storedAgent;
+
+    const benchmarkRunId = new URL(req.url).searchParams.get('benchmark_run_id');
+    if (benchmarkRunId) {
+      const { data: benchmarkRun, error: benchmarkRunError } = await adminClient
+        .from('voice_benchmark_runs')
+        .select('id,experiment_id,config_snapshot')
+        .eq('id', benchmarkRunId)
+        .maybeSingle();
+      if (benchmarkRunError || !benchmarkRun) {
+        return new Response('Benchmark run not found', { status: 404, headers: corsHeaders });
+      }
+      const { data: benchmarkExperiment } = await adminClient
+        .from('voice_benchmark_experiments')
+        .select('user_id')
+        .eq('id', benchmarkRun.experiment_id)
+        .eq('user_id', vaUser.id)
+        .maybeSingle();
+      if (!benchmarkExperiment) {
+        return new Response('Benchmark run is not owned by this user', { status: 403, headers: corsHeaders });
+      }
+      const snapshot = benchmarkRun.config_snapshot || {};
+      agent = {
+        ...agent,
+        model: snapshot.model || agent.model,
+        voice: snapshot.voice || agent.voice,
+        instructions: snapshot.instructions || agent.instructions,
+        max_response_output_tokens: snapshot.max_response_output_tokens || agent.max_response_output_tokens,
+        turn_detection_enabled: snapshot.turn_detection_enabled ?? agent.turn_detection_enabled,
+        turn_detection_config: snapshot.turn_detection_config || agent.turn_detection_config
+      };
     }
 
     const turnDetection = agent.turn_detection_enabled === false

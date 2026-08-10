@@ -100,14 +100,21 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
         }, 5000);
       };
 
-    this.ws.onerror = () => {
+      this.ws.onerror = () => {
         failConnect('socket-error');
       };
 
       this.ws.onclose = (event) => {
         this.connected = false;
-        this.emit({ type: 'disconnected', reason: event.reason || `code:${event.code}` });
-        this.emit({ type: 'agent_state', state: 'idle', reason: 'socket-closed' });
+        this.emit({
+          type: 'disconnected',
+          reason: event.reason || `code:${event.code}`
+        });
+        this.emit({
+          type: 'agent_state',
+          state: 'idle',
+          reason: 'socket-closed'
+        });
       };
 
       this.ws.onmessage = (event) => {
@@ -215,7 +222,9 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
     const targetSampleRate = this.config.voice_sample_rate_hz ?? 24000;
     try {
-      this.audioContext = new AudioContextClass({ sampleRate: targetSampleRate });
+      this.audioContext = new AudioContextClass({
+        sampleRate: targetSampleRate
+      });
     } catch {
       this.audioContext = new AudioContextClass();
     }
@@ -231,7 +240,7 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
     const recorderOptions = {
       encoderPath,
       mediaTrackConstraints: { audio: true },
-      bufferLength: Math.round(960 * (this.audioContext?.sampleRate ?? targetSampleRate) / targetSampleRate),
+      bufferLength: Math.round((960 * (this.audioContext?.sampleRate ?? targetSampleRate)) / targetSampleRate),
       encoderFrameSize: 20,
       encoderSampleRate: 24000,
       maxFramesPerPage: 2,
@@ -240,7 +249,7 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
       resampleQuality: 3,
       encoderComplexity: 0,
       encoderApplication: 2049,
-      streamPages: true,
+      streamPages: true
     };
 
     this.recorder = new Recorder(recorderOptions);
@@ -270,7 +279,7 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
       this.recorder = null;
     }
     if (this.stream) {
-      this.stream.getTracks().forEach(track => track.stop());
+      this.stream.getTracks().forEach((track) => track.stop());
       this.stream = null;
     }
     if (this.audioContext && this.audioContext.state !== 'closed') {
@@ -328,7 +337,7 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
 
   private handleMessage(data: ArrayBuffer | Blob): void {
     if (data instanceof Blob) {
-      data.arrayBuffer().then(buffer => this.handleMessage(buffer));
+      data.arrayBuffer().then((buffer) => this.handleMessage(buffer));
       return;
     }
     const bytes = new Uint8Array(data);
@@ -339,13 +348,10 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
 
     if (this.debugEnabled && this.debugAudioFramesLogged < 3 && kind === 0x01) {
       const preview = Array.from(payload.slice(0, 16))
-        .map(b => b.toString(16).padStart(2, '0'))
+        .map((b) => b.toString(16).padStart(2, '0'))
         .join(' ');
-      const isOgg = payload.length >= 4
-        && payload[0] === 0x4f
-        && payload[1] === 0x67
-        && payload[2] === 0x67
-        && payload[3] === 0x53;
+      const isOgg =
+        payload.length >= 4 && payload[0] === 0x4f && payload[1] === 0x67 && payload[2] === 0x67 && payload[3] === 0x53;
       console.log('[personaplex] audio frame preview', {
         bytes: payload.length,
         ogg: isOgg,
@@ -365,10 +371,9 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
           const payloadCopy = new Uint8Array(
             payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength)
           );
-          this.decoderWorker.postMessage(
-            { command: 'decode', pages: payloadCopy },
-            [payloadCopy.buffer as ArrayBuffer]
-          );
+          this.decoderWorker.postMessage({ command: 'decode', pages: payloadCopy }, [
+            payloadCopy.buffer as ArrayBuffer
+          ]);
         }
         break;
       case 0x02: {
@@ -471,8 +476,7 @@ export class PersonaPlexVoiceAdapter implements VoiceAdapter {
   private emit(event: any): void {
     const handlers = this.eventHandlers.get(event.type);
     if (handlers) {
-      handlers.forEach(handler => handler(event));
+      handlers.forEach((handler) => handler(event));
     }
   }
-
 }

@@ -5,16 +5,22 @@ export type RealtimeClientSecret = {
   expires_at: number | null;
 };
 
-export async function requestRealtimeWebSocketSecret(agentId: string): Promise<RealtimeClientSecret> {
+export async function requestRealtimeWebSocketSecret(
+  agentId: string,
+  benchmarkRunId?: string
+): Promise<RealtimeClientSecret> {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-  const { data: { session } } = await supabase.auth.getSession();
+  const {
+    data: { session }
+  } = await supabase.auth.getSession();
   if (!supabaseUrl || !anonKey || !session?.access_token) {
     throw new Error('Authenticated Realtime session configuration is unavailable');
   }
 
   const url = new URL(`${supabaseUrl.replace(/\/$/, '')}/functions/v1/realtime-session`);
   url.searchParams.set('agent_id', agentId);
+  if (benchmarkRunId) url.searchParams.set('benchmark_run_id', benchmarkRunId);
   const response = await fetch(url, {
     method: 'POST',
     headers: {

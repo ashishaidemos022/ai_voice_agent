@@ -18,6 +18,13 @@ import { requestElevenLabsGatewayToken } from '../lib/elevenlabs-gateway';
 import { requestElevenLabsAgentSignedUrl } from '../lib/elevenlabs-agent';
 import { requestRealtimeWebSocketSecret } from '../lib/realtime-session';
 import { formatA2UIEventMessage, type A2UIEvent } from '../lib/a2ui';
+import {
+  emitBenchmarkEvent,
+  emitBenchmarkMilestone,
+  getBenchmarkTrace,
+  recordBenchmarkWaveform
+} from '../lib/benchmark-instrumentation';
+import { loadBenchmarkAudio, saveBenchmarkPcm16Output } from '../lib/benchmark-audio-store';
 
 type LiveTranscripts = {
   user: Record<string, string>;
@@ -63,7 +70,12 @@ export function useVoiceAgent() {
   const isCleaningUpRef = useRef(false);
   const micStartedRef = useRef(false);
   const shouldPersistSession = useRef(true);
-  const ragMetadataRef = useRef<{ enabled: boolean; mode: RagMode; spaceIds: string[]; model: string | null }>({
+  const ragMetadataRef = useRef<{
+    enabled: boolean;
+    mode: RagMode;
+    spaceIds: string[];
+    model: string | null;
+  }>({
     enabled: false,
     mode: 'assist',
     spaceIds: [],
@@ -73,6 +85,7 @@ export function useVoiceAgent() {
   const ragResponsePendingRef = useRef(false);
   const assistantTextBufferRef = useRef('');
   const usedAssistantTextRef = useRef(false);
+  const benchmarkOutputChunksRef = useRef<string[]>([]);
 
   const createSession = useCallback(async (sessionConfig: RealtimeConfig, configId: string | null) => {
     if (!configId) {
@@ -142,7 +155,7 @@ export function useVoiceAgent() {
           return;
         }
 
-        setMessages(prev => {
+        setMessages((prev) => {
           const next = [...prev, data];
           messagesRef.current = next;
           updateSessionMessageCount(next.length);
@@ -155,16 +168,19 @@ export function useVoiceAgent() {
     [updateSessionMessageCount]
   );
 
-  const sendA2UIEvent = useCallback((event: A2UIEvent) => {
-    const client = realtimeClientRef.current;
-    if (!client || typeof client.sendUserMessage !== 'function') {
-      setError('A2UI events are not supported for this session.');
-      return;
-    }
-    const content = formatA2UIEventMessage(event);
-    client.sendUserMessage(content);
-    void persistMessage('user', content);
-  }, [persistMessage]);
+  const sendA2UIEvent = useCallback(
+    (event: A2UIEvent) => {
+      const client = realtimeClientRef.current;
+      if (!client || typeof client.sendUserMessage !== 'function') {
+        setError('A2UI events are not supported for this session.');
+        return;
+      }
+      const content = formatA2UIEventMessage(event);
+      client.sendUserMessage(content);
+      void persistMessage('user', content);
+    },
+    [persistMessage]
+  );
 
   const resetTranscripts = useCallback(() => {
     transcriptsRef.current = {
@@ -221,8 +237,10 @@ export function useVoiceAgent() {
 
   const hydrateConfigWithKnowledge = useCallback(
     async (configId: string, baseConfig: RealtimeConfig): Promise<RealtimeConfig> => {
-      const hasKnowledgeSpaces = Array.isArray(baseConfig.knowledge_space_ids) && baseConfig.knowledge_space_ids.length > 0;
-      const hasVectorStores = Array.isArray(baseConfig.knowledge_vector_store_ids) && baseConfig.knowledge_vector_store_ids.length > 0;
+      const hasKnowledgeSpaces =
+        Array.isArray(baseConfig.knowledge_space_ids) && baseConfig.knowledge_space_ids.length > 0;
+      const hasVectorStores =
+        Array.isArray(baseConfig.knowledge_vector_store_ids) && baseConfig.knowledge_vector_store_ids.length > 0;
       const hasRagSettings = baseConfig.rag_enabled !== undefined && baseConfig.rag_mode !== undefined;
       if (hasKnowledgeSpaces && hasVectorStores && hasRagSettings) {
         return baseConfig;
@@ -301,12 +319,14 @@ export function useVoiceAgent() {
       });
       setRagResult(ragContext);
       setRagError(null);
-      const knowledgeLines = ragContext.citations.map((citation, index) => {
-        const label = `[${index + 1}]`;
-        const snippet = citation.snippet || '';
-        const title = citation.title ? ` • ${citation.title}` : '';
-        return `${label} ${snippet}${title}`;
-      }).filter(Boolean);
+      const knowledgeLines = ragContext.citations
+        .map((citation, index) => {
+          const label = `[${index + 1}]`;
+          const snippet = citation.snippet || '';
+          const title = citation.title ? ` • ${citation.title}` : '';
+          return `${label} ${snippet}${title}`;
+        })
+        .filter(Boolean);
       if (client) {
         if (knowledgeLines.length) {
           client.sendSystemMessage(
@@ -354,13 +374,16 @@ export function useVoiceAgent() {
       setAgentState('idle');
       setIsRecording(false);
       if (configRef.current?.voice_provider === 'elevenlabs_agent' && event?.reason !== 'user') {
-        const detailMessage = event?.details?.message
-          || event?.details?.closeReason
-          || event?.details?.context?.reason
-          || event?.details?.reason;
-        setError(detailMessage
-          ? `ElevenLabs Agent disconnected: ${detailMessage}`
-          : 'ElevenLabs Agent disconnected unexpectedly. Verify the API key and Agent access, then start again.');
+        const detailMessage =
+          event?.details?.message ||
+          event?.details?.closeReason ||
+          event?.details?.context?.reason ||
+          event?.details?.reason;
+        setError(
+          detailMessage
+            ? `ElevenLabs Agent disconnected: ${detailMessage}`
+            : 'ElevenLabs Agent disconnected unexpectedly. Verify the API key and Agent access, then start again.'
+        );
         const disconnectedSessionId = sessionIdRef.current;
         if (disconnectedSessionId) {
           void supabase
@@ -387,12 +410,25 @@ export function useVoiceAgent() {
     client.on('error', (event: any) => {
       console.error('[useVoiceAgent] Realtime API error:', event.error);
       setError(event.error);
+      emitBenchmarkEvent('session.error', { message: event.error });
     });
 
     client.on('audio.delta', async (event: any) => {
       console.debug('[useVoiceAgent] audio.delta received');
+      if (getBenchmarkTrace()) benchmarkOutputChunksRef.current.push(event.delta);
       if (audioManager) {
         await audioManager.playAudioData(event.delta);
+      }
+    });
+
+    client.on('audio.done', () => {
+      const trace = getBenchmarkTrace();
+      const chunks = benchmarkOutputChunksRef.current;
+      benchmarkOutputChunksRef.current = [];
+      if (trace && chunks.length) {
+        void saveBenchmarkPcm16Output(trace.runId, chunks).catch((error) =>
+          console.warn('[VoiceBenchmark] failed to preserve PCM output', error)
+        );
       }
     });
 
@@ -407,7 +443,10 @@ export function useVoiceAgent() {
       }
       const buffer = isUser ? transcriptsRef.current.user : transcriptsRef.current.assistant;
       const fallbackId = isUser ? 'user-default' : 'assistant-default';
-      const itemId = event.itemId || (isUser ? transcriptsRef.current.activeUserId : transcriptsRef.current.activeAssistantId) || fallbackId;
+      const itemId =
+        event.itemId ||
+        (isUser ? transcriptsRef.current.activeUserId : transcriptsRef.current.activeAssistantId) ||
+        fallbackId;
 
       if (isUser) {
         transcriptsRef.current.activeUserId = itemId;
@@ -456,6 +495,9 @@ export function useVoiceAgent() {
       }
 
       if (isUser) {
+        emitBenchmarkEvent('transcript.user_final', {
+          transcript: transcriptText
+        });
         await persistMessage('user', transcriptText);
         await maybeRunRagAugmentation(transcriptText);
         delete transcriptsRef.current.user[itemId];
@@ -464,6 +506,9 @@ export function useVoiceAgent() {
           setLiveUserTranscript('');
         }
       } else {
+        emitBenchmarkEvent('transcript.assistant_final', {
+          transcript: transcriptText
+        });
         await persistMessage('assistant', transcriptText);
         delete transcriptsRef.current.assistant[itemId];
         if (transcriptsRef.current.activeAssistantId === itemId) {
@@ -506,6 +551,9 @@ export function useVoiceAgent() {
     });
 
     client.on('text.delta', (event: any) => {
+      emitBenchmarkMilestone('response.first_text', {
+        source: 'normalized-text'
+      });
       assistantTextBufferRef.current += event.delta || '';
       setLiveAssistantTranscript(assistantTextBufferRef.current);
     });
@@ -520,6 +568,7 @@ export function useVoiceAgent() {
     });
 
     client.on('response.created', () => {
+      benchmarkOutputChunksRef.current = [];
       setIsProcessing(true);
       setAgentState('thinking');
       setLiveAssistantTranscript('');
@@ -547,6 +596,7 @@ export function useVoiceAgent() {
     });
 
     client.on('interruption', () => {
+      emitBenchmarkEvent('interruption.requested');
       if (audioManager) {
         audioManager.stopPlayback();
       }
@@ -579,13 +629,26 @@ export function useVoiceAgent() {
 
       try {
         setIsProcessing(true);
-        console.log('[useVoiceAgent] Function call received', { name, rawArguments: argsStr });
-        console.log('[useVoiceAgent] Parsed function call args', { name, parsedArgs });
-        const result = await executeTool(name, parsedArgs, { sessionId: currentSessionId || undefined });
+        console.log('[useVoiceAgent] Function call received', {
+          name,
+          rawArguments: argsStr
+        });
+        console.log('[useVoiceAgent] Parsed function call args', {
+          name,
+          parsedArgs
+        });
+        const result = await executeTool(name, parsedArgs, {
+          sessionId: currentSessionId || undefined
+        });
         setToolEvents((prev) =>
           prev.map((tool) =>
             tool.id === toolEventId
-              ? { ...tool, status: 'succeeded', response: result, completedAt: new Date().toISOString() }
+              ? {
+                  ...tool,
+                  status: 'succeeded',
+                  response: result,
+                  completedAt: new Date().toISOString()
+                }
               : tool
           )
         );
@@ -596,7 +659,12 @@ export function useVoiceAgent() {
         setToolEvents((prev) =>
           prev.map((tool) =>
             tool.id === toolEventId
-              ? { ...tool, status: 'failed', error: message, completedAt: new Date().toISOString() }
+              ? {
+                  ...tool,
+                  status: 'failed',
+                  error: message,
+                  completedAt: new Date().toISOString()
+                }
               : tool
           )
         );
@@ -631,10 +699,11 @@ export function useVoiceAgent() {
           : audioManagerRef.current?.getWaveformData();
         const vol = realtimeClientRef.current?.getVolume
           ? realtimeClientRef.current.getVolume()
-          : audioManagerRef.current?.getVolume() ?? 0;
+          : (audioManagerRef.current?.getVolume() ?? 0);
         if (waveform) {
           setWaveformData(new Uint8Array(waveform));
           setVolume(vol);
+          recordBenchmarkWaveform('user', vol);
         }
       }, 40);
       micStartedRef.current = true;
@@ -736,8 +805,26 @@ export function useVoiceAgent() {
         sessionIdRef.current = sid;
         setSessionId(sid);
         console.log('[useVoiceAgent] session row created', { sessionId: sid });
+        const benchmarkTrace = getBenchmarkTrace();
+        if (benchmarkTrace) {
+          void supabase
+            .from('voice_benchmark_runs')
+            .update({
+              session_id: sid,
+              status: 'running',
+              started_at: new Date().toISOString()
+            })
+            .eq('id', benchmarkTrace.runId)
+            .then(({ error: benchmarkError }) => {
+              if (benchmarkError && !/does not exist|schema cache/i.test(benchmarkError.message)) {
+                console.warn('[VoiceBenchmark] failed to attach runtime session', benchmarkError.message);
+              }
+            });
+        }
 
         const provider = hydratedConfig.voice_provider ?? 'openai_realtime';
+        const runtimeBenchmarkTrace = getBenchmarkTrace();
+        const benchmarkRunId = runtimeBenchmarkTrace?.remoteSnapshotReady ? runtimeBenchmarkTrace.runId : undefined;
 
         if (!audioManagerRef.current) {
           audioManagerRef.current = getAudioManager();
@@ -752,7 +839,10 @@ export function useVoiceAgent() {
         }
 
         let gatewaySession: { token: string; gateway_ws_url: string } | null = null;
-        let elevenLabsSession: { token: string; gateway_ws_url: string } | null = null;
+        let elevenLabsSession: {
+          token: string;
+          gateway_ws_url: string;
+        } | null = null;
         let realtimeWebSocketToken: string | null = null;
         if (provider === 'personaplex') {
           gatewaySession = await requestPersonaPlexGatewayToken({
@@ -765,58 +855,70 @@ export function useVoiceAgent() {
             requestElevenLabsGatewayToken({
               agentId: configId,
               sessionId: sid,
-              origin: window.location.origin
+              origin: window.location.origin,
+              benchmarkRunId
             }),
-            requestRealtimeWebSocketSecret(configId)
+            requestRealtimeWebSocketSecret(configId, benchmarkRunId)
           ]);
           elevenLabsSession = gateway;
           realtimeWebSocketToken = realtimeSecret.token;
         }
 
-        realtimeClientRef.current = provider === 'personaplex'
-          ? new PersonaPlexVoiceAdapter(hydratedConfig, {
-              gatewayUrl: gatewaySession?.gateway_ws_url || '',
-              token: gatewaySession?.token || '',
-              agentId: configId,
-              sessionId: sid
-            })
-          : provider === 'elevenlabs_tts'
-            ? new ElevenLabsVoiceAdapter(hydratedConfig, {
-                gatewayUrl: elevenLabsSession?.gateway_ws_url || '',
-                token: elevenLabsSession?.token || '',
+        realtimeClientRef.current =
+          provider === 'personaplex'
+            ? new PersonaPlexVoiceAdapter(hydratedConfig, {
+                gatewayUrl: gatewaySession?.gateway_ws_url || '',
+                token: gatewaySession?.token || '',
                 agentId: configId,
                 sessionId: sid
-              }, {
-                apiKey: realtimeWebSocketToken || undefined
               })
-            : provider === 'elevenlabs_agent'
-              ? new ElevenLabsAgentAdapter(hydratedConfig, {
-                  userId: vaUser?.id,
-                  getSignedUrl: () => requestElevenLabsAgentSignedUrl({
+            : provider === 'elevenlabs_tts'
+              ? new ElevenLabsVoiceAdapter(
+                  hydratedConfig,
+                  {
+                    gatewayUrl: elevenLabsSession?.gateway_ws_url || '',
+                    token: elevenLabsSession?.token || '',
                     agentId: configId,
-                    sessionId: sid,
-                    origin: window.location.origin
-                  })
-                })
-            : await (async () => {
-                const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-                const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-                const { data: { session } } = await supabase.auth.getSession();
-                if (!supabaseUrl || !anonKey || !session?.access_token) {
-                  throw new Error('Authenticated Realtime session configuration is unavailable');
-                }
-                const sessionUrl = new URL(`${supabaseUrl.replace(/\/$/, '')}/functions/v1/realtime-session`);
-                sessionUrl.searchParams.set('agent_id', configId);
-                return new RealtimeAPIClient(hydratedConfig, {
-                  webrtc: {
-                    sessionUrl: sessionUrl.toString(),
-                    headers: {
-                      apikey: anonKey,
-                      Authorization: `Bearer ${session.access_token}`
-                    }
+                    sessionId: sid
+                  },
+                  {
+                    apiKey: realtimeWebSocketToken || undefined
                   }
-                });
-              })();
+                )
+              : provider === 'elevenlabs_agent'
+                ? new ElevenLabsAgentAdapter(hydratedConfig, {
+                    userId: vaUser?.id,
+                    getSignedUrl: () =>
+                      requestElevenLabsAgentSignedUrl({
+                        agentId: configId,
+                        sessionId: sid,
+                        origin: window.location.origin
+                      })
+                  })
+                : await (async () => {
+                    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+                    const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+                    const {
+                      data: { session }
+                    } = await supabase.auth.getSession();
+                    if (!supabaseUrl || !anonKey || !session?.access_token) {
+                      throw new Error('Authenticated Realtime session configuration is unavailable');
+                    }
+                    const sessionUrl = new URL(`${supabaseUrl.replace(/\/$/, '')}/functions/v1/realtime-session`);
+                    sessionUrl.searchParams.set('agent_id', configId);
+                    if (benchmarkRunId) {
+                      sessionUrl.searchParams.set('benchmark_run_id', benchmarkRunId);
+                    }
+                    return new RealtimeAPIClient(hydratedConfig, {
+                      webrtc: {
+                        sessionUrl: sessionUrl.toString(),
+                        headers: {
+                          apikey: anonKey,
+                          Authorization: `Bearer ${session.access_token}`
+                        }
+                      }
+                    });
+                  })();
 
         attachRealtimeHandlers();
         const connectTimeoutMs = 15000;
@@ -837,6 +939,17 @@ export function useVoiceAgent() {
         }
         console.log('[useVoiceAgent] realtime socket connected');
         setAgentState('idle');
+        const activeBenchmark = getBenchmarkTrace();
+        if (
+          activeBenchmark?.autoInjectAudio &&
+          activeBenchmark.inputAudioAssetKey &&
+          realtimeClientRef.current.injectAudio
+        ) {
+          const encodedAudio = await loadBenchmarkAudio(activeBenchmark.inputAudioAssetKey);
+          if (encodedAudio) {
+            await realtimeClientRef.current.injectAudio(encodedAudio);
+          }
+        }
       } catch (err: any) {
         console.error('[useVoiceAgent] Failed to initialize agent:', err);
 
@@ -857,16 +970,26 @@ export function useVoiceAgent() {
           audioManagerRef.current.close(true);
           audioManagerRef.current = null;
         }
-        const errorMessage = err.name === 'NotAllowedError'
-          ? 'Microphone permission denied. Please allow microphone access to use the voice agent.'
-          : err.name === 'NotFoundError'
-          ? 'No microphone found. Please connect a microphone to use the voice agent.'
-          : `Failed to initialize: ${err.message}`;
+        const errorMessage =
+          err.name === 'NotAllowedError'
+            ? 'Microphone permission denied. Please allow microphone access to use the voice agent.'
+            : err.name === 'NotFoundError'
+              ? 'No microphone found. Please connect a microphone to use the voice agent.'
+              : `Failed to initialize: ${err.message}`;
         setError(errorMessage);
         throw err;
       }
     },
-    [attachRealtimeHandlers, config, createSession, hydrateConfigWithKnowledge, mergeRealtimeConfig, resetTranscripts, syncRagMetadata, vaUser?.id]
+    [
+      attachRealtimeHandlers,
+      config,
+      createSession,
+      hydrateConfigWithKnowledge,
+      mergeRealtimeConfig,
+      resetTranscripts,
+      syncRagMetadata,
+      vaUser?.id
+    ]
   );
 
   const cleanup = useCallback(async () => {
@@ -892,7 +1015,7 @@ export function useVoiceAgent() {
     if (audioManagerRef.current) {
       try {
         if (audioManagerRef.current.isCurrentlyInitializing()) {
-          await new Promise(resolve => setTimeout(resolve, 300));
+          await new Promise((resolve) => setTimeout(resolve, 300));
         }
         audioManagerRef.current.close(true);
       } catch (cleanupErr) {
@@ -911,7 +1034,9 @@ export function useVoiceAgent() {
             updated_at: new Date().toISOString()
           })
           .eq('id', currentSessionId);
-        console.log('[useVoiceAgent] session marked ended', { sessionId: currentSessionId });
+        console.log('[useVoiceAgent] session marked ended', {
+          sessionId: currentSessionId
+        });
       } catch (err) {
         console.warn('Error updating session status:', err);
       }
@@ -938,7 +1063,9 @@ export function useVoiceAgent() {
 
   useEffect(() => {
     return () => {
-      console.log('[useVoiceAgent] unmount effect fired', { shouldPersist: shouldPersistSession.current });
+      console.log('[useVoiceAgent] unmount effect fired', {
+        shouldPersist: shouldPersistSession.current
+      });
       if (!shouldPersistSession.current) {
         cleanup();
       }
@@ -959,7 +1086,9 @@ export function useVoiceAgent() {
   useEffect(() => {
     if (sessionIdRef.current && realtimeClientRef.current) {
       if (!realtimeClientRef.current.isConnected()) {
-        console.log('[useVoiceAgent] attempting socket reconnect on remount', { sessionId: sessionIdRef.current });
+        console.log('[useVoiceAgent] attempting socket reconnect on remount', {
+          sessionId: sessionIdRef.current
+        });
         realtimeClientRef.current.reconnect().catch((err) => {
           console.warn('Failed to reconnect realtime client on mount', err);
         });
@@ -973,8 +1102,15 @@ export function useVoiceAgent() {
     if (typeof document === 'undefined') return;
     const handleVisibility = () => {
       console.log('[useVoiceAgent] visibilitychange', document.visibilityState);
-      if (document.visibilityState === 'visible' && sessionIdRef.current && realtimeClientRef.current && !realtimeClientRef.current.isConnected()) {
-        console.log('[useVoiceAgent] visibilitychange triggered reconnect', { sessionId: sessionIdRef.current });
+      if (
+        document.visibilityState === 'visible' &&
+        sessionIdRef.current &&
+        realtimeClientRef.current &&
+        !realtimeClientRef.current.isConnected()
+      ) {
+        console.log('[useVoiceAgent] visibilitychange triggered reconnect', {
+          sessionId: sessionIdRef.current
+        });
         realtimeClientRef.current.reconnect().catch((err) => {
           console.warn('Failed to reconnect realtime client after visibility change', err);
         });
@@ -984,16 +1120,19 @@ export function useVoiceAgent() {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, []);
 
-  const updateConfig = useCallback((newConfig: RealtimeConfig) => {
-    setConfig(prev => {
-      const merged = mergeRealtimeConfig(prev, newConfig);
-      syncRagMetadata(merged);
-      if (realtimeClientRef.current && isConnected) {
-        realtimeClientRef.current.updateSessionConfig(merged);
-      }
-      return merged;
-    });
-  }, [isConnected, mergeRealtimeConfig, syncRagMetadata]);
+  const updateConfig = useCallback(
+    (newConfig: RealtimeConfig) => {
+      setConfig((prev) => {
+        const merged = mergeRealtimeConfig(prev, newConfig);
+        syncRagMetadata(merged);
+        if (realtimeClientRef.current && isConnected) {
+          realtimeClientRef.current.updateSessionConfig(merged);
+        }
+        return merged;
+      });
+    },
+    [isConnected, mergeRealtimeConfig, syncRagMetadata]
+  );
 
   const setActiveConfig = useCallback((configId: string | null) => {
     setActiveConfigId(configId);

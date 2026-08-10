@@ -2,6 +2,7 @@ import { Conversation, type VoiceConversation } from '@elevenlabs/client';
 import type { RealtimeConfig } from '../../types/voice-agent';
 import { getToolSchemas } from '../tools-registry';
 import type { VoiceAdapter, VoiceEventType } from './types';
+import { beginBenchmarkTurn, emitBenchmarkEvent, emitBenchmarkMilestone } from '../benchmark-instrumentation';
 
 type DirectAgentSession = {
   getSignedUrl: () => Promise<string>;
@@ -31,6 +32,10 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
   }
 
   async connect(): Promise<void> {
+    emitBenchmarkEvent('session.connect_started', {
+      provider: 'elevenlabs_agent',
+      transport: 'websocket'
+    });
     const signedUrl = await this.session.getSignedUrl();
     const providerConfig = this.config.voice_provider_config || {};
     // ElevenLabs rejects prompt, language, first-message, and voice overrides
@@ -38,10 +43,9 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
     // Keep the native Agent configuration as the safe, apples-to-apples default.
     const syncPreset = providerConfig.sync_local_instructions === true;
     const toolSchemas = getToolSchemas();
-    const clientTools = Object.fromEntries(toolSchemas.map((tool) => [
-      tool.name,
-      (parameters: any) => this.requestToolExecution(tool.name, parameters)
-    ]));
+    const clientTools = Object.fromEntries(
+      toolSchemas.map((tool) => [tool.name, (parameters: any) => this.requestToolExecution(tool.name, parameters)])
+    );
 
     this.conversation = await Conversation.startSession({
       signedUrl,
@@ -50,31 +54,45 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
       userId: this.session.userId,
       inputChunkDurationMs: 25,
       clientTools,
-      ...(syncPreset ? {
-        overrides: {
-          agent: {
-            prompt: { prompt: this.config.instructions },
-            ...(providerConfig.first_message ? { firstMessage: providerConfig.first_message } : {}),
-            ...(providerConfig.language ? { language: providerConfig.language } : {})
-          },
-          ...(this.config.voice_id ? {
-            tts: {
-              voiceId: this.config.voice_id,
-              ...(providerConfig.voice_settings?.stability !== undefined
-                ? { stability: providerConfig.voice_settings.stability }
-                : {}),
-              ...(providerConfig.voice_settings?.similarity_boost !== undefined
-                ? { similarityBoost: providerConfig.voice_settings.similarity_boost }
+      ...(syncPreset
+        ? {
+            overrides: {
+              agent: {
+                prompt: { prompt: this.config.instructions },
+                ...(providerConfig.first_message ? { firstMessage: providerConfig.first_message } : {}),
+                ...(providerConfig.language ? { language: providerConfig.language } : {})
+              },
+              ...(this.config.voice_id
+                ? {
+                    tts: {
+                      voiceId: this.config.voice_id,
+                      ...(providerConfig.voice_settings?.stability !== undefined
+                        ? { stability: providerConfig.voice_settings.stability }
+                        : {}),
+                      ...(providerConfig.voice_settings?.similarity_boost !== undefined
+                        ? {
+                            similarityBoost: providerConfig.voice_settings.similarity_boost
+                          }
+                        : {})
+                    }
+                  }
                 : {})
             }
-          } : {})
-        }
-      } : {}),
+          }
+        : {}),
       onConnect: ({ conversationId }) => {
+        emitBenchmarkEvent('session.connected', {
+          provider: 'elevenlabs_agent',
+          conversation_id: conversationId
+        });
         this.emit('connected', { type: 'connected', conversationId });
         this.emit('session.updated', { type: 'session.updated' });
       },
       onDisconnect: (details) => {
+        emitBenchmarkEvent('session.disconnected', {
+          provider: 'elevenlabs_agent',
+          reason: details.reason
+        });
         if (details.reason === 'error') {
           console.error('[ElevenLabsAgentAdapter] provider disconnected', {
             message: details.message,
@@ -90,10 +108,21 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
         });
         this.emitAgentState('idle', 'elevenlabs-disconnected');
       },
-      onError: (message) => this.emit('error', { type: 'error', error: message }),
+      onError: (message) => {
+        emitBenchmarkEvent('session.error', {
+          provider: 'elevenlabs_agent',
+          message
+        });
+        this.emit('error', { type: 'error', error: message });
+      },
       onMessage: ({ message, role, event_id: eventId }) => {
         const itemId = eventId !== undefined ? `elevenlabs-${eventId}` : crypto.randomUUID();
         if (role === 'user') {
+          beginBenchmarkTurn();
+          emitBenchmarkEvent('transcript.user_final', {
+            transcript: message,
+            provider: 'elevenlabs_agent'
+          });
           this.emit('transcript.done', {
             type: 'transcript.done',
             transcript: message,
@@ -106,7 +135,11 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
         this.assistantItemId = itemId;
         this.assistantText = message;
         if (!this.sawStreamingAssistantText) {
-          this.emit('transcript.reset', { type: 'transcript.reset', role: 'assistant', itemId });
+          this.emit('transcript.reset', {
+            type: 'transcript.reset',
+            role: 'assistant',
+            itemId
+          });
           this.emit('transcript.delta', {
             type: 'transcript.delta',
             delta: message,
@@ -121,9 +154,16 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
           this.assistantItemId = itemId;
           this.assistantText = '';
           this.sawStreamingAssistantText = true;
-          this.emit('transcript.reset', { type: 'transcript.reset', role: 'assistant', itemId });
+          this.emit('transcript.reset', {
+            type: 'transcript.reset',
+            role: 'assistant',
+            itemId
+          });
           if (!this.responseActive) this.beginResponse(itemId);
         } else if (type === 'delta' && text) {
+          emitBenchmarkMilestone('response.first_text', {
+            provider: 'elevenlabs_agent'
+          });
           this.assistantText += text;
           this.emit('transcript.delta', {
             type: 'transcript.delta',
@@ -135,6 +175,12 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
       },
       onModeChange: ({ mode }) => {
         if (mode === 'speaking') {
+          emitBenchmarkMilestone('audio.first_chunk', {
+            source: 'elevenlabs_agent'
+          });
+          emitBenchmarkMilestone('playback.started', {
+            provider: 'elevenlabs_agent'
+          });
           this.conversation?.setVolume({ volume: 1 });
           this.responseActive = true;
           this.emitAgentState('speaking');
@@ -144,6 +190,12 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
         }
       },
       onInterruption: () => {
+        emitBenchmarkEvent('interruption.requested', {
+          provider: 'elevenlabs_agent'
+        });
+        emitBenchmarkEvent('interruption.audio_stopped', {
+          provider: 'elevenlabs_agent'
+        });
         this.interrupted = true;
         this.emit('interruption', { type: 'interruption' });
         this.emitAgentState('interrupted');
@@ -151,7 +203,11 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
       onAgentResponseCorrection: ({ corrected_agent_response: corrected }) => {
         this.assistantText = corrected || '';
         const itemId = this.assistantItemId || crypto.randomUUID();
-        this.emit('transcript.reset', { type: 'transcript.reset', role: 'assistant', itemId });
+        this.emit('transcript.reset', {
+          type: 'transcript.reset',
+          role: 'assistant',
+          itemId
+        });
         if (corrected) {
           this.emit('transcript.done', {
             type: 'transcript.done',
@@ -201,9 +257,7 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
     if (!pending) return;
     window.clearTimeout(pending.timer);
     this.pendingTools.delete(callId);
-    pending.resolve(typeof output === 'number' || typeof output === 'string'
-      ? output
-      : JSON.stringify(output));
+    pending.resolve(typeof output === 'number' || typeof output === 'string' ? output : JSON.stringify(output));
   }
 
   sendUserMessage(text: string): void {
@@ -228,6 +282,9 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
   async startCapture(): Promise<void> {
     if (!this.conversation) throw new Error('ElevenLabs Agent session is not connected');
     this.conversation.setMicMuted(false);
+    emitBenchmarkEvent('microphone.capture_started', {
+      provider: 'elevenlabs_agent'
+    });
   }
 
   stopCapture(): void {
@@ -260,6 +317,10 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
   }
 
   private beginResponse(itemId: string): void {
+    emitBenchmarkMilestone('response.created', {
+      response_id: itemId,
+      provider: 'elevenlabs_agent'
+    });
     this.responseActive = true;
     this.interrupted = false;
     this.assistantItemId = itemId;
@@ -280,6 +341,10 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
     this.emit('response.done', {
       type: 'response.done',
       response: { provider: 'elevenlabs_agent', interrupted: this.interrupted }
+    });
+    emitBenchmarkEvent('response.completed', {
+      provider: 'elevenlabs_agent',
+      interrupted: this.interrupted
     });
     this.responseActive = false;
     this.interrupted = false;

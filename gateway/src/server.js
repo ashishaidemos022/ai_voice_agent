@@ -271,7 +271,11 @@ wss.on('connection', (client, req) => {
 
     const sendJson = (message) => {
       if (client.readyState !== WebSocket.OPEN) return;
-      client.send(JSON.stringify(message));
+      client.send(JSON.stringify({
+        ...message,
+        gateway_monotonic_ms: performance.now(),
+        gateway_wall_time: new Date().toISOString()
+      }));
     };
 
     let keyValue = '';
@@ -339,6 +343,7 @@ wss.on('connection', (client, req) => {
       }
 
       isBusy = true;
+      const ttsStartedAt = performance.now();
       try {
         const pcm = await synthesizeElevenLabsPcm({
           apiKey: keyValue,
@@ -350,8 +355,13 @@ wss.on('connection', (client, req) => {
           expressiveMode: payload.elevenlabs_expressive_mode
         });
         const chunks = chunkBuffer(pcm, 8192);
-        chunks.forEach((chunk) => {
-          sendJson({ type: 'audio.delta', delta: chunk.toString('base64') });
+        chunks.forEach((chunk, index) => {
+          sendJson({
+            type: 'audio.delta',
+            delta: chunk.toString('base64'),
+            gateway_tts_elapsed_ms: performance.now() - ttsStartedAt,
+            first_chunk: index === 0
+          });
         });
         sendJson({ type: 'audio.done' });
       } catch (err) {

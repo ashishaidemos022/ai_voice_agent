@@ -3,10 +3,13 @@ import { AuthScreen } from './auth/AuthScreen';
 import { useAuth } from '../context/AuthContext';
 import { LoadingScreen } from './ui/LoadingScreen';
 import { AgentWorkspace } from './portal/AgentWorkspace';
+import { PublicBenchmarkReport } from './voice-lab/PublicBenchmarkReport';
 
 export function PortalRouter() {
   const { session, vaUser } = useAuth();
   const [isRecoveryFlow, setIsRecoveryFlow] = useState(false);
+  const publicReportSlug =
+    typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('voice-report') : null;
 
   useEffect(() => {
     const detectRecovery = () => {
@@ -31,6 +34,10 @@ export function PortalRouter() {
 
   if (isRecoveryFlow) {
     return <AuthScreen />;
+  }
+
+  if (publicReportSlug) {
+    return <PublicBenchmarkReport slug={publicReportSlug} />;
   }
 
   if (!session) {

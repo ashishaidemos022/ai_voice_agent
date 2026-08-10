@@ -10,15 +10,17 @@ export async function requestElevenLabsGatewayToken(params: {
   agentId: string;
   sessionId: string;
   origin: string;
+  benchmarkRunId?: string;
 }): Promise<ElevenLabsGatewayTokenResponse> {
-  const { agentId, sessionId, origin } = params;
+  const { agentId, sessionId, origin, benchmarkRunId } = params;
   const { data: sessionData } = await supabase.auth.getSession();
   const accessToken = sessionData?.session?.access_token;
   const { data, error } = await supabase.functions.invoke('elevenlabs-gateway-token', {
     body: {
       agent_id: agentId,
       session_id: sessionId,
-      origin
+      origin,
+      benchmark_run_id: benchmarkRunId
     },
     headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined
   });

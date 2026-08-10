@@ -22,6 +22,7 @@ const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 type GatewayTokenRequest = {
   agent_id?: string;
+  benchmark_run_id?: string;
   agent_public_id?: string;
   session_id?: string;
   origin?: string;
@@ -230,6 +231,37 @@ Deno.serve(async (req: Request) => {
       allowedOrigins = [origin];
       agentConfig = config;
       subject = vaUser.id;
+
+      if (payload.benchmark_run_id) {
+        const { data: benchmarkRun } = await adminClient
+          .from('voice_benchmark_runs')
+          .select('experiment_id,config_snapshot')
+          .eq('id', payload.benchmark_run_id)
+          .maybeSingle();
+        const { data: benchmarkExperiment } = benchmarkRun
+          ? await adminClient
+              .from('voice_benchmark_experiments')
+              .select('user_id')
+              .eq('id', benchmarkRun.experiment_id)
+              .eq('user_id', vaUser.id)
+              .maybeSingle()
+          : { data: null };
+        if (!benchmarkRun || !benchmarkExperiment) {
+          return new Response(JSON.stringify({ error: 'Benchmark run not found or forbidden' }), {
+            status: 403,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+        const snapshot = benchmarkRun.config_snapshot || {};
+        agentConfig = {
+          ...agentConfig,
+          instructions: snapshot.instructions || agentConfig.instructions,
+          voice_provider: snapshot.voice_provider || agentConfig.voice_provider,
+          voice_id: snapshot.voice_id || agentConfig.voice_id,
+          voice_provider_key_id: snapshot.voice_provider_key_id || agentConfig.voice_provider_key_id,
+          voice_provider_config: snapshot.voice_provider_config || agentConfig.voice_provider_config
+        };
+      }
     }
 
     if (!agentConfig || agentConfig.voice_provider !== 'elevenlabs_tts') {

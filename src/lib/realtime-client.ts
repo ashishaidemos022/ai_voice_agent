@@ -2,6 +2,14 @@ import { RealtimeConfig } from '../types/voice-agent';
 import { OPENAI_MODELS } from '../../shared/openai-models';
 import { getToolSchemas } from './tools-registry';
 import { getAudioManager } from './audio-manager';
+import {
+  beginBenchmarkTurn,
+  emitBenchmarkEvent,
+  emitBenchmarkMilestone,
+  getBenchmarkTrace,
+  recordBenchmarkWaveform
+} from './benchmark-instrumentation';
+import { saveBenchmarkOutputAudio } from './benchmark-audio-store';
 
 export type AgentState = 'idle' | 'listening' | 'speaking' | 'thinking' | 'interrupted';
 
@@ -12,8 +20,18 @@ export type RealtimeEvent =
   | { type: 'agent_state'; state: AgentState; reason?: string }
   | { type: 'audio.delta'; delta: string }
   | { type: 'audio.done' }
-  | { type: 'transcript.delta'; delta: string; role: 'user' | 'assistant'; itemId?: string }
-  | { type: 'transcript.done'; transcript: string; role: 'user' | 'assistant'; itemId?: string }
+  | {
+      type: 'transcript.delta';
+      delta: string;
+      role: 'user' | 'assistant';
+      itemId?: string;
+    }
+  | {
+      type: 'transcript.done';
+      transcript: string;
+      role: 'user' | 'assistant';
+      itemId?: string;
+    }
   | { type: 'transcript.reset'; role: 'user' | 'assistant'; itemId?: string }
   | { type: 'text.delta'; delta: string }
   | { type: 'text.done'; text: string }
@@ -21,9 +39,14 @@ export type RealtimeEvent =
   | { type: 'response.done'; response: any }
   | { type: 'usage.reported'; usage: any; response?: any }
   | { type: 'interruption' }
-  | { type: 'function_call'; call: { id: string; name: string; arguments: string } }
+  | {
+      type: 'function_call';
+      call: { id: string; name: string; arguments: string };
+    }
   | { type: 'conversation.item.created'; item: any }
-  | { type: 'session.updated' };
+  | { type: 'session.updated' }
+  | { type: 'speech.started' }
+  | { type: 'speech.stopped' };
 
 type RealtimeClientOptions = {
   apiKey?: string;
@@ -63,6 +86,10 @@ export class RealtimeAPIClient {
   private allowInterruptions: boolean;
   private textOnly: boolean;
   private webrtc?: RealtimeClientOptions['webrtc'];
+  private remoteRecorder: MediaRecorder | null = null;
+  private remoteRecordingChunks: Blob[] = [];
+  private remoteWaveformContext: AudioContext | null = null;
+  private remoteWaveformTimer: number | null = null;
 
   constructor(config: RealtimeConfig, options?: RealtimeClientOptions) {
     this.config = config;
@@ -82,6 +109,9 @@ export class RealtimeAPIClient {
   }
 
   async connect(): Promise<void> {
+    emitBenchmarkEvent('session.connect_started', {
+      transport: this.webrtc ? 'webrtc' : 'websocket'
+    });
     this.intentionalClose = false;
     this.sessionUpdateSent = false;
     this.pendingClear = true;
@@ -90,6 +120,20 @@ export class RealtimeAPIClient {
     this.bufferedSamples = 0;
     this.activeResponseCount = 0;
     this.cancelPending = false;
+    if (this.remoteRecorder?.state === 'recording') {
+      try {
+        this.remoteRecorder.stop();
+      } catch {
+        // recorder is already closing
+      }
+    }
+    this.remoteRecorder = null;
+    if (this.remoteWaveformTimer) window.clearInterval(this.remoteWaveformTimer);
+    this.remoteWaveformTimer = null;
+    if (this.remoteWaveformContext && this.remoteWaveformContext.state !== 'closed') {
+      void this.remoteWaveformContext.close();
+    }
+    this.remoteWaveformContext = null;
     if (this.webrtc) {
       return this.connectWebRTC();
     }
@@ -102,15 +146,13 @@ export class RealtimeAPIClient {
     return new Promise((resolve, reject) => {
       try {
         const url = `wss://api.openai.com/v1/realtime?model=${this.config.model}`;
-        this.ws = new WebSocket(url, [
-          'realtime',
-          `openai-insecure-api-key.${apiKey}`
-        ]);
+        this.ws = new WebSocket(url, ['realtime', `openai-insecure-api-key.${apiKey}`]);
 
         this.ws.onopen = () => {
           console.log('WebSocket connected successfully');
           this.reconnectAttempts = 0;
           this.emit({ type: 'connected' });
+          emitBenchmarkEvent('session.connected', { transport: 'websocket' });
           this.sendSessionUpdate();
           resolve();
         };
@@ -130,7 +172,13 @@ export class RealtimeAPIClient {
             console.error('Connection closed due to policy violation');
           }
 
-          this.emit({ type: 'disconnected', reason: event.reason || `code:${event.code}` });
+          this.emit({
+            type: 'disconnected',
+            reason: event.reason || `code:${event.code}`
+          });
+          emitBenchmarkEvent('session.disconnected', {
+            reason: event.reason || `code:${event.code}`
+          });
           this.setAgentState('idle', 'socket-closed');
 
           const shouldRetry = !this.intentionalClose && this.reconnectAttempts < this.maxReconnectAttempts;
@@ -142,6 +190,7 @@ export class RealtimeAPIClient {
         this.ws.onerror = (error) => {
           console.error('WebSocket error:', error);
           this.emit({ type: 'error', error: 'WebSocket connection error' });
+          emitBenchmarkEvent('session.error', { transport: 'websocket' });
           reject(error);
         };
 
@@ -174,9 +223,42 @@ export class RealtimeAPIClient {
 
     const audio = document.createElement('audio');
     audio.autoplay = true;
+    audio.onplaying = () => emitBenchmarkMilestone('playback.started', { transport: 'webrtc' });
     this.remoteAudio = audio;
     pc.ontrack = (event) => {
       audio.srcObject = event.streams[0];
+      if (getBenchmarkTrace() && !this.remoteWaveformContext) {
+        try {
+          this.remoteWaveformContext = new AudioContext();
+          const source = this.remoteWaveformContext.createMediaStreamSource(event.streams[0]);
+          const analyser = this.remoteWaveformContext.createAnalyser();
+          analyser.fftSize = 256;
+          source.connect(analyser);
+          const samples = new Uint8Array(analyser.frequencyBinCount);
+          this.remoteWaveformTimer = window.setInterval(() => {
+            analyser.getByteTimeDomainData(samples);
+            let energy = 0;
+            samples.forEach((sample) => {
+              const value = (sample - 128) / 128;
+              energy += value * value;
+            });
+            recordBenchmarkWaveform('output', Math.sqrt(energy / samples.length));
+          }, 40);
+        } catch (error) {
+          console.warn('[VoiceBenchmark] native waveform capture unavailable', error);
+        }
+      }
+      if (getBenchmarkTrace() && typeof MediaRecorder !== 'undefined' && !this.remoteRecorder) {
+        try {
+          this.remoteRecorder = new MediaRecorder(event.streams[0]);
+          this.remoteRecorder.ondataavailable = (recorded) => {
+            if (recorded.data.size) this.remoteRecordingChunks.push(recorded.data);
+          };
+          this.remoteRecorder.start();
+        } catch (error) {
+          console.warn('[VoiceBenchmark] native output recording unavailable', error);
+        }
+      }
       void audio.play().catch((error) => console.warn('Remote audio autoplay was blocked', error));
     };
 
@@ -192,7 +274,10 @@ export class RealtimeAPIClient {
     channel.onerror = () => this.emit({ type: 'error', error: 'Realtime WebRTC data channel error' });
     channel.onclose = () => {
       if (!this.intentionalClose) {
-        this.emit({ type: 'disconnected', reason: 'webrtc-data-channel-closed' });
+        this.emit({
+          type: 'disconnected',
+          reason: 'webrtc-data-channel-closed'
+        });
         this.setAgentState('idle', 'webrtc-data-channel-closed');
       }
     };
@@ -212,11 +297,15 @@ export class RealtimeAPIClient {
       this.disconnect();
       throw new Error(detail || `Failed to create WebRTC session (${response.status})`);
     }
-    await pc.setRemoteDescription({ type: 'answer', sdp: await response.text() });
+    await pc.setRemoteDescription({
+      type: 'answer',
+      sdp: await response.text()
+    });
 
     const finalizeConnection = () => {
       this.reconnectAttempts = 0;
       this.emit({ type: 'connected' });
+      emitBenchmarkEvent('session.connected', { transport: 'webrtc' });
       this.sendSessionUpdate();
     };
     if (channel.readyState === 'open') {
@@ -274,9 +363,10 @@ export class RealtimeAPIClient {
     const a2uiInstruction = this.config.a2ui_enabled
       ? '\n\nWhen useful, you may include a JSON object with {"a2ui":{"version":"0.8","ui":<tree>},"fallback_text":"..."}.\nIf A2UI is not needed, respond normally with text.\nFor time/weather requests, prefer a Card with props {variant:\"time\", icon, title, subtitle, meta, badges, accent_color} and children Text nodes for the main time/weather values.'
       : '';
-    const ragInstructions = this.config.rag_mode === 'guardrail'
-      ? `${this.config.instructions}\n\nIf relevant knowledge from the approved knowledge base is unavailable, respond with "I do not have enough knowledge to answer that yet."\n\n${languageGuard}${a2uiInstruction}`
-      : `${this.config.instructions}\n\n${languageGuard}${a2uiInstruction}`;
+    const ragInstructions =
+      this.config.rag_mode === 'guardrail'
+        ? `${this.config.instructions}\n\nIf relevant knowledge from the approved knowledge base is unavailable, respond with "I do not have enough knowledge to answer that yet."\n\n${languageGuard}${a2uiInstruction}`
+        : `${this.config.instructions}\n\n${languageGuard}${a2uiInstruction}`;
     const sessionConfig: any = {
       type: 'session.update',
       session: {
@@ -303,12 +393,14 @@ export class RealtimeAPIClient {
           silence_duration_ms: 700
         }
       },
-      ...(!this.textOnly ? {
-        output: {
-          ...(!this.webrtc ? { format: { type: 'audio/pcm' } } : {}),
-          voice: this.config.voice
-        }
-      } : {})
+      ...(!this.textOnly
+        ? {
+            output: {
+              ...(!this.webrtc ? { format: { type: 'audio/pcm' } } : {}),
+              voice: this.config.voice
+            }
+          }
+        : {})
     };
 
     console.log('📤 Sending session.update', {
@@ -333,6 +425,12 @@ export class RealtimeAPIClient {
         break;
 
       case 'input_audio_buffer.speech_started':
+        if (this.agentState === 'speaking' && this.allowInterruptions) {
+          emitBenchmarkEvent('interruption.requested', { source: 'vad' });
+        }
+        beginBenchmarkTurn();
+        emitBenchmarkEvent('vad.speech_started');
+        this.emit({ type: 'speech.started' });
         // Reset local counters but defer server clear until we stream audio
         this.bufferedSamples = 0;
         this.hasBufferedAudio = false;
@@ -347,6 +445,8 @@ export class RealtimeAPIClient {
         break;
 
       case 'input_audio_buffer.speech_stopped':
+        emitBenchmarkEvent('vad.speech_stopped');
+        this.emit({ type: 'speech.stopped' });
         // With server VAD, let the server handle commit; just reset local flags
         this.pendingClear = true;
         this.hasBufferedAudio = false;
@@ -383,6 +483,9 @@ export class RealtimeAPIClient {
         break;
 
       case 'response.created':
+        emitBenchmarkMilestone('response.created', {
+          response_id: message.response?.id
+        });
         this.markResponseCreated();
         this.setAgentState('thinking');
         this.emit({ type: 'response.created', id: message.response?.id });
@@ -390,6 +493,7 @@ export class RealtimeAPIClient {
 
       case 'response.audio.delta':
         if (this.textOnly) break;
+        emitBenchmarkMilestone('audio.first_chunk', { source: 'openai' });
         this.setAgentState('speaking');
         this.emit({ type: 'audio.delta', delta: message.delta });
         break;
@@ -400,6 +504,7 @@ export class RealtimeAPIClient {
         break;
 
       case 'response.audio_transcript.delta':
+        emitBenchmarkMilestone('response.first_text', { source: 'openai_audio_transcript' });
         this.emit({
           type: 'transcript.delta',
           delta: message.delta,
@@ -420,6 +525,7 @@ export class RealtimeAPIClient {
       // Newer Realtime event names (output_*). Mirror the legacy audio.* behavior.
       case 'response.output_audio.delta':
         if (this.textOnly) break;
+        emitBenchmarkMilestone('audio.first_chunk', { source: 'openai' });
         this.setAgentState('speaking');
         this.emit({ type: 'audio.delta', delta: message.delta });
         break;
@@ -430,14 +536,19 @@ export class RealtimeAPIClient {
         break;
       case 'response.output_text.delta':
       case 'response.text.delta':
+        emitBenchmarkMilestone('response.first_text', { source: 'openai' });
         this.emit({ type: 'text.delta', delta: message.delta || '' });
         break;
       case 'response.output_text.done':
       case 'response.text.done':
-        this.emit({ type: 'text.done', text: message.output_text || message.text || '' });
+        this.emit({
+          type: 'text.done',
+          text: message.output_text || message.text || ''
+        });
         break;
 
       case 'response.output_audio_transcript.delta':
+        emitBenchmarkMilestone('response.first_text', { source: 'openai_audio_transcript' });
         this.emit({
           type: 'transcript.delta',
           delta: message.delta,
@@ -502,12 +613,18 @@ export class RealtimeAPIClient {
 
       case 'response.completed':
       case 'response.done': {
+        this.preserveRemoteBenchmarkAudio();
+        emitBenchmarkEvent('response.completed');
         this.markResponseFinished();
         this.setAgentState('idle');
         const response = message.response ?? message;
         this.emit({ type: 'response.done', response });
         if (response?.usage) {
-          this.emit({ type: 'usage.reported', usage: response.usage, response });
+          this.emit({
+            type: 'usage.reported',
+            usage: response.usage,
+            response
+          });
         }
         break;
       }
@@ -521,7 +638,13 @@ export class RealtimeAPIClient {
 
       case 'error':
         console.error('Server error:', message.error);
-        this.emit({ type: 'error', error: message.error.message || JSON.stringify(message.error) });
+        this.emit({
+          type: 'error',
+          error: message.error.message || JSON.stringify(message.error)
+        });
+        emitBenchmarkEvent('session.error', {
+          message: message.error.message || JSON.stringify(message.error)
+        });
         break;
 
       default:
@@ -557,7 +680,10 @@ export class RealtimeAPIClient {
   commitAudio(): void {
     if (this.webrtc) return;
     if (!this.hasBufferedAudio || this.bufferedSamples < 2400 || !this.hasReceivedAudio) {
-      console.warn('Skip commit: insufficient buffered audio', { bufferedSamples: this.bufferedSamples, hasReceivedAudio: this.hasReceivedAudio });
+      console.warn('Skip commit: insufficient buffered audio', {
+        bufferedSamples: this.bufferedSamples,
+        hasReceivedAudio: this.hasReceivedAudio
+      });
       return;
     }
     this.send({
@@ -663,6 +789,76 @@ export class RealtimeAPIClient {
     });
   }
 
+  async injectAudio(encodedAudio: ArrayBuffer): Promise<void> {
+    const decodeContext = new AudioContext();
+    try {
+      const decoded = await decodeContext.decodeAudioData(encodedAudio.slice(0));
+      const frameCount = Math.max(1, Math.ceil(decoded.duration * 24000));
+      const offline = new OfflineAudioContext(1, frameCount, 24000);
+      const source = offline.createBufferSource();
+      source.buffer = decoded;
+      source.connect(offline.destination);
+      source.start();
+      const rendered = await offline.startRendering();
+
+      if (this.webrtc && this.peerConnection) {
+        const playbackContext = new AudioContext({ sampleRate: 24000 });
+        const destination = playbackContext.createMediaStreamDestination();
+        const playbackSource = playbackContext.createBufferSource();
+        playbackSource.buffer = rendered;
+        playbackSource.connect(destination);
+        const sender = this.peerConnection.getSenders().find((item) => item.track?.kind === 'audio');
+        const originalTrack = this.mediaStream?.getAudioTracks()[0] || null;
+        await sender?.replaceTrack(destination.stream.getAudioTracks()[0]);
+        emitBenchmarkEvent('microphone.capture_started', {
+          mode: 'prerecorded',
+          duration_ms: rendered.duration * 1000
+        });
+        playbackSource.start();
+        await new Promise<void>((resolve) => {
+          playbackSource.onended = () => resolve();
+        });
+        emitBenchmarkEvent('input.audio_ended', { mode: 'prerecorded' });
+        await sender?.replaceTrack(originalTrack);
+        destination.stream.getTracks().forEach((track) => track.stop());
+        await playbackContext.close();
+        return;
+      }
+
+      const channel = rendered.getChannelData(0);
+      const chunkSize = 2400;
+      for (let offset = 0; offset < channel.length; offset += chunkSize) {
+        const slice = channel.subarray(offset, Math.min(channel.length, offset + chunkSize));
+        const pcm = new Int16Array(slice.length);
+        for (let index = 0; index < slice.length; index += 1) {
+          pcm[index] = Math.max(-32768, Math.min(32767, Math.round(slice[index] * 32767)));
+        }
+        this.sendAudio(pcm);
+        await new Promise((resolve) => setTimeout(resolve, (slice.length / 24000) * 1000));
+      }
+      emitBenchmarkEvent('input.audio_ended', { mode: 'prerecorded' });
+    } finally {
+      await decodeContext.close();
+    }
+  }
+
+  private preserveRemoteBenchmarkAudio(): void {
+    const trace = getBenchmarkTrace();
+    const recorder = this.remoteRecorder;
+    if (!trace || !recorder || recorder.state !== 'recording') return;
+    recorder.requestData();
+    window.setTimeout(() => {
+      if (!this.remoteRecordingChunks.length) return;
+      const blob = new Blob(this.remoteRecordingChunks, {
+        type: recorder.mimeType || 'audio/webm'
+      });
+      this.remoteRecordingChunks = [];
+      void saveBenchmarkOutputAudio(trace.runId, blob).catch((error) =>
+        console.warn('[VoiceBenchmark] failed to preserve native output', error)
+      );
+    }, 100);
+  }
+
   private send(message: any): void {
     if (this.dataChannel?.readyState === 'open') {
       this.dataChannel.send(JSON.stringify(message));
@@ -690,7 +886,7 @@ export class RealtimeAPIClient {
   private emit(event: RealtimeEvent): void {
     const handlers = this.eventHandlers.get(event.type);
     if (handlers) {
-      handlers.forEach(handler => handler(event));
+      handlers.forEach((handler) => handler(event));
     }
   }
 
@@ -721,11 +917,13 @@ export class RealtimeAPIClient {
 
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
-    console.log(`[RealtimeAPIClient] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+    console.log(
+      `[RealtimeAPIClient] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`
+    );
 
     setTimeout(() => {
       console.log('[RealtimeAPIClient] reconnect timer firing');
-      this.connect().catch(error => {
+      this.connect().catch((error) => {
         console.error('Reconnection failed:', error);
       });
     }, delay);
@@ -770,6 +968,20 @@ export class RealtimeAPIClient {
       this.remoteAudio.srcObject = null;
       this.remoteAudio = null;
     }
+    if (this.remoteRecorder?.state === 'recording') {
+      try {
+        this.remoteRecorder.stop();
+      } catch {
+        // recorder is already closing
+      }
+    }
+    this.remoteRecorder = null;
+    if (this.remoteWaveformTimer) window.clearInterval(this.remoteWaveformTimer);
+    this.remoteWaveformTimer = null;
+    if (this.remoteWaveformContext && this.remoteWaveformContext.state !== 'closed') {
+      void this.remoteWaveformContext.close();
+    }
+    this.remoteWaveformContext = null;
     void this.audioContext?.close();
     this.audioContext = null;
     this.analyser = null;
@@ -778,8 +990,7 @@ export class RealtimeAPIClient {
   }
 
   isConnected(): boolean {
-    return this.dataChannel?.readyState === 'open'
-      || (this.ws !== null && this.ws.readyState === WebSocket.OPEN);
+    return this.dataChannel?.readyState === 'open' || (this.ws !== null && this.ws.readyState === WebSocket.OPEN);
   }
 
   async startCapture(): Promise<void> {
@@ -790,7 +1001,9 @@ export class RealtimeAPIClient {
       return;
     }
     if (this.audioContext?.state === 'suspended') await this.audioContext.resume();
-    this.mediaStream?.getAudioTracks().forEach((track) => { track.enabled = true; });
+    this.mediaStream?.getAudioTracks().forEach((track) => {
+      track.enabled = true;
+    });
   }
 
   stopCapture(): void {
@@ -798,7 +1011,9 @@ export class RealtimeAPIClient {
       getAudioManager().stopCapture();
       return;
     }
-    this.mediaStream?.getAudioTracks().forEach((track) => { track.enabled = false; });
+    this.mediaStream?.getAudioTracks().forEach((track) => {
+      track.enabled = false;
+    });
   }
 
   getWaveformData(): Uint8Array | null {

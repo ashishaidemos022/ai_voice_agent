@@ -1,6 +1,7 @@
 import type { RealtimeConfig } from '../../types/voice-agent';
 import { RealtimeAPIClient, type RealtimeEvent } from '../realtime-client';
 import type { VoiceAdapter, VoiceEventType } from './types';
+import { emitBenchmarkEvent, emitBenchmarkMilestone } from '../benchmark-instrumentation';
 
 interface ElevenLabsGatewaySession {
   gatewayUrl: string;
@@ -25,7 +26,9 @@ const FORWARDED_EVENTS: VoiceEventType[] = [
   'interruption',
   'function_call',
   'conversation.item.created',
-  'session.updated'
+  'session.updated',
+  'speech.started',
+  'speech.stopped'
 ];
 
 export class ElevenLabsVoiceAdapter implements VoiceAdapter {
@@ -39,8 +42,7 @@ export class ElevenLabsVoiceAdapter implements VoiceAdapter {
   constructor(config: RealtimeConfig, session: ElevenLabsGatewaySession, options?: { apiKey?: string }) {
     this.session = session;
     const providerConfig = config.voice_provider_config || {};
-    this.supportsStreamingInput = providerConfig.model_id !== 'eleven_v3'
-      && !providerConfig.expressive_mode;
+    this.supportsStreamingInput = providerConfig.model_id !== 'eleven_v3' && !providerConfig.expressive_mode;
     this.realtime = new RealtimeAPIClient(config, {
       apiKey: options?.apiKey,
       allowInterruptions: true,
@@ -135,6 +137,10 @@ export class ElevenLabsVoiceAdapter implements VoiceAdapter {
     this.realtime.requestResponse();
   }
 
+  injectAudio(encodedAudio: ArrayBuffer): Promise<void> {
+    return this.realtime.injectAudio(encodedAudio);
+  }
+
   on(eventType: VoiceEventType, handler: (event: any) => void): void {
     if (!this.handlers.has(eventType)) {
       this.handlers.set(eventType, new Set());
@@ -190,9 +196,13 @@ export class ElevenLabsVoiceAdapter implements VoiceAdapter {
         settle(() => reject(new Error('Failed to connect ElevenLabs gateway')));
       };
       ws.onclose = (event) => {
-        settle(() => reject(new Error(
-          `ElevenLabs gateway closed during handshake (${event.code}${event.reason ? `: ${event.reason}` : ''})`
-        )));
+        settle(() =>
+          reject(
+            new Error(
+              `ElevenLabs gateway closed during handshake (${event.code}${event.reason ? `: ${event.reason}` : ''})`
+            )
+          )
+        );
         this.emit('disconnected', {
           type: 'disconnected',
           reason: event.reason || 'elevenlabs-gateway-closed',
@@ -220,11 +230,29 @@ export class ElevenLabsVoiceAdapter implements VoiceAdapter {
       if (!message || typeof message !== 'object') return;
 
       if (message.type === 'audio.delta' && message.delta) {
+        emitBenchmarkMilestone('tts.first_audio', { provider: 'elevenlabs' });
+        if (message.first_chunk && Number.isFinite(message.gateway_monotonic_ms)) {
+          emitBenchmarkEvent(
+            'tts.first_audio',
+            {
+              provider: 'elevenlabs',
+              gateway_tts_elapsed_ms: message.gateway_tts_elapsed_ms
+            },
+            {
+              clockDomain: 'gateway',
+              monotonicMs: message.gateway_monotonic_ms
+            }
+          );
+        }
+        emitBenchmarkMilestone('audio.first_chunk', { source: 'elevenlabs' });
         this.emit('audio.delta', { type: 'audio.delta', delta: message.delta });
       } else if (message.type === 'audio.done') {
         this.emit('audio.done', { type: 'audio.done' });
       } else if (message.type === 'error') {
-        this.emit('error', { type: 'error', error: message.error || 'ElevenLabs gateway error' });
+        this.emit('error', {
+          type: 'error',
+          error: message.error || 'ElevenLabs gateway error'
+        });
       }
     } catch {
       // ignore malformed gateway messages
@@ -238,6 +266,15 @@ export class ElevenLabsVoiceAdapter implements VoiceAdapter {
 
   private sendGatewayMessage(payload: Record<string, any>): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (payload.type === 'speak') {
+      emitBenchmarkMilestone('tts.request_started', {
+        provider: 'elevenlabs',
+        streaming: !payload.flush,
+        characters: typeof payload.text === 'string' ? payload.text.length : 0
+      });
+    } else if (payload.type === 'cancel') {
+      emitBenchmarkEvent('interruption.requested', { provider: 'elevenlabs' });
+    }
     this.ws.send(JSON.stringify(payload));
   }
 }
