@@ -1061,7 +1061,7 @@ export function SettingsPanel({
                         <p className="text-xs uppercase tracking-[0.2em] text-violet-200/70">Direct agent</p>
                         <h4 className="text-sm font-semibold text-white">ElevenLabs Agent</h4>
                         <p className="text-xs text-white/60">
-                          ElevenLabs owns the full microphone, VAD, turn-taking, LLM, and voice path. OpenAI is not used in this mode.
+                          ElevenLabs owns the microphone, VAD, turn-taking, configured LLM, and voice path. This app does not open an OpenAI Realtime session in this mode.
                         </p>
                         <p className="text-xs text-amber-200/90 mt-1">
                           Configure knowledge and tool definitions on the ElevenLabs Agent for a controlled provider comparison.
