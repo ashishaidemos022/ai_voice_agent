@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChatAgent } from '../chat/ChatAgent';
 import { VoiceAgent } from '../VoiceAgent';
+import { VoiceLab } from '../voice-lab/VoiceLab';
 import { KnowledgeBaseDrawer } from '../rag/KnowledgeBaseDrawer';
 import { useAuth } from '../../context/AuthContext';
 
-type WorkspaceTab = 'chat' | 'voice';
+type WorkspaceTab = 'chat' | 'voice' | 'voice-lab';
 
 export function AgentWorkspace() {
   const { vaUser } = useAuth();
@@ -39,6 +40,14 @@ export function AgentWorkspace() {
     setShowUsage(false);
     setShowEmbedUsage(false);
     setTab('chat');
+  };
+
+  const handleNavigateVoiceLab = () => {
+    setShowCreateAgent(false);
+    setShowSkills(false);
+    setShowUsage(false);
+    setShowEmbedUsage(false);
+    setTab('voice-lab');
   };
 
   const handleOpenCreateAgent = () => {
@@ -78,6 +87,17 @@ export function AgentWorkspace() {
       {tab === 'chat' ? (
         <ChatAgent
           onNavigateVoice={handleNavigateVoice}
+          onNavigateVoiceLab={handleNavigateVoiceLab}
+          onOpenCreateAgent={handleOpenCreateAgent}
+          onOpenSkills={handleOpenSkills}
+          onOpenKnowledgeBase={() => setIsKnowledgeDrawerOpen(true)}
+          onOpenUsage={handleOpenUsage}
+          onOpenEmbedUsage={handleOpenEmbedUsage}
+        />
+      ) : tab === 'voice-lab' ? (
+        <VoiceLab
+          onNavigateVoice={handleNavigateVoice}
+          onNavigateChat={handleNavigateChat}
           onOpenCreateAgent={handleOpenCreateAgent}
           onOpenSkills={handleOpenSkills}
           onOpenKnowledgeBase={() => setIsKnowledgeDrawerOpen(true)}
@@ -87,6 +107,7 @@ export function AgentWorkspace() {
       ) : (
         <VoiceAgent
           onNavigateChat={handleNavigateChat}
+          onNavigateVoiceLab={handleNavigateVoiceLab}
           onOpenKnowledgeBase={() => setIsKnowledgeDrawerOpen(true)}
           showCreateAgent={showCreateAgent}
           onOpenCreateAgent={handleOpenCreateAgent}

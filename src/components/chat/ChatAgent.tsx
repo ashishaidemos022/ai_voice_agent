@@ -50,6 +50,7 @@ const formatRelative = (dateString?: string | null) => {
 type ChatAgentProps = {
   embedded?: boolean;
   onNavigateVoice?: () => void;
+  onNavigateVoiceLab?: () => void;
   onOpenKnowledgeBase?: () => void;
   onOpenCreateAgent?: () => void;
   onOpenSkills?: () => void;
@@ -60,6 +61,7 @@ type ChatAgentProps = {
 export function ChatAgent({
   embedded = false,
   onNavigateVoice,
+  onNavigateVoiceLab,
   onOpenKnowledgeBase,
   onOpenCreateAgent,
   onOpenSkills,
@@ -481,6 +483,7 @@ export function ChatAgent({
       activeNav="chat"
       onNavigateVoice={onNavigateVoice}
       onNavigateChat={() => setViewMode('current')}
+      onNavigateVoiceLab={onNavigateVoiceLab}
       onNavigateSkills={onOpenSkills}
       onOpenKnowledgeBase={onOpenKnowledgeBase}
       onOpenUsage={onOpenUsage}

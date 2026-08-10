@@ -90,6 +90,7 @@ function mergeRealtimeConfig(prev: RealtimeConfig | null, next: RealtimeConfig):
 
 type VoiceAgentProps = {
   onNavigateChat?: () => void;
+  onNavigateVoiceLab?: () => void;
   onOpenKnowledgeBase?: () => void;
   showCreateAgent?: boolean;
   onOpenCreateAgent?: () => void;
@@ -115,6 +116,7 @@ type MCPConnectionSummary = {
 
 export function VoiceAgent({
   onNavigateChat,
+  onNavigateVoiceLab,
   onOpenKnowledgeBase,
   showCreateAgent,
   onOpenCreateAgent,
@@ -765,6 +767,7 @@ export function VoiceAgent({
         handleCloseEmbedUsage();
       }}
       onNavigateChat={onNavigateChat}
+      onNavigateVoiceLab={onNavigateVoiceLab}
       onNavigateSkills={() => {
         handleOpenSkills();
         handleCloseCreateAgent();
