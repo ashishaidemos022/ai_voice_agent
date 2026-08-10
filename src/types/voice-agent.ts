@@ -52,7 +52,7 @@ export interface RealtimeConfig {
   temperature: number;
   max_response_output_tokens: number;
   a2ui_enabled?: boolean;
-  voice_provider?: 'openai_realtime' | 'personaplex' | 'elevenlabs_tts';
+  voice_provider?: 'openai_realtime' | 'personaplex' | 'elevenlabs_tts' | 'elevenlabs_agent';
   voice_provider_key_id?: string | null;
   voice_provider_config?: Record<string, any> | null;
   voice_persona_prompt?: string | null;
