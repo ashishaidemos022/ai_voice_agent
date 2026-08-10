@@ -333,6 +333,10 @@ async function syncAppManagedAgent(configId: string, vaUserId: string) {
   };
   if (!desiredProfile.voice_id) throw new Error('Select an ElevenLabs voice before publishing');
   const syncHash = await sha256(desiredProfile);
+  const nextPrompt = { ...currentPrompt };
+  // Older Agents can still return deprecated inline tools. ElevenLabs rejects
+  // updates that contain both that field and the current tool_ids field.
+  delete nextPrompt.tools;
 
   const conversationConfig = {
     agent: {
@@ -340,7 +344,7 @@ async function syncAppManagedAgent(configId: string, vaUserId: string) {
       first_message: desiredProfile.first_message,
       language: desiredProfile.language,
       prompt: {
-        ...currentPrompt,
+        ...nextPrompt,
         prompt: desiredProfile.instructions,
         llm: desiredProfile.llm,
         temperature: desiredProfile.temperature,
