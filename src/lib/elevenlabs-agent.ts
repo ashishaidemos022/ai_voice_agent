@@ -8,6 +8,21 @@ export type ElevenLabsAgentSummary = {
   archived?: boolean;
 };
 
+export type ElevenLabsVoiceSummary = {
+  voice_id: string;
+  name: string;
+  category?: string | null;
+  description?: string | null;
+  preview_url?: string | null;
+  labels?: Record<string, string>;
+  verified_languages?: Array<{
+    language?: string;
+    locale?: string;
+    accent?: string;
+    preview_url?: string;
+  }>;
+};
+
 export type ElevenLabsAgentSyncResult = {
   agent_id: string;
   created: boolean;
@@ -55,6 +70,19 @@ export async function listElevenLabsAgents(providerKeyId: string): Promise<Eleve
     throw new Error(payload?.error || `Unable to load ElevenLabs Agents (${response.status})`);
   }
   return Array.isArray(payload?.agents) ? payload.agents : [];
+}
+
+export async function listElevenLabsVoices(providerKeyId: string): Promise<ElevenLabsVoiceSummary[]> {
+  const response = await fetch(functionUrl(), {
+    method: 'POST',
+    headers: await authenticatedHeaders(),
+    body: JSON.stringify({ action: 'list_voices', provider_key_id: providerKeyId })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error || `Unable to load ElevenLabs voices (${response.status})`);
+  }
+  return Array.isArray(payload?.voices) ? payload.voices : [];
 }
 
 export async function syncElevenLabsAgent(configId: string): Promise<ElevenLabsAgentSyncResult> {

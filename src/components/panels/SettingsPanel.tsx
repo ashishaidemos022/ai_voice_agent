@@ -33,8 +33,10 @@ import { ToolSelectionPanel } from '../settings/ToolSelectionPanel';
 import { OPENAI_MODELS } from '../../../shared/openai-models';
 import {
   listElevenLabsAgents,
+  listElevenLabsVoices,
   syncElevenLabsAgent,
-  type ElevenLabsAgentSummary
+  type ElevenLabsAgentSummary,
+  type ElevenLabsVoiceSummary
 } from '../../lib/elevenlabs-agent';
 
 interface SettingsPanelProps {
@@ -173,6 +175,10 @@ export function SettingsPanel({
   const [elevenLabsAgents, setElevenLabsAgents] = useState<ElevenLabsAgentSummary[]>([]);
   const [isLoadingElevenLabsAgents, setIsLoadingElevenLabsAgents] = useState(false);
   const [elevenLabsAgentsError, setElevenLabsAgentsError] = useState<string | null>(null);
+  const [elevenLabsVoices, setElevenLabsVoices] = useState<ElevenLabsVoiceSummary[]>([]);
+  const [isLoadingElevenLabsVoices, setIsLoadingElevenLabsVoices] = useState(false);
+  const [elevenLabsVoicesError, setElevenLabsVoicesError] = useState<string | null>(null);
+  const [elevenLabsVoiceSearch, setElevenLabsVoiceSearch] = useState('');
   const [isPublishingElevenLabs, setIsPublishingElevenLabs] = useState(false);
   const [elevenLabsPublishError, setElevenLabsPublishError] = useState<string | null>(null);
   const [elevenLabsPublishSuccess, setElevenLabsPublishSuccess] = useState<string | null>(null);
@@ -208,6 +214,21 @@ export function SettingsPanel({
   const hasDirectAgentId = !isElevenLabsAgent || isAppManagedElevenLabs || Boolean(
     `${config.voice_provider_config?.agent_id || ''}`.trim()
   );
+  const filteredElevenLabsVoices = useMemo(() => {
+    const search = elevenLabsVoiceSearch.trim().toLowerCase();
+    const selectedId = config.voice_id || '';
+    if (!search) return elevenLabsVoices;
+    return elevenLabsVoices.filter((voice) => {
+      if (voice.voice_id === selectedId) return true;
+      return [
+        voice.name,
+        voice.category,
+        voice.description,
+        ...Object.values(voice.labels || {})
+      ].some((value) => `${value || ''}`.toLowerCase().includes(search));
+    });
+  }, [config.voice_id, elevenLabsVoiceSearch, elevenLabsVoices]);
+  const selectedElevenLabsVoice = elevenLabsVoices.find((voice) => voice.voice_id === config.voice_id);
 
   useEffect(() => {
     if (embedded || isOpen) {
@@ -241,6 +262,28 @@ export function SettingsPanel({
       });
     return () => { cancelled = true; };
   }, [effectiveVoiceProviderKeyId, isElevenLabsAgent]);
+
+  useEffect(() => {
+    if (!isElevenLabs || !effectiveVoiceProviderKeyId) {
+      setElevenLabsVoices([]);
+      setElevenLabsVoicesError(null);
+      return;
+    }
+    let cancelled = false;
+    setIsLoadingElevenLabsVoices(true);
+    setElevenLabsVoicesError(null);
+    void listElevenLabsVoices(effectiveVoiceProviderKeyId)
+      .then((voices) => {
+        if (!cancelled) setElevenLabsVoices(voices);
+      })
+      .catch((error) => {
+        if (!cancelled) setElevenLabsVoicesError(error?.message || 'Unable to load ElevenLabs voices');
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingElevenLabsVoices(false);
+      });
+    return () => { cancelled = true; };
+  }, [effectiveVoiceProviderKeyId, isElevenLabs]);
 
   useEffect(() => {
     if (activeConfigId && activePreset) {
@@ -962,16 +1005,76 @@ export function SettingsPanel({
                         : isElevenLabsTts
                           ? 'ElevenLabs voice ID'
                           : isElevenLabsAgent
-                            ? 'Voice override (optional)'
+                            ? isAppManagedElevenLabs
+                              ? 'ElevenLabs voice'
+                              : 'Voice override (optional)'
                             : 'Voice'}
                     </label>
                     {isElevenLabs ? (
-                      <input
-                        value={config.voice_id ?? ''}
-                        onChange={(e) => onConfigChange({ ...config, voice_id: e.target.value })}
-                        placeholder={isElevenLabsAgent ? 'Use the Agent default voice' : 'ElevenLabs voice id'}
-                        className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
-                      />
+                      <div className="space-y-2">
+                        <input
+                          type="search"
+                          value={elevenLabsVoiceSearch}
+                          onChange={(e) => setElevenLabsVoiceSearch(e.target.value)}
+                          placeholder="Search voices by name, accent, or style"
+                          disabled={!effectiveVoiceProviderKeyId || isLoadingElevenLabsVoices}
+                          className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
+                        />
+                        <select
+                          value={config.voice_id ?? ''}
+                          onChange={(e) => onConfigChange({ ...config, voice_id: e.target.value || null })}
+                          disabled={!effectiveVoiceProviderKeyId || isLoadingElevenLabsVoices}
+                          className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
+                        >
+                          <option value="">
+                            {isLoadingElevenLabsVoices
+                              ? 'Loading ElevenLabs voices…'
+                              : isElevenLabsAgent && !isAppManagedElevenLabs
+                                ? 'Use the Agent default voice'
+                                : 'Select an ElevenLabs voice'}
+                          </option>
+                          {config.voice_id && !elevenLabsVoices.some((voice) => voice.voice_id === config.voice_id) && (
+                            <option value={config.voice_id}>Current voice — {config.voice_id}</option>
+                          )}
+                          {filteredElevenLabsVoices.map((voice) => {
+                            const details = [voice.category, voice.labels?.accent, voice.labels?.gender]
+                              .filter(Boolean)
+                              .join(' · ');
+                            return (
+                              <option key={voice.voice_id} value={voice.voice_id}>
+                                {voice.name}{details ? ` — ${details}` : ''}
+                              </option>
+                            );
+                          })}
+                        </select>
+                        {elevenLabsVoicesError && (
+                          <p className="text-xs text-rose-300">{elevenLabsVoicesError}</p>
+                        )}
+                        {!isLoadingElevenLabsVoices && !elevenLabsVoicesError && (
+                          <p className="text-[11px] text-white/45">
+                            {filteredElevenLabsVoices.length} of {elevenLabsVoices.length} available voices
+                          </p>
+                        )}
+                        {selectedElevenLabsVoice && (
+                          <div className="rounded-lg border border-white/10 bg-slate-950/60 p-2 space-y-1.5">
+                            <p className="text-xs text-white/70">
+                              <span className="font-semibold text-white">{selectedElevenLabsVoice.name}</span>
+                              {selectedElevenLabsVoice.description ? ` — ${selectedElevenLabsVoice.description}` : ''}
+                            </p>
+                            {selectedElevenLabsVoice.preview_url && (
+                              <audio
+                                key={selectedElevenLabsVoice.preview_url}
+                                controls
+                                preload="none"
+                                src={selectedElevenLabsVoice.preview_url}
+                                className="w-full h-8"
+                              >
+                                Voice preview is not supported by this browser.
+                              </audio>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       <select
                         value={isPersonaPlex ? (config.voice_id ?? 'NATF0') : config.voice}

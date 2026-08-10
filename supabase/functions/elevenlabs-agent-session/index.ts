@@ -19,7 +19,7 @@ const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 });
 
 type RequestPayload = {
-  action?: 'list_agents' | 'signed_url' | 'sync_agent';
+  action?: 'list_agents' | 'list_voices' | 'signed_url' | 'sync_agent';
   provider_key_id?: string;
   config_id?: string;
   agent_id?: string;
@@ -444,6 +444,40 @@ async function listAgents(apiKey: string) {
   return Array.isArray(payload?.agents) ? payload.agents : [];
 }
 
+async function listVoices(apiKey: string) {
+  const voices: any[] = [];
+  let nextPageToken: string | null = null;
+  let page = 0;
+  do {
+    const url = elevenLabsUrl('/v2/voices');
+    url.searchParams.set('page_size', '100');
+    url.searchParams.set('sort', 'name');
+    url.searchParams.set('sort_direction', 'asc');
+    url.searchParams.set('include_total_count', 'false');
+    if (nextPageToken) url.searchParams.set('next_page_token', nextPageToken);
+    const response = await fetch(url, { headers: { 'xi-api-key': apiKey } });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.detail?.message || payload?.detail || `ElevenLabs returned ${response.status}`);
+    }
+    voices.push(...(Array.isArray(payload?.voices) ? payload.voices : []));
+    nextPageToken = payload?.has_more && typeof payload?.next_page_token === 'string'
+      ? payload.next_page_token
+      : null;
+    page += 1;
+  } while (nextPageToken && page < 5);
+
+  return voices.map((voice) => ({
+    voice_id: voice.voice_id,
+    name: voice.name || 'Unnamed voice',
+    category: voice.category || null,
+    description: voice.description || null,
+    preview_url: voice.preview_url || null,
+    labels: voice.labels || {},
+    verified_languages: Array.isArray(voice.verified_languages) ? voice.verified_languages : []
+  }));
+}
+
 async function signedUrl(apiKey: string, remoteAgentId: string) {
   const url = elevenLabsUrl('/v1/convai/conversation/get-signed-url');
   url.searchParams.set('agent_id', remoteAgentId);
@@ -467,6 +501,13 @@ Deno.serve(async (req: Request) => {
       if (!request.provider_key_id) return jsonResponse({ error: 'provider_key_id is required' }, 400);
       const apiKey = await resolveProviderKey(request.provider_key_id, vaUserId);
       return jsonResponse({ agents: await listAgents(apiKey) });
+    }
+
+    if (request.action === 'list_voices') {
+      const vaUserId = await authenticatedVaUser(req);
+      if (!request.provider_key_id) return jsonResponse({ error: 'provider_key_id is required' }, 400);
+      const apiKey = await resolveProviderKey(request.provider_key_id, vaUserId);
+      return jsonResponse({ voices: await listVoices(apiKey) });
     }
 
     if (request.action === 'sync_agent') {
