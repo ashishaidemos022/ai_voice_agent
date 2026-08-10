@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { PostgrestError } from '@supabase/supabase-js';
 import {
   BadgeCheck,
   Copy,
@@ -349,8 +348,6 @@ export function SettingsPanel({
     setKeyError(null);
     setKeySuccessMessage(null);
 
-    const isConflict = (dbError?: Pick<PostgrestError, 'code'> | null) => dbError?.code === '23505';
-
     try {
       const masked = apiKey.trim();
       const encoded = btoa(masked);
@@ -364,38 +361,16 @@ export function SettingsPanel({
         last_four: lastFour
       };
 
-      const { error: insertError } = await supabase.from('va_provider_keys').insert(insertPayload);
-
-      if (insertError) {
-        if (isConflict(insertError)) {
-          const updatePayload = {
-            provider,
-            key_alias: keyAlias || 'Primary',
-            encrypted_key: encoded,
-            last_four: lastFour
-          };
-          const { error: updateError } = await supabase
-            .from('va_provider_keys')
-            .update(updatePayload)
-            .eq('user_id', userId)
-            .eq('provider', provider)
-            .eq('key_alias', keyAlias || 'Primary');
-
-          if (updateError) {
-            throw updateError;
-          }
-        } else {
-          throw insertError;
-        }
-      }
-
       const { data: providerKeyRow, error: providerKeyError } = await supabase
         .from('va_provider_keys')
-        .select('id, provider')
-        .eq('user_id', userId)
-        .eq('provider', provider)
-        .order('created_at', { ascending: false })
-        .limit(1)
+        .upsert(
+          {
+            ...insertPayload,
+            updated_at: new Date().toISOString()
+          },
+          { onConflict: 'user_id,provider,key_alias' }
+        )
+        .select('id, provider, last_four')
         .single();
 
       if (providerKeyError) {
@@ -412,16 +387,12 @@ export function SettingsPanel({
         onConfigChange({ ...config, voice_provider_key_id: providerKeyRow.id });
       }
       setApiKey('');
-      setKeySuccessMessage('Key saved. You can finish creating your agent.');
+      setKeySuccessMessage(`Key saved and verified (••••${providerKeyRow.last_four}).`);
       await loadProviderKeys();
       await onProfileRefresh?.();
     } catch (error: any) {
       console.error('Failed to save provider key:', error);
-      if (isConflict(error)) {
-        setKeyError('A key with this label already exists. Update it by saving again.');
-      } else {
-        setKeyError(error.message || 'Failed to save key');
-      }
+      setKeyError(error.message || 'Failed to save key');
     } finally {
       setIsSavingKey(false);
     }

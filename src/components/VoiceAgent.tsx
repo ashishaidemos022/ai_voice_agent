@@ -544,7 +544,7 @@ export function VoiceAgent({
   }, [isInitialized, config, activeConfigId, pendingConfigId, rememberSessionConfig]);
 
   useEffect(() => {
-    if (!isInitialized || isConnected || isInitializing) return;
+    if (!isInitialized || isConnected || isInitializing || error) return;
     const snapshot = resumeSessionRef.current;
     if (!snapshot) return;
     console.log('[VoiceAgent] scheduling auto-resume attempt', {
@@ -559,7 +559,7 @@ export function VoiceAgent({
       handleStart({ config: snapshot.config, presetId: snapshot.presetId });
     }, 1500);
     return () => clearTimeout(timer);
-  }, [isInitialized, isConnected, isInitializing, handleStart]);
+  }, [isInitialized, isConnected, isInitializing, error, handleStart]);
 
   const applyPresetToState = useCallback(async (
     preset: AgentConfigPreset,

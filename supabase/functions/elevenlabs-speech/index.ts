@@ -13,7 +13,6 @@ const JWT_SECRET = Deno.env.get('ELEVENLABS_GATEWAY_JWT_SECRET');
 const RELAY_TTL_SECONDS = Number(Deno.env.get('ELEVENLABS_RELAY_TOKEN_TTL_SECONDS') || 3600);
 const ELEVENLABS_BASE_URL = Deno.env.get('ELEVENLABS_BASE_URL') || 'https://api.elevenlabs.io';
 const ELEVENLABS_TIMEOUT_MS = Number(Deno.env.get('ELEVENLABS_UPSTREAM_TIMEOUT_MS') || 65000);
-const PROVIDER_KEY_CACHE_TTL_MS = Number(Deno.env.get('ELEVENLABS_KEY_CACHE_TTL_MS') || 300000);
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error('Supabase service role credentials are missing');
@@ -46,8 +45,6 @@ type RelayRequest = {
   origin?: string;
   text?: string;
 };
-
-const providerKeyCache = new Map<string, { value: string; expiresAt: number }>();
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -96,9 +93,6 @@ function validateScope(claims: GatewayClaims, request: RelayRequest, relay = fal
 }
 
 async function resolveProviderKey(keyId: string): Promise<string> {
-  const cached = providerKeyCache.get(keyId);
-  if (cached && cached.expiresAt > Date.now()) return cached.value;
-
   const { data, error } = await adminClient
     .from('va_provider_keys')
     .select('encrypted_key, provider')
@@ -110,7 +104,6 @@ async function resolveProviderKey(keyId: string): Promise<string> {
   try {
     const value = atob(data.encrypted_key || '').trim();
     if (!value) throw new Error('empty key');
-    providerKeyCache.set(keyId, { value, expiresAt: Date.now() + PROVIDER_KEY_CACHE_TTL_MS });
     return value;
   } catch {
     throw new Error('Stored ElevenLabs API key is invalid');
