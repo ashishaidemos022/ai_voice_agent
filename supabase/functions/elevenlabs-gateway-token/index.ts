@@ -9,7 +9,8 @@ const corsHeaders = {
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-const DEFAULT_GATEWAY_WS_URL = Deno.env.get('VERCEL_ELEVENLABS_GATEWAY_WS_URL') ||
+const DEFAULT_GATEWAY_WS_URL = Deno.env.get('ELEVENLABS_GATEWAY_WS_URL') ||
+  Deno.env.get('VERCEL_ELEVENLABS_GATEWAY_WS_URL') ||
   'wss://ai-voice-agent-sage.vercel.app/api/ws';
 const JWT_SECRET = Deno.env.get('ELEVENLABS_GATEWAY_JWT_SECRET');
 const TOKEN_TTL_SECONDS = Number(Deno.env.get('ELEVENLABS_GATEWAY_TOKEN_TTL_SECONDS') || 90);

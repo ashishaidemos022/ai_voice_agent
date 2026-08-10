@@ -17,14 +17,18 @@ const waitForMessage = (ws, predicate) => new Promise((resolve, reject) => {
 
 const collectAudio = (ws) => new Promise((resolve, reject) => {
   const chunks = [];
+  let firstChunk = null;
   const timeout = setTimeout(() => reject(new Error('Timed out waiting for audio stream')), 3000);
   const onMessage = (data) => {
     const message = JSON.parse(data.toString());
-    if (message.type === 'audio.delta') chunks.push(Buffer.from(message.delta, 'base64'));
+    if (message.type === 'audio.delta') {
+      chunks.push(Buffer.from(message.delta, 'base64'));
+      if (message.first_chunk) firstChunk = message;
+    }
     if (message.type !== 'audio.done') return;
     clearTimeout(timeout);
     ws.off('message', onMessage);
-    resolve(Buffer.concat(chunks));
+    resolve({ audio: Buffer.concat(chunks), firstChunk });
   };
   ws.on('message', onMessage);
 });
@@ -88,9 +92,13 @@ test('streams OpenAI text through ElevenLabs and forwards audio immediately', as
   client.send(JSON.stringify({ type: 'speak', text: 'Hello ' }));
   client.send(JSON.stringify({ type: 'speak', text: 'world.', flush: true }));
 
-  const audio = await audioPromise;
+  const { audio, firstChunk } = await audioPromise;
 
   assert.equal(audio.toString(), 'pcm!');
+  assert.equal(firstChunk.first_chunk, true);
+  assert.equal(typeof firstChunk.gateway_monotonic_ms, 'number');
+  assert.equal(typeof firstChunk.gateway_wall_time, 'string');
+  assert.equal(typeof firstChunk.gateway_tts_elapsed_ms, 'number');
   assert.equal(upstreamMessages[0].text, ' ');
   assert.deepEqual(upstreamMessages[0].generation_config.chunk_length_schedule, [50, 120, 160, 290]);
   assert.equal(upstreamMessages[1].text, 'Hello ');

@@ -64,16 +64,28 @@ wss.on('connection', async (client, req) => {
   let legacyTextBuffer = '';
   let pcmCarry = Buffer.alloc(0);
   let isBusy = false;
+  let ttsStartedAt = null;
+  let firstAudioChunkPending = true;
 
   const sendPcmBytes = (bytes, final = false) => {
     const incoming = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
     const pcm = pcmCarry.length ? Buffer.concat([pcmCarry, incoming]) : incoming;
     const alignedLength = pcm.length - (pcm.length % 2);
     if (alignedLength > 0) {
+      const gatewayNow = performance.now();
       sendJson(client, {
         type: 'audio.delta',
-        delta: pcm.subarray(0, alignedLength).toString('base64')
+        delta: pcm.subarray(0, alignedLength).toString('base64'),
+        first_chunk: firstAudioChunkPending,
+        ...(firstAudioChunkPending
+          ? {
+              gateway_monotonic_ms: gatewayNow,
+              gateway_wall_time: new Date().toISOString(),
+              gateway_tts_elapsed_ms: ttsStartedAt === null ? null : gatewayNow - ttsStartedAt
+            }
+          : {})
       });
+      firstAudioChunkPending = false;
     }
     pcmCarry = alignedLength < pcm.length ? pcm.subarray(alignedLength) : Buffer.alloc(0);
     if (final) {
@@ -81,6 +93,8 @@ wss.on('connection', async (client, req) => {
         console.warn('[elevenlabs-gateway] dropping incomplete trailing PCM16 byte');
       }
       pcmCarry = Buffer.alloc(0);
+      ttsStartedAt = null;
+      firstAudioChunkPending = true;
     }
   };
 
@@ -230,6 +244,8 @@ wss.on('connection', async (client, req) => {
       pendingMessages.length = 0;
       legacyTextBuffer = '';
       pcmCarry = Buffer.alloc(0);
+      ttsStartedAt = null;
+      firstAudioChunkPending = true;
       if (transport === 'websocket') {
         closeUpstream();
         refreshUpstream().catch((error) => {
@@ -245,6 +261,10 @@ wss.on('connection', async (client, req) => {
     }
 
     const text = `${message.text || ''}`;
+    if (text && ttsStartedAt === null) {
+      ttsStartedAt = performance.now();
+      firstAudioChunkPending = true;
+    }
     if (transport === 'websocket') {
       if (!text && !message.flush) return;
       const upstreamMessage = { text: text || ' ', ...(message.flush ? { flush: true } : {}) };
