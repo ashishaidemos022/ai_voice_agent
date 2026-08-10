@@ -10,11 +10,12 @@ export class AudioManager {
   private isInitialized = false;
   private isClosing = false;
   private initializationPromise: Promise<void> | null = null;
-  private audioQueue: Array<{ buffer: AudioBuffer; resolve: () => void }> = [];
   private isPlayingAudio = false;
-  private currentSource: AudioBufferSourceNode | null = null;
+  private scheduledSources = new Map<AudioBufferSourceNode, () => void>();
+  private nextPlaybackTime = 0;
   private workletReady = false;
   private readonly targetSampleRate = 24000;
+  private readonly initialPlaybackBufferSeconds = 0.04;
 
   async initialize(): Promise<void> {
     if (this.isInitializing && this.initializationPromise) {
@@ -237,10 +238,19 @@ export class AudioManager {
           bytes[i] = binaryString.charCodeAt(i);
         }
 
-        const int16Array = new Int16Array(bytes.buffer);
-        const float32Array = new Float32Array(int16Array.length);
-        for (let i = 0; i < int16Array.length; i++) {
-          float32Array[i] = int16Array[i] / 32768.0;
+        if (bytes.byteLength % 2 !== 0) {
+          console.warn('Ignoring incomplete trailing PCM16 byte');
+        }
+        const sampleCount = Math.floor(bytes.byteLength / 2);
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const float32Array = new Float32Array(sampleCount);
+        for (let i = 0; i < sampleCount; i++) {
+          float32Array[i] = view.getInt16(i * 2, true) / 32768.0;
+        }
+
+        if (float32Array.length === 0) {
+          resolve();
+          return;
         }
 
         const audioBuffer = this.audioContext.createBuffer(
@@ -250,11 +260,7 @@ export class AudioManager {
         );
         audioBuffer.getChannelData(0).set(float32Array);
 
-        this.audioQueue.push({ buffer: audioBuffer, resolve });
-
-        if (!this.isPlayingAudio) {
-          this.processAudioQueue();
-        }
+        this.scheduleAudioBuffer(audioBuffer, resolve);
       } catch (error) {
         console.error('Failed to prepare audio:', error);
         resolve();
@@ -262,49 +268,56 @@ export class AudioManager {
     });
   }
 
-  private processAudioQueue(): void {
-    if (this.audioQueue.length === 0 || !this.audioContext) {
-      this.isPlayingAudio = false;
-      this.currentSource = null;
+  private scheduleAudioBuffer(buffer: AudioBuffer, resolve: () => void): void {
+    if (!this.audioContext) {
+      resolve();
       return;
     }
-
-    this.isPlayingAudio = true;
-    const { buffer, resolve } = this.audioQueue.shift()!;
-
     try {
       const source = this.audioContext.createBufferSource();
-      this.currentSource = source;
       source.buffer = buffer;
       source.connect(this.audioContext.destination);
 
+      const now = this.audioContext.currentTime;
+      const startAt = this.isPlayingAudio && this.nextPlaybackTime > now
+        ? this.nextPlaybackTime
+        : now + this.initialPlaybackBufferSeconds;
+      this.nextPlaybackTime = startAt + buffer.duration;
+      this.isPlayingAudio = true;
+      this.scheduledSources.set(source, resolve);
+
       source.onended = () => {
-        this.currentSource = null;
-        resolve();
-        this.processAudioQueue();
+        const pendingResolve = this.scheduledSources.get(source);
+        this.scheduledSources.delete(source);
+        source.disconnect();
+        pendingResolve?.();
+        if (this.scheduledSources.size === 0) {
+          this.isPlayingAudio = false;
+          this.nextPlaybackTime = 0;
+        }
       };
 
-      source.start();
+      source.start(startAt);
     } catch (error) {
       console.error('Failed to play audio chunk:', error);
-      this.currentSource = null;
       resolve();
-      this.processAudioQueue();
     }
   }
 
   stopPlayback(): void {
-    this.audioQueue = [];
     this.isPlayingAudio = false;
-    if (this.currentSource) {
+    this.nextPlaybackTime = 0;
+    for (const [source, resolve] of this.scheduledSources) {
       try {
-        this.currentSource.stop();
+        source.onended = null;
+        source.stop();
       } catch (err) {
-        console.warn('Error stopping current audio source:', err);
+        console.warn('Error stopping scheduled audio source:', err);
       }
-      this.currentSource.disconnect();
-      this.currentSource = null;
+      source.disconnect();
+      resolve();
     }
+    this.scheduledSources.clear();
   }
 
   private performCleanup(): void {
@@ -316,8 +329,7 @@ export class AudioManager {
     this.isClosing = true;
     console.log('[AudioManager] Performing cleanup');
 
-    this.audioQueue = [];
-    this.isPlayingAudio = false;
+    this.stopPlayback();
 
     if (this.stream) {
       this.stream.getTracks().forEach(track => track.stop());
