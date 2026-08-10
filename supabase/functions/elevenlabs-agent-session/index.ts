@@ -267,7 +267,7 @@ async function syncProviderTool(
 }
 
 function normalizedTtsModel(value: unknown): string {
-  if (value === 'eleven_v3') return 'eleven_v3_conversational';
+  if (value === 'eleven_v3' || value === 'eleven_v3_conversational') return 'eleven_v3_conversational';
   return typeof value === 'string' && value ? value : 'eleven_flash_v2_5';
 }
 
@@ -399,6 +399,11 @@ async function syncAppManagedAgent(configId: string, vaUserId: string) {
     created = true;
   }
 
+  // Read the canonical provider state after both creates and updates so the UI
+  // can show what ElevenLabs actually accepted, rather than only the local intent.
+  remoteAgent = await providerJson(apiKey, `/v1/convai/agents/${remoteAgentId}`);
+  const effectiveTts = remoteAgent?.conversation_config?.tts || {};
+
   const syncedAt = new Date().toISOString();
   const nextProviderConfig = {
     ...providerConfig,
@@ -411,6 +416,12 @@ async function syncAppManagedAgent(configId: string, vaUserId: string) {
       synced_at: syncedAt,
       sync_hash: syncHash,
       remote_version_id: remoteAgent?.version_id || null,
+      effective_tts_model_id: effectiveTts.model_id || desiredProfile.tts_model_id,
+      effective_voice_settings: {
+        stability: effectiveTts.stability ?? null,
+        similarity_boost: effectiveTts.similarity_boost ?? null,
+        speed: effectiveTts.speed ?? null
+      },
       tool_count: toolIds.length,
       tool_map: toolMap
     }

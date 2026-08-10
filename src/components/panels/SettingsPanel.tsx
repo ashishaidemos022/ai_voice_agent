@@ -66,6 +66,18 @@ type ProviderKeyRow = {
 const DEFAULT_INSTRUCTIONS =
   'You are a helpful AI voice assistant. You can help users with various tasks, answer questions, and execute tools when needed. Be conversational and friendly.';
 
+const ELEVENLABS_EXPRESSIVE_PROMPT_GUIDANCE = `Expressive speech guidelines:
+- Match your tone and pacing to the user's emotional context.
+- When a user is frustrated, sound calm, reassuring, and empathetic.
+- When sharing good news, respond with genuine warmth and enthusiasm.
+- When explaining important details, speak clearly and at a measured pace.
+- You may use [laughs], [whispers], [sighs], [slow], and [excited] sparingly when they improve the delivery.`;
+
+const ELEVENLABS_EXPRESSION_TESTS = {
+  neutral: 'Tell me that my reservation is confirmed and include the departure time.',
+  expressive: 'Great news—I just booked my dream trip! Celebrate with me, then quietly tell me the departure time.'
+};
+
 // Voice options (OpenAI supported). Premium voices are labeled.
 const VOICE_OPTIONS = [
   { value: 'alloy', label: 'Alloy', description: 'Balanced, default choice' },
@@ -182,6 +194,7 @@ export function SettingsPanel({
   const [isPublishingElevenLabs, setIsPublishingElevenLabs] = useState(false);
   const [elevenLabsPublishError, setElevenLabsPublishError] = useState<string | null>(null);
   const [elevenLabsPublishSuccess, setElevenLabsPublishSuccess] = useState<string | null>(null);
+  const [copiedExpressionTest, setCopiedExpressionTest] = useState<'neutral' | 'expressive' | null>(null);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSuccessMessage, setInviteSuccessMessage] = useState<string | null>(null);
@@ -561,7 +574,10 @@ export function SettingsPanel({
       && Date.parse(activePreset.updated_at) > Date.parse(elevenLabsSyncedAt) + 1000
     )
   );
-  const isElevenLabsExpressiveMode = Boolean(elevenLabsConfig.expressive_mode);
+  const elevenLabsModelId = `${elevenLabsConfig.model_id || ''}`;
+  const isElevenLabsExpressiveMode = elevenLabsModelId
+    ? elevenLabsModelId === 'eleven_v3' || elevenLabsModelId === 'eleven_v3_conversational'
+    : Boolean(elevenLabsConfig.expressive_mode);
   const updateElevenLabsConfig = (patch: Record<string, any>) => {
     onConfigChange({
       ...config,
@@ -581,6 +597,24 @@ export function SettingsPanel({
       nextConfig.model_id = 'eleven_flash_v2_5';
     }
     updateElevenLabsConfig(nextConfig);
+  };
+
+  const applyElevenLabsExpressivePrompt = () => {
+    if (config.instructions.includes('Expressive speech guidelines:')) return;
+    onConfigChange({
+      ...config,
+      instructions: `${config.instructions.trim()}\n\n${ELEVENLABS_EXPRESSIVE_PROMPT_GUIDANCE}`
+    });
+  };
+
+  const copyExpressionTest = async (variant: 'neutral' | 'expressive') => {
+    try {
+      await navigator.clipboard.writeText(ELEVENLABS_EXPRESSION_TESTS[variant]);
+      setCopiedExpressionTest(variant);
+      window.setTimeout(() => setCopiedExpressionTest(null), 1800);
+    } catch (error) {
+      console.error('Unable to copy expression test prompt:', error);
+    }
   };
 
   const handlePublishElevenLabs = async () => {
@@ -856,6 +890,27 @@ export function SettingsPanel({
                 <p className="text-xs text-white/50">
                   Use concise directives, add safety rules, and keep language consistent.
                 </p>
+                {isAppManagedElevenLabs && isElevenLabsExpressiveMode && (
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-lg border border-violet-400/25 bg-violet-500/10 p-3">
+                    <div>
+                      <p className="text-xs font-semibold text-violet-100">Expressive prompt guidance</p>
+                      <p className="text-xs text-white/55 mt-1">
+                        Give V3 explicit tone, pacing, and emotional-tag rules so its expressive behavior is repeatable.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={applyElevenLabsExpressivePrompt}
+                      disabled={config.instructions.includes('Expressive speech guidelines:')}
+                      className="border-violet-300/30 bg-transparent text-violet-100 hover:bg-violet-400/10"
+                    >
+                      <Wand2 className="w-3 h-3" />
+                      {config.instructions.includes('Expressive speech guidelines:') ? 'Guidance added' : 'Add guidance'}
+                    </Button>
+                  </div>
+                )}
               </div>
               <div className="space-y-2">
                 <label className="flex items-center gap-2 cursor-pointer">
@@ -1388,6 +1443,103 @@ export function SettingsPanel({
                               <span className="text-sm font-semibold text-white/80">Speculative turn</span>
                             </label>
                           </div>
+                          <div className="rounded-xl border border-violet-300/25 bg-slate-950/50 p-4 space-y-4">
+                            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-semibold text-white">Voice model & expression</p>
+                                <p className="text-xs text-white/55 mt-1">
+                                  V3 Conversational enables ElevenLabs Expressive Mode. Flash prioritizes minimum latency.
+                                </p>
+                              </div>
+                              <label className="flex items-center gap-2 cursor-pointer rounded-lg border border-white/10 bg-slate-900/70 px-3 py-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isElevenLabsExpressiveMode}
+                                  onChange={(e) => setElevenLabsExpressiveMode(e.target.checked)}
+                                  className="w-4 h-4 text-violet-400 border-white/20 rounded focus:ring-violet-400"
+                                />
+                                <span className="text-sm font-semibold text-white/80">Expressive Mode</span>
+                              </label>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                              <div>
+                                <label className="text-xs font-semibold text-white/70">TTS model</label>
+                                <select
+                                  value={isElevenLabsExpressiveMode ? 'eleven_v3' : 'eleven_flash_v2_5'}
+                                  onChange={(e) => setElevenLabsExpressiveMode(e.target.value === 'eleven_v3')}
+                                  className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-violet-400/60 focus:border-violet-300 bg-slate-900 text-sm text-white"
+                                >
+                                  <option value="eleven_v3">V3 Conversational — expressive</option>
+                                  <option value="eleven_flash_v2_5">Flash v2.5 — lowest latency</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="text-xs font-semibold text-white/70">Stability profile</label>
+                                <select
+                                  value={elevenLabsConfig.voice_settings?.stability ?? 0.5}
+                                  onChange={(e) => updateElevenLabsConfig({
+                                    voice_settings: {
+                                      ...(elevenLabsConfig.voice_settings || {}),
+                                      stability: Number(e.target.value)
+                                    }
+                                  })}
+                                  className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-violet-400/60 focus:border-violet-300 bg-slate-900 text-sm text-white"
+                                >
+                                  <option value={0.35}>Expressive — 0.35</option>
+                                  <option value={0.5}>Balanced — 0.50</option>
+                                  <option value={0.75}>Consistent — 0.75</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="text-xs font-semibold text-white/70">Speaking speed</label>
+                                <select
+                                  value={elevenLabsConfig.voice_settings?.speed ?? 1}
+                                  onChange={(e) => updateElevenLabsConfig({
+                                    voice_settings: {
+                                      ...(elevenLabsConfig.voice_settings || {}),
+                                      speed: Number(e.target.value)
+                                    }
+                                  })}
+                                  className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-violet-400/60 focus:border-violet-300 bg-slate-900 text-sm text-white"
+                                >
+                                  <option value={0.9}>Measured — 0.90×</option>
+                                  <option value={1}>Natural — 1.00×</option>
+                                  <option value={1.1}>Energetic — 1.10×</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            {isElevenLabsExpressiveMode && (
+                              <div className="rounded-lg border border-emerald-400/20 bg-emerald-500/5 p-3">
+                                <p className="text-xs font-semibold text-emerald-100">A/B expression check</p>
+                                <p className="text-xs text-white/50 mt-1 mb-3">
+                                  Start the agent and send both prompts. Keep the voice and all other settings unchanged.
+                                </p>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                  {(['neutral', 'expressive'] as const).map((variant) => (
+                                    <button
+                                      key={variant}
+                                      type="button"
+                                      onClick={() => void copyExpressionTest(variant)}
+                                      className="text-left rounded-lg border border-white/10 bg-slate-900/70 p-3 hover:border-violet-300/40 transition-colors"
+                                    >
+                                      <span className="flex items-center justify-between gap-2 text-xs font-semibold text-white/80 capitalize">
+                                        {variant} prompt
+                                        <Copy className="w-3 h-3 text-white/45" />
+                                      </span>
+                                      <span className="block text-[11px] text-white/50 mt-1">
+                                        {ELEVENLABS_EXPRESSION_TESTS[variant]}
+                                      </span>
+                                      {copiedExpressionTest === variant && (
+                                        <span className="block text-[11px] text-emerald-200 mt-1">Copied</span>
+                                      )}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
                           <div className="rounded-xl border border-violet-300/25 bg-slate-950/50 p-4 space-y-3">
                             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                               <div>
@@ -1403,6 +1555,12 @@ export function SettingsPanel({
                                 {elevenLabsSyncedAt && (
                                   <p className="text-[11px] text-white/45 mt-1">
                                     Last published {new Date(elevenLabsSyncedAt).toLocaleString()} · {elevenLabsSync.tool_count ?? 0} tools
+                                  </p>
+                                )}
+                                {elevenLabsSync.effective_tts_model_id && (
+                                  <p className="text-[11px] text-violet-200/80 mt-1 font-mono">
+                                    Effective model: {elevenLabsSync.effective_tts_model_id}
+                                    {elevenLabsSync.remote_version_id ? ` · Version ${elevenLabsSync.remote_version_id}` : ''}
                                   </p>
                                 )}
                               </div>
