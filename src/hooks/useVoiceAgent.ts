@@ -354,7 +354,10 @@ export function useVoiceAgent() {
       setAgentState('idle');
       setIsRecording(false);
       if (configRef.current?.voice_provider === 'elevenlabs_agent' && event?.reason !== 'user') {
-        const detailMessage = event?.details?.message || event?.details?.reason;
+        const detailMessage = event?.details?.message
+          || event?.details?.closeReason
+          || event?.details?.context?.reason
+          || event?.details?.reason;
         setError(detailMessage
           ? `ElevenLabs Agent disconnected: ${detailMessage}`
           : 'ElevenLabs Agent disconnected unexpectedly. Verify the API key and Agent access, then start again.');

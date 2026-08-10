@@ -1087,7 +1087,7 @@ export function SettingsPanel({
                       <label className="flex items-start gap-2 cursor-pointer rounded-lg border border-white/10 bg-slate-900/50 px-3 py-2">
                         <input
                           type="checkbox"
-                          checked={elevenLabsConfig.sync_local_instructions !== false}
+                          checked={elevenLabsConfig.sync_local_instructions === true}
                           onChange={(e) => updateElevenLabsConfig({ sync_local_instructions: e.target.checked })}
                           className="w-4 h-4 mt-0.5 text-violet-400 border-white/20 rounded focus:ring-violet-400"
                         />
