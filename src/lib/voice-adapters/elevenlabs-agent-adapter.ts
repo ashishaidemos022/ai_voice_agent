@@ -33,7 +33,10 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
   async connect(): Promise<void> {
     const signedUrl = await this.session.getSignedUrl();
     const providerConfig = this.config.voice_provider_config || {};
-    const syncPreset = providerConfig.sync_local_instructions !== false;
+    // ElevenLabs rejects prompt, language, first-message, and voice overrides
+    // unless each one is explicitly enabled in the Agent security settings.
+    // Keep the native Agent configuration as the safe, apples-to-apples default.
+    const syncPreset = providerConfig.sync_local_instructions === true;
     const toolSchemas = getToolSchemas();
     const clientTools = Object.fromEntries(toolSchemas.map((tool) => [
       tool.name,
@@ -72,6 +75,14 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
         this.emit('session.updated', { type: 'session.updated' });
       },
       onDisconnect: (details) => {
+        if (details.reason === 'error') {
+          console.error('[ElevenLabsAgentAdapter] provider disconnected', {
+            message: details.message,
+            closeCode: details.closeCode,
+            closeReason: details.closeReason,
+            context: details.context
+          });
+        }
         this.emit('disconnected', {
           type: 'disconnected',
           reason: details.reason,
