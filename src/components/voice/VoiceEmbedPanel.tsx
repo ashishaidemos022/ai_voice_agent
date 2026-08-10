@@ -97,11 +97,13 @@ export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelPro
   const voiceProvider = (agentPreset?.voice_provider ?? 'openai_realtime') as
     | 'openai_realtime'
     | 'personaplex'
-    | 'elevenlabs_tts';
+    | 'elevenlabs_tts'
+    | 'elevenlabs_agent';
   const canOverrideOpenAIVoice = voiceProvider === 'openai_realtime';
   const agentVoiceLabel = useMemo(() => {
     if (!agentPreset) return null;
     if (voiceProvider === 'openai_realtime') return agentPreset.voice || 'alloy';
+    if (voiceProvider === 'elevenlabs_agent') return agentPreset.voice_provider_config?.agent_id || null;
     return agentPreset.voice_id || null;
   }, [agentPreset, voiceProvider]);
 
@@ -409,8 +411,10 @@ export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelPro
                   <span className="font-semibold">
                     {voiceProvider === 'openai_realtime'
                       ? 'OpenAI (Realtime)'
+                      : voiceProvider === 'elevenlabs_agent'
+                        ? 'ElevenLabs Agent (direct)'
                       : voiceProvider === 'elevenlabs_tts'
-                        ? 'ElevenLabs'
+                        ? 'OpenAI + ElevenLabs TTS'
                         : 'PersonaPlex'}
                   </span>
                 </div>
@@ -425,12 +429,16 @@ export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelPro
                     This embed follows the agent preset voice selection.
                   </p>
                   <p className="text-sm font-mono text-white">
-                    {voiceProvider === 'elevenlabs_tts' ? 'voice_id' : 'persona_voice_id'}:{' '}
+                    {voiceProvider === 'elevenlabs_agent'
+                      ? 'agent_id'
+                      : voiceProvider === 'elevenlabs_tts'
+                        ? 'voice_id'
+                        : 'persona_voice_id'}:{' '}
                     {agentVoiceLabel || 'Missing'}
                   </p>
                   {!agentVoiceLabel && (
                     <p className="text-xs text-rose-300">
-                      Missing voice id on the preset. Configure voice selection in Agent Settings.
+                      Missing provider identifier on the preset. Configure it in Agent Settings.
                     </p>
                   )}
                 </div>

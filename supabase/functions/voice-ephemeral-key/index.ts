@@ -400,6 +400,14 @@ function validateEmbedVoiceProvider(agentConfig: VoiceEmbedRecord['agent_config'
       throw new Error('ElevenLabs voice_id is missing for this embed preset');
     }
   }
+  if (provider === 'elevenlabs_agent') {
+    if (!agentConfig.voice_provider_key_id) {
+      throw new Error('ElevenLabs provider key is missing for this embed preset');
+    }
+    if (!agentConfig.voice_provider_config?.agent_id) {
+      throw new Error('ElevenLabs Agent ID is missing for this embed preset');
+    }
+  }
   if (provider === 'personaplex') {
     if (!agentConfig.voice_id) {
       throw new Error('PersonaPlex voice_id is missing for this embed preset');
@@ -1024,7 +1032,7 @@ Deno.serve(async (req: Request) => {
 
     const tools = await loadEmbedTools(agentConfig.id, agentConfig.user_id);
     const provider = agentConfig.voice_provider || 'openai_realtime';
-    const session = provider === 'personaplex' || (provider === 'openai_realtime' && embed.rtc_enabled)
+    const session = provider === 'personaplex' || provider === 'elevenlabs_agent' || (provider === 'openai_realtime' && embed.rtc_enabled)
       ? { token: null, expires_at: null, session: null }
       : await createEphemeralSession(embed, originHeader, tools);
     const metadata = {

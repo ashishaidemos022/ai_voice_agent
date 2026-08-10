@@ -60,7 +60,7 @@ export interface AgentConfigPreset {
   chat_theme?: Record<string, any> | null;
   a2ui_enabled?: boolean;
   voice: string;
-  voice_provider?: 'openai_realtime' | 'personaplex' | 'elevenlabs_tts' | null;
+  voice_provider?: 'openai_realtime' | 'personaplex' | 'elevenlabs_tts' | 'elevenlabs_agent' | null;
   voice_provider_key_id?: string | null;
   voice_provider_config?: Record<string, any> | null;
   voice_persona_prompt?: string | null;
@@ -139,7 +139,9 @@ export function realtimeConfigToPreset(config: RealtimeConfig, name: string): Pa
     a2ui_enabled: config.a2ui_enabled ?? false,
     voice: config.voice,
     voice_provider: provider,
-    voice_provider_key_id: provider === 'elevenlabs_tts' ? (config.voice_provider_key_id ?? null) : null,
+    voice_provider_key_id: provider === 'elevenlabs_tts' || provider === 'elevenlabs_agent'
+      ? (config.voice_provider_key_id ?? null)
+      : null,
     voice_provider_config: config.voice_provider_config ?? {},
     voice_persona_prompt: config.voice_persona_prompt ?? null,
     voice_id: config.voice_id ?? null,

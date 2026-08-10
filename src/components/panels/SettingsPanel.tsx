@@ -31,6 +31,7 @@ import { Card, CardHeader } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { ToolSelectionPanel } from '../settings/ToolSelectionPanel';
 import { OPENAI_MODELS } from '../../../shared/openai-models';
+import { listElevenLabsAgents, type ElevenLabsAgentSummary } from '../../lib/elevenlabs-agent';
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -88,6 +89,11 @@ const VOICE_PROVIDERS = [
     value: 'elevenlabs_tts',
     label: 'ElevenLabs TTS',
     description: 'OpenAI realtime input + ElevenLabs voice output via gateway.'
+  },
+  {
+    value: 'elevenlabs_agent',
+    label: 'ElevenLabs Agent (direct)',
+    description: 'End-to-end ElevenLabs conversation, VAD, reasoning, and voice.'
   }
 ];
 
@@ -160,6 +166,9 @@ export function SettingsPanel({
   const [isSavingKey, setIsSavingKey] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
   const [keySuccessMessage, setKeySuccessMessage] = useState<string | null>(null);
+  const [elevenLabsAgents, setElevenLabsAgents] = useState<ElevenLabsAgentSummary[]>([]);
+  const [isLoadingElevenLabsAgents, setIsLoadingElevenLabsAgents] = useState(false);
+  const [elevenLabsAgentsError, setElevenLabsAgentsError] = useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSuccessMessage, setInviteSuccessMessage] = useState<string | null>(null);
@@ -175,7 +184,9 @@ export function SettingsPanel({
   const effectiveElevenLabsKeyId = localElevenLabsKeyId ?? latestElevenLabsKeyId;
   const resolvedProvider = config.voice_provider ?? 'openai_realtime';
   const isPersonaPlex = resolvedProvider === 'personaplex';
-  const isElevenLabs = resolvedProvider === 'elevenlabs_tts';
+  const isElevenLabsTts = resolvedProvider === 'elevenlabs_tts';
+  const isElevenLabsAgent = resolvedProvider === 'elevenlabs_agent';
+  const isElevenLabs = isElevenLabsTts || isElevenLabsAgent;
   const requiresProviderKey = isElevenLabs;
   const rawVoiceProviderKeyId = config.voice_provider_key_id ?? null;
   const isVoiceProviderKeyElevenLabs = rawVoiceProviderKeyId
@@ -185,6 +196,9 @@ export function SettingsPanel({
     ? (isVoiceProviderKeyElevenLabs ? rawVoiceProviderKeyId : (effectiveElevenLabsKeyId ?? null))
     : null;
   const hasRequiredProviderKey = !requiresProviderKey || Boolean(effectiveVoiceProviderKeyId);
+  const hasDirectAgentId = !isElevenLabsAgent || Boolean(
+    `${config.voice_provider_config?.agent_id || ''}`.trim()
+  );
 
   useEffect(() => {
     if (embedded || isOpen) {
@@ -196,6 +210,28 @@ export function SettingsPanel({
   useEffect(() => {
     setLocalProviderKeyId(providerKeyId);
   }, [providerKeyId]);
+
+  useEffect(() => {
+    if (!isElevenLabsAgent || !effectiveVoiceProviderKeyId) {
+      setElevenLabsAgents([]);
+      setElevenLabsAgentsError(null);
+      return;
+    }
+    let cancelled = false;
+    setIsLoadingElevenLabsAgents(true);
+    setElevenLabsAgentsError(null);
+    void listElevenLabsAgents(effectiveVoiceProviderKeyId)
+      .then((agents) => {
+        if (!cancelled) setElevenLabsAgents(agents.filter((agent) => !agent.archived));
+      })
+      .catch((error) => {
+        if (!cancelled) setElevenLabsAgentsError(error?.message || 'Unable to load ElevenLabs Agents');
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingElevenLabsAgents(false);
+      });
+    return () => { cancelled = true; };
+  }, [effectiveVoiceProviderKeyId, isElevenLabsAgent]);
 
   useEffect(() => {
     if (activeConfigId && activePreset) {
@@ -256,6 +292,10 @@ export function SettingsPanel({
       setSaveError(isElevenLabs
         ? 'Add an ElevenLabs API key before saving presets.'
         : 'Add an OpenAI API key before saving presets.');
+      return;
+    }
+    if (!hasDirectAgentId) {
+      setSaveError('Select an ElevenLabs Agent before saving this preset.');
       return;
     }
 
@@ -368,7 +408,7 @@ export function SettingsPanel({
       if (providerKeyRow.provider === 'elevenlabs') {
         setLocalElevenLabsKeyId(providerKeyRow.id);
       }
-      if (resolvedProvider === 'elevenlabs_tts' && providerKeyRow.provider === 'elevenlabs') {
+      if (isElevenLabs && providerKeyRow.provider === 'elevenlabs') {
         onConfigChange({ ...config, voice_provider_key_id: providerKeyRow.id });
       }
       setApiKey('');
@@ -420,6 +460,10 @@ export function SettingsPanel({
       setSaveError(isElevenLabs
         ? 'Add an ElevenLabs API key before saving presets.'
         : 'Add an OpenAI API key before saving presets.');
+      return;
+    }
+    if (!hasDirectAgentId) {
+      setSaveError('Select an ElevenLabs Agent before updating this preset.');
       return;
     }
     setIsLoading(true);
@@ -836,11 +880,11 @@ export function SettingsPanel({
                     <select
                       value={resolvedProvider}
                       onChange={(e) => {
-                        const nextProvider = e.target.value as 'openai_realtime' | 'personaplex' | 'elevenlabs_tts';
+                        const nextProvider = e.target.value as RealtimeConfig['voice_provider'];
                         onConfigChange({
                           ...config,
                           voice_provider: nextProvider,
-                          voice_provider_key_id: nextProvider === 'elevenlabs_tts'
+                          voice_provider_key_id: nextProvider === 'elevenlabs_tts' || nextProvider === 'elevenlabs_agent'
                             ? (effectiveElevenLabsKeyId ?? null)
                             : null,
                           voice_provider_config: config.voice_provider_config ?? {},
@@ -863,13 +907,19 @@ export function SettingsPanel({
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-white/80">
-                      {isPersonaPlex ? 'PersonaPlex voice ID' : isElevenLabs ? 'ElevenLabs voice ID' : 'Voice'}
+                      {isPersonaPlex
+                        ? 'PersonaPlex voice ID'
+                        : isElevenLabsTts
+                          ? 'ElevenLabs voice ID'
+                          : isElevenLabsAgent
+                            ? 'Voice override (optional)'
+                            : 'Voice'}
                     </label>
                     {isElevenLabs ? (
                       <input
                         value={config.voice_id ?? ''}
                         onChange={(e) => onConfigChange({ ...config, voice_id: e.target.value })}
-                        placeholder="ElevenLabs voice id"
+                        placeholder={isElevenLabsAgent ? 'Use the Agent default voice' : 'ElevenLabs voice id'}
                         className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
                       />
                     ) : (
@@ -954,7 +1004,7 @@ export function SettingsPanel({
                         <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/70">Credentials</p>
                         <h4 className="text-sm font-semibold text-white">ElevenLabs API key</h4>
                         <p className="text-xs text-white/60">
-                          This key is used only for ElevenLabs voice output.
+                          The key stays server-side and is exchanged for short-lived provider credentials.
                         </p>
                       </div>
                       {latestElevenLabsKey ? (
@@ -1001,10 +1051,86 @@ export function SettingsPanel({
                         </div>
                       </div>
                     </div>
-                    <p className="text-[11px] text-white/50">Stored encrypted (base64) and masked after saving.</p>
+                    <p className="text-[11px] text-white/50">Stored server-side and masked after saving.</p>
                     {keyError && <p className="text-xs text-rose-300">{keyError}</p>}
                     {keySuccessMessage && <p className="text-xs text-emerald-200">{keySuccessMessage}</p>}
                   </div>
+                  {isElevenLabsAgent && (
+                    <div className="md:col-span-2 rounded-xl border border-violet-400/20 bg-violet-500/5 p-4 space-y-4">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.2em] text-violet-200/70">Direct agent</p>
+                        <h4 className="text-sm font-semibold text-white">ElevenLabs Agent</h4>
+                        <p className="text-xs text-white/60">
+                          ElevenLabs owns the full microphone, VAD, turn-taking, LLM, and voice path. OpenAI is not used in this mode.
+                        </p>
+                        <p className="text-xs text-amber-200/90 mt-1">
+                          Configure knowledge and tool definitions on the ElevenLabs Agent for a controlled provider comparison.
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-sm font-semibold text-white/80">Agent</label>
+                          <select
+                            value={elevenLabsConfig.agent_id ?? ''}
+                            onChange={(e) => updateElevenLabsConfig({ agent_id: e.target.value })}
+                            disabled={!effectiveVoiceProviderKeyId || isLoadingElevenLabsAgents}
+                            className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-violet-400/60 focus:border-violet-300 bg-slate-900 text-sm text-white"
+                          >
+                            <option value="">
+                              {isLoadingElevenLabsAgents ? 'Loading agents…' : 'Select an ElevenLabs Agent'}
+                            </option>
+                            {elevenLabsAgents.map((agent) => (
+                              <option key={agent.agent_id} value={agent.agent_id}>
+                                {agent.name || 'Unnamed agent'} — {agent.agent_id}
+                              </option>
+                            ))}
+                          </select>
+                          {elevenLabsAgentsError && (
+                            <p className="text-xs text-rose-300 mt-1">{elevenLabsAgentsError}</p>
+                          )}
+                          {!isLoadingElevenLabsAgents && effectiveVoiceProviderKeyId && elevenLabsAgents.length === 0 && !elevenLabsAgentsError && (
+                            <p className="text-xs text-amber-200/90 mt-1">
+                              No Agents were found. Create one in ElevenLabs, then reopen settings to refresh.
+                            </p>
+                          )}
+                        </div>
+                        <div>
+                          <label className="text-sm font-semibold text-white/80">Language override</label>
+                          <input
+                            value={elevenLabsConfig.language ?? ''}
+                            onChange={(e) => updateElevenLabsConfig({ language: e.target.value })}
+                            placeholder="Optional, for example en"
+                            className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-violet-400/60 focus:border-violet-300 bg-slate-900 text-sm text-white"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-sm font-semibold text-white/80">First message override</label>
+                        <input
+                          value={elevenLabsConfig.first_message ?? ''}
+                          onChange={(e) => updateElevenLabsConfig({ first_message: e.target.value })}
+                          placeholder="Optional; otherwise use the ElevenLabs Agent default"
+                          className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-violet-400/60 focus:border-violet-300 bg-slate-900 text-sm text-white"
+                        />
+                      </div>
+                      <label className="flex items-start gap-2 cursor-pointer rounded-lg border border-white/10 bg-slate-900/50 px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={elevenLabsConfig.sync_local_instructions !== false}
+                          onChange={(e) => updateElevenLabsConfig({ sync_local_instructions: e.target.checked })}
+                          className="w-4 h-4 mt-0.5 text-violet-400 border-white/20 rounded focus:ring-violet-400"
+                        />
+                        <span>
+                          <span className="block text-sm font-semibold text-white/80">Use this preset's instructions and voice override</span>
+                          <span className="block text-xs text-white/50">
+                            Enable prompt, first-message, language, and voice overrides in the ElevenLabs Agent security settings.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+                  )}
+                  {isElevenLabsTts && (
+                    <>
                   <div className="space-y-3">
                     <label className="flex items-center gap-2 cursor-pointer rounded-lg border border-white/10 bg-slate-900/50 px-3 py-2">
                       <input
@@ -1092,6 +1218,8 @@ export function SettingsPanel({
                       <span className="text-sm font-semibold text-white/80">Use speaker boost (adds latency)</span>
                     </label>
                   </div>
+                    </>
+                  )}
                 </div>
               )}
             </CardHeader>

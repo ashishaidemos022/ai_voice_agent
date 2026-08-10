@@ -3,6 +3,7 @@ import { AudioManager, getAudioManager } from '../lib/audio-manager';
 import { AgentState, RealtimeAPIClient } from '../lib/realtime-client';
 import { PersonaPlexVoiceAdapter } from '../lib/voice-adapters/personaplex-adapter';
 import { ElevenLabsVoiceAdapter } from '../lib/voice-adapters/elevenlabs-adapter';
+import { ElevenLabsAgentAdapter } from '../lib/voice-adapters/elevenlabs-agent-adapter';
 import type { VoiceAdapter } from '../lib/voice-adapters/types';
 import { supabase } from '../lib/supabase';
 import { executeTool, loadMCPTools } from '../lib/tools-registry';
@@ -14,6 +15,7 @@ import { useAuth } from '../context/AuthContext';
 import { normalizeUsage, recordUsageEvent } from '../lib/usage-tracker';
 import { requestPersonaPlexGatewayToken } from '../lib/personaplex-gateway';
 import { requestElevenLabsGatewayToken } from '../lib/elevenlabs-gateway';
+import { requestElevenLabsAgentSignedUrl } from '../lib/elevenlabs-agent';
 import { requestRealtimeWebSocketSecret } from '../lib/realtime-session';
 import { formatA2UIEventMessage, type A2UIEvent } from '../lib/a2ui';
 
@@ -250,6 +252,16 @@ export function useVoiceAgent() {
   const maybeRunRagAugmentation = useCallback(async (transcriptText: string) => {
     const query = (transcriptText || '').trim();
     if (!query) {
+      setRagInvoked(false);
+      setRagResult(null);
+      setRagError(null);
+      ragResponsePendingRef.current = false;
+      return;
+    }
+    if (configRef.current?.voice_provider === 'elevenlabs_agent') {
+      // Direct ElevenLabs Agents own their reasoning and knowledge pipeline.
+      // Injecting the workspace RAG response after ElevenLabs has ended the
+      // user turn would make the provider comparison invalid.
       setRagInvoked(false);
       setRagResult(null);
       setRagError(null);
@@ -689,7 +701,7 @@ export function useVoiceAgent() {
         if (!audioManagerRef.current) {
           audioManagerRef.current = getAudioManager();
         }
-        if (audioManagerRef.current && provider !== 'openai_realtime') {
+        if (audioManagerRef.current && (provider === 'personaplex' || provider === 'elevenlabs_tts')) {
           if (audioManagerRef.current.isReady()) {
             console.warn('[useVoiceAgent] AudioManager already ready - reusing singleton');
           } else {
@@ -740,6 +752,15 @@ export function useVoiceAgent() {
               }, {
                 apiKey: realtimeWebSocketToken || undefined
               })
+            : provider === 'elevenlabs_agent'
+              ? new ElevenLabsAgentAdapter(hydratedConfig, {
+                  userId: vaUser?.id,
+                  getSignedUrl: () => requestElevenLabsAgentSignedUrl({
+                    agentId: configId,
+                    sessionId: sid,
+                    origin: window.location.origin
+                  })
+                })
             : await (async () => {
                 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
                 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;

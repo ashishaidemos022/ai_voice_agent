@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },
   "dependencies": {
+    "@elevenlabs/client": "^1.17.0",
     "@supabase/supabase-js": "^2.112.2",
     "clsx": "^2.1.1",
     "express": "^5.2.1",
