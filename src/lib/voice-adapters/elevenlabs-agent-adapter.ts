@@ -6,6 +6,7 @@ import { beginBenchmarkTurn, emitBenchmarkEvent, emitBenchmarkMilestone } from '
 
 type DirectAgentSession = {
   getSignedUrl: () => Promise<string>;
+  finalizeUsage?: (conversationId: string) => Promise<void>;
   userId?: string;
 };
 
@@ -25,6 +26,8 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
   private assistantText = '';
   private assistantItemId: string | null = null;
   private sawStreamingAssistantText = false;
+  private conversationId: string | null = null;
+  private usageFinalized = false;
 
   constructor(config: RealtimeConfig, session: DirectAgentSession) {
     this.config = config;
@@ -81,6 +84,7 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
           }
         : {}),
       onConnect: ({ conversationId }) => {
+        this.conversationId = conversationId;
         emitBenchmarkEvent('session.connected', {
           provider: 'elevenlabs_agent',
           conversation_id: conversationId
@@ -107,6 +111,7 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
           details
         });
         this.emitAgentState('idle', 'elevenlabs-disconnected');
+        void this.finalizeUsage();
       },
       onError: (message) => {
         emitBenchmarkEvent('session.error', {
@@ -374,5 +379,17 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
       resolve(JSON.stringify({ error: message }));
     });
     this.pendingTools.clear();
+  }
+
+  private async finalizeUsage(): Promise<void> {
+    if (this.usageFinalized || !this.conversationId || !this.session.finalizeUsage) return;
+    this.usageFinalized = true;
+    try {
+      await this.session.finalizeUsage(this.conversationId);
+    } catch (error) {
+      // A failed finalization must be visible, but it should never turn a
+      // successfully completed voice call into a client-facing call error.
+      console.warn('[ElevenLabsAgentAdapter] failed to finalize usage', error);
+    }
   }
 }

@@ -40,6 +40,16 @@ type AgentSessionRequest = {
   origin: string;
 };
 
+export type ElevenLabsConversationUsage = {
+  conversation_id: string;
+  status: string;
+  duration_seconds: number;
+  cost_usd: number;
+  message_count: number;
+  model: string | null;
+  pending?: boolean;
+};
+
 function functionUrl(): string {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
   if (!supabaseUrl) throw new Error('Supabase URL is not configured');
@@ -114,6 +124,36 @@ export async function requestElevenLabsAgentSignedUrl(request: AgentSessionReque
     throw new Error(payload?.error || `Unable to start ElevenLabs Agent (${response.status})`);
   }
   return payload.signed_url;
+}
+
+export async function finalizeElevenLabsAgentUsage(request: {
+  configId: string;
+  sessionId: string;
+  conversationId: string;
+}): Promise<ElevenLabsConversationUsage> {
+  let lastPayload: any = null;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const response = await fetch(functionUrl(), {
+      method: 'POST',
+      headers: await authenticatedHeaders(),
+      body: JSON.stringify({
+        action: 'finalize_usage',
+        config_id: request.configId,
+        session_id: request.sessionId,
+        conversation_id: request.conversationId
+      })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload?.conversation_id) {
+      throw new Error(payload?.error || `Unable to finalize ElevenLabs usage (${response.status})`);
+    }
+    lastPayload = payload;
+    if (!payload.pending) return payload as ElevenLabsConversationUsage;
+    if (attempt < 7) await new Promise((resolve) => window.setTimeout(resolve, 1_500));
+  }
+  throw new Error(
+    `ElevenLabs conversation ${lastPayload?.conversation_id || request.conversationId} is still processing usage`
+  );
 }
 
 export async function requestElevenLabsAgentEmbedSignedUrl(request: AgentSessionRequest): Promise<string> {

@@ -19,12 +19,13 @@ const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 });
 
 type RequestPayload = {
-  action?: 'list_agents' | 'list_voices' | 'signed_url' | 'sync_agent';
+  action?: 'list_agents' | 'list_voices' | 'signed_url' | 'sync_agent' | 'finalize_usage';
   provider_key_id?: string;
   config_id?: string;
   agent_id?: string;
   agent_public_id?: string;
   session_id?: string;
+  conversation_id?: string;
   origin?: string;
 };
 
@@ -525,6 +526,129 @@ async function signedUrl(apiKey: string, remoteAgentId: string) {
   return payload;
 }
 
+function finiteNonNegative(value: unknown): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+}
+
+async function conversationDetails(apiKey: string, conversationId: string): Promise<any> {
+  return providerJson(
+    apiKey,
+    `/v1/convai/conversations/${encodeURIComponent(conversationId)}`
+  );
+}
+
+async function finalizeUsage(request: RequestPayload, vaUserId: string) {
+  if (!request.config_id) throw new Error('config_id is required');
+  if (!request.session_id) throw new Error('session_id is required');
+  if (!request.conversation_id) throw new Error('conversation_id is required');
+
+  const { data: config, error: configError } = await adminClient
+    .from('va_agent_configs')
+    .select('id,user_id,voice_provider,voice_provider_key_id,voice_provider_config')
+    .eq('id', request.config_id)
+    .single();
+  if (configError || !config) throw new Error('Agent config not found');
+  if (config.user_id !== vaUserId) throw new Error('Forbidden');
+  if (config.voice_provider !== 'elevenlabs_agent' || !config.voice_provider_key_id) {
+    throw new Error('Direct ElevenLabs Agent is not enabled for this preset');
+  }
+
+  const { data: session, error: sessionError } = await adminClient
+    .from('va_sessions')
+    .select('id,agent_id,session_metadata')
+    .eq('id', request.session_id)
+    .single();
+  if (sessionError || !session || session.agent_id !== config.id) {
+    throw new Error('Voice session not found');
+  }
+
+  const apiKey = await resolveProviderKey(config.voice_provider_key_id, vaUserId);
+  const details = await conversationDetails(apiKey, request.conversation_id);
+  const remoteAgentId = `${config.voice_provider_config?.agent_id || ''}`.trim();
+  if (remoteAgentId && details?.agent_id && details.agent_id !== remoteAgentId) {
+    throw new Error('Conversation does not belong to this ElevenLabs Agent');
+  }
+  const metadata = details?.metadata || {};
+  const durationSeconds = Math.round(finiteNonNegative(metadata.call_duration_secs));
+  const costUsd = finiteNonNegative(metadata.cost_fiat);
+  const messageCount = Array.isArray(details?.transcript) ? details.transcript.length : 0;
+  const model = `${config.voice_provider_config?.model_id || config.voice_provider_config?.app_managed?.effective_tts_model_id || ''}`.trim() || null;
+
+  if (details?.status !== 'done' && details?.status !== 'failed') {
+    return {
+      conversation_id: request.conversation_id,
+      status: details?.status || 'processing',
+      duration_seconds: durationSeconds,
+      cost_usd: costUsd,
+      message_count: messageCount,
+      model,
+      pending: true
+    };
+  }
+
+  const { data: existing, error: existingError } = await adminClient
+    .from('va_usage_events')
+    .select('id')
+    .eq('user_id', vaUserId)
+    .eq('source', 'voice')
+    .contains('metadata', { provider_conversation_id: request.conversation_id })
+    .maybeSingle();
+  if (existingError) throw new Error(`Unable to check existing usage: ${existingError.message}`);
+
+  if (!existing) {
+    const { error: usageError } = await adminClient.from('va_usage_events').insert({
+      user_id: vaUserId,
+      source: 'voice',
+      model,
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+      cost_usd: costUsd,
+      metadata: {
+        session_id: request.session_id,
+        agent_preset_id: config.id,
+        provider: 'elevenlabs_agent',
+        provider_conversation_id: request.conversation_id,
+        provider_status: details?.status || 'unknown',
+        duration_seconds: durationSeconds,
+        message_count: messageCount,
+        main_language: metadata.main_language || null,
+        termination_reason: metadata.termination_reason || null,
+        elevenlabs_credits: finiteNonNegative(metadata.cost)
+      }
+    });
+    if (usageError) throw new Error(`Unable to record usage: ${usageError.message}`);
+  }
+
+  const { error: updateError } = await adminClient
+    .from('va_sessions')
+    .update({
+      duration_seconds: durationSeconds,
+      message_count: messageCount,
+      status: 'ended',
+      updated_at: new Date().toISOString(),
+      session_metadata: {
+        ...(session.session_metadata || {}),
+        provider: 'elevenlabs_agent',
+        provider_conversation_id: request.conversation_id,
+        provider_status: details?.status || 'unknown',
+        provider_cost_usd: costUsd
+      }
+    })
+    .eq('id', request.session_id);
+  if (updateError) throw new Error(`Unable to update voice session: ${updateError.message}`);
+
+  return {
+    conversation_id: request.conversation_id,
+    status: details?.status || 'unknown',
+    duration_seconds: durationSeconds,
+    cost_usd: costUsd,
+    message_count: messageCount,
+    model
+  };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 200, headers: corsHeaders });
   if (req.method !== 'POST') return jsonResponse({ error: 'Method not allowed' }, 405);
@@ -549,6 +673,11 @@ Deno.serve(async (req: Request) => {
       const vaUserId = await authenticatedVaUser(req);
       if (!request.config_id) return jsonResponse({ error: 'config_id is required' }, 400);
       return jsonResponse(await syncAppManagedAgent(request.config_id, vaUserId));
+    }
+
+    if (request.action === 'finalize_usage') {
+      const vaUserId = await authenticatedVaUser(req);
+      return jsonResponse(await finalizeUsage(request, vaUserId));
     }
 
     if (request.action !== 'signed_url') return jsonResponse({ error: 'Unsupported action' }, 400);

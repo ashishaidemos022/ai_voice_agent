@@ -15,7 +15,10 @@ import { useAuth } from '../context/AuthContext';
 import { normalizeUsage, recordUsageEvent } from '../lib/usage-tracker';
 import { requestPersonaPlexGatewayToken } from '../lib/personaplex-gateway';
 import { requestElevenLabsGatewayToken } from '../lib/elevenlabs-gateway';
-import { requestElevenLabsAgentSignedUrl } from '../lib/elevenlabs-agent';
+import {
+  finalizeElevenLabsAgentUsage,
+  requestElevenLabsAgentSignedUrl
+} from '../lib/elevenlabs-agent';
 import { requestRealtimeWebSocketSecret } from '../lib/realtime-session';
 import { formatA2UIEventMessage, type A2UIEvent } from '../lib/a2ui';
 import {
@@ -888,6 +891,14 @@ export function useVoiceAgent() {
               : provider === 'elevenlabs_agent'
                 ? new ElevenLabsAgentAdapter(hydratedConfig, {
                     userId: vaUser?.id,
+                    finalizeUsage: async (conversationId) => {
+                      const usage = await finalizeElevenLabsAgentUsage({
+                        configId,
+                        sessionId: sid,
+                        conversationId
+                      });
+                      console.log('[useVoiceAgent] ElevenLabs usage finalized', usage);
+                    },
                     getSignedUrl: () =>
                       requestElevenLabsAgentSignedUrl({
                         agentId: configId,
