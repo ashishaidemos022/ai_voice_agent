@@ -25,7 +25,7 @@ const ringColors: Record<AgentState, string> = {
 
 export function AIAvatar({ state, isConnected }: AIAvatarProps) {
   return (
-    <div className="relative w-28 h-28">
+    <div className="relative w-16 h-16 shrink-0">
       <div className="absolute inset-0 rounded-full bg-gradient-to-br from-white/10 to-white/0 blur-3xl" />
       <motion.div
         className={`relative w-full h-full rounded-full p-[3px] bg-gradient-to-r ${ringColors[state]} shadow-lg`}

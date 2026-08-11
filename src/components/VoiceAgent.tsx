@@ -180,6 +180,7 @@ export function VoiceAgent({
   });
   const [mcpConnectionSummary, setMcpConnectionSummary] = useState<MCPConnectionSummary[]>([]);
   const [isMcpSummaryLoading, setIsMcpSummaryLoading] = useState(false);
+  const [sessionElapsedSeconds, setSessionElapsedSeconds] = useState(0);
   const resumeSessionRef = useRef<{ config: RealtimeConfig; presetId: string | null } | null>(null);
   const applyPreferencesToConfig = useCallback((baseConfig: RealtimeConfig) => {
     const nextConfig = { ...baseConfig };
@@ -231,6 +232,18 @@ export function VoiceAgent({
     sendA2UIEvent,
     cleanup
   } = useVoiceAgent();
+
+  useEffect(() => {
+    if (!sessionId) {
+      setSessionElapsedSeconds(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const updateElapsed = () => setSessionElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    updateElapsed();
+    const timer = window.setInterval(updateElapsed, 1000);
+    return () => window.clearInterval(timer);
+  }, [sessionId]);
 
   const handleStart = useCallback(async (override?: { config: RealtimeConfig; presetId: string | null }) => {
     if (isInitializing) return;
@@ -1066,13 +1079,12 @@ export function VoiceAgent({
                                     onToggle={toggleRecording}
                                     waveformData={waveformData}
                                     volume={volume}
+                                    config={config ?? currentConfig}
+                                    sessionElapsedSeconds={sessionElapsedSeconds}
+                                    turnCount={messages.filter((message) => message.role === 'user').length}
+                                    messageCount={messages.length}
+                                    toolCallCount={toolEvents.length}
                                   />
-
-                                  {config && config.turn_detection && (
-                                    <p className="text-center text-sm text-white/50">
-                                      Speak naturally - the AI will respond automatically
-                                    </p>
-                                  )}
 
                                   <div className="flex-1 min-h-0 overflow-hidden">
                                     <ConversationThread
