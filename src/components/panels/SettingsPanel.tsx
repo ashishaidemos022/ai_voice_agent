@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   BadgeCheck,
   Copy,
+  Maximize2,
   Plus,
   RotateCcw,
   Save,
@@ -11,7 +12,8 @@ import {
   UploadCloud,
   Trash2,
   Wand2,
-  Workflow
+  Workflow,
+  X
 } from 'lucide-react';
 import { RealtimeConfig } from '../../types/voice-agent';
 import {
@@ -199,6 +201,7 @@ export function SettingsPanel({
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSuccessMessage, setInviteSuccessMessage] = useState<string | null>(null);
   const [isInviting, setIsInviting] = useState(false);
+  const [showInstructionsDialog, setShowInstructionsDialog] = useState(false);
   const activePreset = presets.find((p) => p.id === activeConfigId);
   const providerKeyById = useMemo(() => {
     return new Map(providerKeys.map((key) => [key.id, key]));
@@ -249,6 +252,23 @@ export function SettingsPanel({
   useEffect(() => {
     setLocalProviderKeyId(providerKeyId);
   }, [providerKeyId]);
+
+  useEffect(() => {
+    if (!showInstructionsDialog) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowInstructionsDialog(false);
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showInstructionsDialog]);
 
   useEffect(() => {
     if (!isElevenLabsAgent || !effectiveVoiceProviderKeyId) {
@@ -561,6 +581,9 @@ export function SettingsPanel({
   };
 
   const characterCount = config.instructions.length;
+  const wordCount = config.instructions.trim()
+    ? config.instructions.trim().split(/\s+/).length
+    : 0;
   const elevenLabsConfig = (config.voice_provider_config || {}) as Record<string, any>;
   const elevenLabsSync = (elevenLabsConfig.app_managed || {}) as Record<string, any>;
   const elevenLabsSyncedAt = typeof elevenLabsSync.synced_at === 'string'
@@ -874,6 +897,17 @@ export function SettingsPanel({
                     <Badge variant="secondary" className="text-[11px]">
                       Characters: {characterCount}
                     </Badge>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowInstructionsDialog(true)}
+                      className="text-white/70 hover:text-cyan-100 hover:bg-white/5"
+                      aria-haspopup="dialog"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5" />
+                      Expand
+                    </Button>
                     <Button variant="ghost" size="sm" onClick={handleResetToDefault} className="text-white/70 hover:text-cyan-100 hover:bg-white/5">
                       <RotateCcw className="w-3 h-3" />
                       Reset
@@ -1729,23 +1763,102 @@ export function SettingsPanel({
     </div>
   );
 
+  const instructionsDialog = showInstructionsDialog ? (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-md sm:p-8"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) setShowInstructionsDialog(false);
+      }}
+      role="presentation"
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="system-instructions-dialog-title"
+        className="flex h-[82vh] max-h-[840px] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-white/15 bg-slate-950/95 shadow-[0_30px_100px_rgba(0,0,0,0.7)]"
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-white/10 px-5 py-4 sm:px-7">
+          <div>
+            <p className="text-xs uppercase tracking-[0.22em] text-cyan-200/70">Agent behavior</p>
+            <h2 id="system-instructions-dialog-title" className="mt-1 text-xl font-semibold text-white font-display">
+              System instructions
+            </h2>
+            <p className="mt-1 text-sm text-white/50">Read and edit the complete prompt in a focused view.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="hidden text-[11px] sm:inline-flex">
+              {wordCount.toLocaleString()} words · {characterCount.toLocaleString()} characters
+            </Badge>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowInstructionsDialog(false)}
+              className="text-white/70 hover:bg-white/10 hover:text-white"
+              aria-label="Close system instructions"
+            >
+              <X className="h-5 w-5" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col gap-3 p-5 sm:p-7">
+          <textarea
+            autoFocus
+            value={config.instructions}
+            onChange={(event) => onConfigChange({ ...config, instructions: event.target.value })}
+            className="min-h-0 flex-1 resize-none rounded-xl border border-white/10 bg-slate-900/90 px-5 py-4 font-mono text-sm leading-7 text-white shadow-inner outline-none transition focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-400/40"
+            placeholder="Define the persona, boundaries, and style..."
+            aria-label="System instructions editor"
+          />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-white/45">
+              Changes stay in sync with the agent configuration. Press Esc or click outside to close.
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleResetToDefault}
+                className="text-white/65 hover:bg-white/5 hover:text-cyan-100"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                Reset to default
+              </Button>
+              <Button type="button" size="sm" onClick={() => setShowInstructionsDialog(false)}>
+                Done
+              </Button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  ) : null;
+
   if (embedded) {
     return (
-      <div className="h-full w-full bg-slate-950/40 text-white">
-        {content}
-      </div>
+      <>
+        <div className="h-full w-full bg-slate-950/40 text-white">
+          {content}
+        </div>
+        {instructionsDialog}
+      </>
     );
   }
 
   return (
-    <RightPanel
-      isOpen={isOpen}
-      onClose={onClose}
-      title="Agent Configuration"
-      subtitle={hasUnsavedChanges ? 'Unsaved changes' : activePreset?.name || 'New preset'}
-      width="920px"
-    >
-      {content}
-    </RightPanel>
+    <>
+      <RightPanel
+        isOpen={isOpen}
+        onClose={onClose}
+        title="Agent Configuration"
+        subtitle={hasUnsavedChanges ? 'Unsaved changes' : activePreset?.name || 'New preset'}
+        width="920px"
+      >
+        {content}
+      </RightPanel>
+      {instructionsDialog}
+    </>
   );
 }
