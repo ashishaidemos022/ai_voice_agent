@@ -173,6 +173,29 @@ function n8nParameters(metadata: Record<string, any> | null | undefined): Record
   return { type: 'object', properties, required };
 }
 
+const EXECUTE_SQL_PARAMETERS_SCHEMA = {
+  type: 'object',
+  properties: {
+    query: {
+      type: 'string',
+      description: 'The complete PostgreSQL query to execute.'
+    }
+  },
+  required: ['query'],
+  additionalProperties: false
+};
+
+function normalizedToolParameters(
+  toolName: string,
+  parameters: Record<string, unknown> | null | undefined
+): Record<string, unknown> {
+  // Some Supabase MCP discovery responses historically advertised execute_sql
+  // with an empty object schema. ElevenLabs then treats it as a zero-argument
+  // client tool and calls it with {}, while the MCP server requires `query`.
+  if (toolName === 'execute_sql') return EXECUTE_SQL_PARAMETERS_SCHEMA;
+  return parameters || { type: 'object', properties: {} };
+}
+
 async function loadLocalTools(configId: string, userId: string): Promise<LocalToolDefinition[]> {
   const { data: selections, error } = await adminClient
     .from('va_agent_config_tools')
@@ -204,7 +227,7 @@ async function loadLocalTools(configId: string, userId: string): Promise<LocalTo
     const mcp = selection.tool_id ? mcpById.get(selection.tool_id) : null;
     const n8n = selection.n8n_integration_id ? n8nById.get(selection.n8n_integration_id) : null;
     const metadata = selection.metadata || {};
-    const parameters = mcp?.parameters_schema
+    const discoveredParameters = mcp?.parameters_schema
       || (selection.tool_source === 'n8n' ? n8nParameters(metadata) : metadata.parameters || metadata.parameters_schema)
       || {
         type: 'object',
@@ -213,6 +236,7 @@ async function loadLocalTools(configId: string, userId: string): Promise<LocalTo
           : {},
         required: selection.tool_name === 'web_search' ? ['query'] : []
       };
+    const parameters = normalizedToolParameters(selection.tool_name, discoveredParameters);
     return {
       name: selection.tool_name,
       description: mcp?.description || n8n?.description || metadata.description || `Execute ${selection.tool_name}`,
