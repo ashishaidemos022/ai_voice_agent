@@ -34,6 +34,9 @@ type SessionSummary = {
   presetName: string | null;
   totalTokens: number;
   costUsd: number;
+  provider: string | null;
+  durationSeconds: number;
+  messageCount: number;
   lastAt: string;
 };
 
@@ -59,6 +62,13 @@ function formatTokens(value: number) {
 
 function formatCost(value: number) {
   return currencyFormatter.format(Math.max(0, value || 0));
+}
+
+function formatDuration(value: number) {
+  const seconds = Math.max(0, Math.round(value || 0));
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return minutes ? `${minutes}m ${remainder}s` : `${remainder}s`;
 }
 
 function toDateKey(date: Date) {
@@ -177,6 +187,7 @@ export function UsageDashboard() {
           event.source === 'chat' || chatSessionId ? 'chat' : 'voice';
         const key = `${sessionType}:${sessionId}`;
         const presetId = metadata.agent_preset_id as string | undefined;
+        const provider = typeof metadata.provider === 'string' ? metadata.provider : null;
         const existing = summaries.get(key);
         const nextTotals = {
           totalTokens: (existing?.totalTokens || 0) + (event.total_tokens || 0),
@@ -192,6 +203,15 @@ export function UsageDashboard() {
           presetName: (presetId && presetMap.get(presetId)) || existing?.presetName || null,
           totalTokens: nextTotals.totalTokens,
           costUsd: nextTotals.costUsd,
+          provider: provider || existing?.provider || null,
+          durationSeconds: Math.max(
+            existing?.durationSeconds || 0,
+            Number(metadata.duration_seconds) || 0
+          ),
+          messageCount: Math.max(
+            existing?.messageCount || 0,
+            Number(metadata.message_count) || 0
+          ),
           lastAt
         });
       });
@@ -255,7 +275,7 @@ export function UsageDashboard() {
             <p className="text-xs uppercase tracking-[0.3em] text-white/40">Usage</p>
             <h2 className="text-2xl font-semibold text-white font-display">Usage Dashboard</h2>
             <p className="text-sm text-white/60 mt-2">
-              Track tokens and spend across voice, chat, and web search activity.
+              Track provider-reported tokens, session activity, and spend across voice, chat, and web search.
             </p>
           </div>
           <Button size="xs" className="self-start px-4" onClick={loadUsage} disabled={isLoading}>
@@ -354,6 +374,7 @@ export function UsageDashboard() {
               <div className="divide-y divide-white/5">
                 {sessionSummaries.slice(0, 25).map((session) => {
                   const isSelected = selectedSession?.key === session.key;
+                  const isElevenLabsAgent = session.provider === 'elevenlabs_agent';
                   return (
                     <button
                       key={session.key}
@@ -378,10 +399,26 @@ export function UsageDashboard() {
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="text-sm text-white">{formatTokens(session.totalTokens)}</p>
+                          {isElevenLabsAgent ? (
+                            <>
+                              <p className="text-sm font-medium text-white">
+                                {formatDuration(session.durationSeconds)} billed
+                              </p>
+                              <p className="text-[11px] text-amber-200/70">
+                                Tokens not reported
+                              </p>
+                            </>
+                          ) : (
+                            <p className="text-sm text-white">{formatTokens(session.totalTokens)} tokens</p>
+                          )}
                           <p className="text-xs text-white/50">{formatCost(session.costUsd)}</p>
                         </div>
                       </div>
+                      {isElevenLabsAgent && (
+                        <p className="text-xs text-white/45 mt-2">
+                          {session.messageCount} transcript {session.messageCount === 1 ? 'message' : 'messages'} · ElevenLabs reports duration and cost, not LLM tokens
+                        </p>
+                      )}
                       <p className="text-xs text-white/40 mt-2">Last update {new Date(session.lastAt).toLocaleString()}</p>
                     </button>
                   );
