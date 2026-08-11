@@ -531,6 +531,49 @@ function finiteNonNegative(value: unknown): number {
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 }
 
+function elapsedMetricMs(turn: any, candidates: string[]): number | null {
+  const metrics = turn?.conversation_turn_metrics?.metrics || turn?.conversation_turn_metrics || {};
+  for (const key of candidates) {
+    const raw = metrics?.[key];
+    const seconds = typeof raw === 'object' ? raw?.elapsed_time : raw;
+    const parsed = Number(seconds);
+    if (Number.isFinite(parsed)) return Math.max(0, parsed * 1000);
+  }
+  return null;
+}
+
+function latestMetric(values: Array<number | null>): number | null {
+  for (let index = values.length - 1; index >= 0; index -= 1) {
+    if (values[index] !== null) return values[index];
+  }
+  return null;
+}
+
+function providerMetrics(details: any) {
+  const transcript = Array.isArray(details?.transcript) ? details.transcript : [];
+  return {
+    scribe_ms: latestMetric(transcript.map((turn: any) => elapsedMetricMs(turn, [
+      'convai_asr_service_ttfb',
+      'convai_asr_provider_ttfb',
+      'asr_latency'
+    ]))),
+    llm_ms: latestMetric(transcript.map((turn: any) => elapsedMetricMs(turn, [
+      'convai_llm_service_ttfb',
+      'convai_llm_service_ttf_sentence',
+      'llm_latency'
+    ]))),
+    tts_ms: latestMetric(transcript.map((turn: any) => elapsedMetricMs(turn, [
+      'convai_tts_service_ttfb',
+      'convai_tts_model_ttfb',
+      'tts_latency'
+    ]))),
+    scribe_confidence: null,
+    credits_used: Number.isFinite(Number(details?.metadata?.cost))
+      ? Math.max(0, Number(details.metadata.cost))
+      : null
+  };
+}
+
 async function conversationDetails(apiKey: string, conversationId: string): Promise<any> {
   return providerJson(
     apiKey,
@@ -574,6 +617,7 @@ async function finalizeUsage(request: RequestPayload, vaUserId: string) {
   const costUsd = finiteNonNegative(metadata.cost_fiat);
   const messageCount = Array.isArray(details?.transcript) ? details.transcript.length : 0;
   const model = `${config.voice_provider_config?.model_id || config.voice_provider_config?.app_managed?.effective_tts_model_id || ''}`.trim() || null;
+  const providerMetricValues = providerMetrics(details);
 
   if (details?.status !== 'done' && details?.status !== 'failed') {
     return {
@@ -583,6 +627,7 @@ async function finalizeUsage(request: RequestPayload, vaUserId: string) {
       cost_usd: costUsd,
       message_count: messageCount,
       model,
+      provider_metrics: providerMetricValues,
       pending: true
     };
   }
@@ -615,7 +660,8 @@ async function finalizeUsage(request: RequestPayload, vaUserId: string) {
         message_count: messageCount,
         main_language: metadata.main_language || null,
         termination_reason: metadata.termination_reason || null,
-        elevenlabs_credits: finiteNonNegative(metadata.cost)
+        elevenlabs_credits: finiteNonNegative(metadata.cost),
+        provider_metrics: providerMetricValues
       }
     });
     if (usageError) throw new Error(`Unable to record usage: ${usageError.message}`);
@@ -645,7 +691,8 @@ async function finalizeUsage(request: RequestPayload, vaUserId: string) {
     duration_seconds: durationSeconds,
     cost_usd: costUsd,
     message_count: messageCount,
-    model
+    model,
+    provider_metrics: providerMetricValues
   };
 }
 

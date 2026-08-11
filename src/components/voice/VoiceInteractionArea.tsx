@@ -5,8 +5,8 @@ import {
   AudioWaveform,
   BrainCircuit,
   Clock3,
-  MessageSquareText,
   Mic,
+  PauseCircle,
   Radio,
   Square,
   Wrench,
@@ -15,6 +15,8 @@ import {
 import { AgentState } from '../../lib/realtime-client';
 import { OPENAI_MODELS } from '../../../shared/openai-models';
 import type { RealtimeConfig } from '../../types/voice-agent';
+import type { VoiceMetricsSnapshot, VoiceTurnMetric } from '../../lib/voice-metrics';
+import type { VoiceProviderMetrics } from '../../hooks/useVoiceAgent';
 import { AIAvatar } from './AIAvatar';
 import { AgentStatusBar } from './AgentStatusBar';
 
@@ -29,8 +31,8 @@ interface VoiceInteractionAreaProps {
   config: RealtimeConfig;
   sessionElapsedSeconds: number;
   turnCount: number;
-  messageCount: number;
-  toolCallCount: number;
+  voiceMetrics: VoiceMetricsSnapshot;
+  providerMetrics: VoiceProviderMetrics;
   onToggle: () => void;
 }
 
@@ -65,6 +67,65 @@ const formatDuration = (seconds: number) => {
   const secs = seconds % 60;
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
+
+const formatMetricMs = (value: number | null) => {
+  if (value === null || !Number.isFinite(value)) return '—';
+  return value >= 1000 ? `${(value / 1000).toFixed(1)} s` : `${Math.round(value)} ms`;
+};
+
+const formatMetricWpm = (value: number | null) =>
+  value === null || !Number.isFinite(value) ? '—' : `${Math.round(value)} wpm`;
+
+const lastValue = (turns: VoiceTurnMetric[], key: keyof VoiceTurnMetric) => {
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const value = turns[index][key];
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+  }
+  return null;
+};
+
+const p50Value = (turns: VoiceTurnMetric[], key: keyof VoiceTurnMetric) => {
+  if (turns.length < 3) return null;
+  const values = turns
+    .map((turn) => turn[key])
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+    .sort((a, b) => a - b);
+  if (values.length < 3) return null;
+  const middle = Math.floor(values.length / 2);
+  return values.length % 2 ? values[middle] : (values[middle - 1] + values[middle]) / 2;
+};
+
+function InputSparkline({ levels, micLive }: { levels: number[]; micLive: boolean }) {
+  const width = 112;
+  const height = 24;
+  const samples = levels.length ? levels : [0];
+  const points = samples.map((level, index) => {
+    const x = samples.length === 1 ? 0 : (index / (samples.length - 1)) * width;
+    const y = height - Math.min(1, level * 12) * (height - 2) - 1;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const hasSignal = levels.some((level) => level >= 0.01);
+  return (
+    <div className="flex items-center gap-2" title="Local microphone RMS over the last 10 seconds">
+      <div>
+        <p className="text-[9px] uppercase tracking-[0.14em] text-white/35">Mic · 10s</p>
+        <p className={`text-[9px] ${micLive && !hasSignal ? 'text-rose-300' : 'text-white/45'}`}>
+          {micLive ? (hasSignal ? 'signal live' : 'no signal') : 'paused'}
+        </p>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-6 w-28 overflow-visible" role="img" aria-label="Microphone input sparkline">
+        <path d={`M0 ${height - 1} H${width}`} stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+        <polyline
+          points={points}
+          fill="none"
+          stroke={micLive && !hasSignal ? '#fb7185' : '#67e8f9'}
+          strokeWidth="1.5"
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
+    </div>
+  );
+}
 
 const normalizeElevenLabsModel = (model?: string | null) => {
   if (model === 'eleven_v3') return 'eleven_v3_conversational';
@@ -249,20 +310,77 @@ export function VoiceInteractionArea({
   config,
   sessionElapsedSeconds,
   turnCount,
-  messageCount,
-  toolCallCount,
+  voiceMetrics,
+  providerMetrics,
   onToggle
 }: VoiceInteractionAreaProps) {
   const heights = buildWaveHeights(waveformData, volume);
   const isActive = agentState === 'listening' || agentState === 'speaking';
   const profile = runtimeProfile(config);
+  const turns = voiceMetrics.turns;
+  const lastFirstAudio = lastValue(turns, 'firstAudioMs');
+  const lastDeadAir = lastValue(turns, 'deadAirMs');
+  const lastBargeIn = lastValue(turns, 'bargeInMs');
+  const lastToolCall = lastValue(turns, 'toolCallMs');
+  const lastSpeechRate = lastValue(turns, 'speechRateWpm');
+  const liveDeadAir = voiceMetrics.liveDeadAirMs;
+  const deadAirTone = liveDeadAir !== null && liveDeadAir >= 3000
+    ? 'text-rose-300'
+    : liveDeadAir !== null && liveDeadAir >= 1500
+      ? 'text-amber-300'
+      : 'text-white';
   const stats = [
-    { label: 'Session', value: formatDuration(sessionElapsedSeconds), icon: Clock3 },
-    { label: 'Turns', value: `${turnCount}`, icon: Radio },
-    { label: 'Messages', value: `${messageCount}`, icon: MessageSquareText },
-    { label: 'Tool calls', value: `${toolCallCount}`, icon: Wrench },
-    { label: 'Input level', value: `${Math.round(Math.min(1, volume) * 100)}%`, icon: Activity }
+    {
+      label: 'First audio',
+      value: formatMetricMs(voiceMetrics.liveFirstAudioMs ?? lastFirstAudio),
+      p50: formatMetricMs(p50Value(turns, 'firstAudioMs')),
+      icon: Clock3,
+      valueClass: 'text-white'
+    },
+    {
+      label: 'Dead air',
+      value: formatMetricMs(liveDeadAir ?? lastDeadAir),
+      p50: formatMetricMs(p50Value(turns, 'deadAirMs')),
+      icon: PauseCircle,
+      valueClass: deadAirTone
+    },
+    {
+      label: 'Barge-in',
+      value: formatMetricMs(lastBargeIn),
+      p50: formatMetricMs(p50Value(turns, 'bargeInMs')),
+      icon: Radio,
+      valueClass: 'text-white',
+      flash: voiceMetrics.bargeInFlash
+    },
+    {
+      label: 'Tool call',
+      value: formatMetricMs(lastToolCall),
+      p50: formatMetricMs(p50Value(turns, 'toolCallMs')),
+      icon: Wrench,
+      valueClass: 'text-white'
+    },
+    {
+      label: 'Speech rate',
+      value: formatMetricWpm(lastSpeechRate),
+      p50: formatMetricWpm(p50Value(turns, 'speechRateWpm')),
+      icon: Activity,
+      valueClass: 'text-white'
+    }
   ];
+
+  const providerRows = config.voice_provider === 'elevenlabs_agent'
+    ? [
+        ['Scribe', formatMetricMs(providerMetrics.scribeMs)],
+        ['LLM', formatMetricMs(providerMetrics.llmMs)],
+        ['TTS', formatMetricMs(providerMetrics.ttsMs)],
+        ['Scribe confidence', providerMetrics.scribeConfidence === null ? '—' : `${Math.round(providerMetrics.scribeConfidence * 100)}%`],
+        ['Credits used', providerMetrics.creditsUsed === null ? '—' : providerMetrics.creditsUsed.toLocaleString()]
+      ]
+    : [
+        ['output_audio_buffer', formatMetricMs(providerMetrics.outputAudioBufferDurationMs)],
+        ['Audio tokens in', providerMetrics.inputAudioTokens === null ? '—' : providerMetrics.inputAudioTokens.toLocaleString()],
+        ['Audio tokens out', providerMetrics.outputAudioTokens === null ? '—' : providerMetrics.outputAudioTokens.toLocaleString()]
+      ];
 
   return (
     <section className="relative w-full rounded-3xl overflow-hidden bg-slate-950 shadow-2xl border border-white/10">
@@ -330,16 +448,39 @@ export function VoiceInteractionArea({
           {stats.map((stat) => {
             const StatIcon = stat.icon;
             return (
-              <div key={stat.label} className="rounded-xl border border-white/[0.08] bg-white/[0.035] px-3 py-2.5">
+              <motion.div
+                key={stat.label}
+                animate={stat.flash ? { borderColor: ['rgba(255,255,255,0.08)', 'rgba(34,211,238,0.8)', 'rgba(255,255,255,0.08)'] } : undefined}
+                transition={{ duration: 0.55 }}
+                className="rounded-xl border border-white/[0.08] bg-white/[0.035] px-3 py-2.5"
+              >
                 <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-white/40">
                   <StatIcon className="w-3.5 h-3.5 text-cyan-200/65" />
                   {stat.label}
                 </div>
-                <p className="text-base font-semibold text-white mt-1 tabular-nums">{stat.value}</p>
-              </div>
+                <p className={`text-base font-semibold mt-1 tabular-nums transition-colors ${stat.valueClass}`}>{stat.value}</p>
+                <p className="text-[10px] text-white/35 tabular-nums min-h-4">
+                  {stat.p50 === '—' ? (turns.length < 3 ? 'p50 after 3 turns' : '') : `p50 ${stat.p50}`}
+                </p>
+              </motion.div>
             );
           })}
         </div>
+
+        <details className="group rounded-xl border border-white/[0.08] bg-white/[0.025]">
+          <summary className="cursor-pointer list-none px-3.5 py-2.5 flex items-center justify-between text-xs text-white/60">
+            <span className="uppercase tracking-[0.16em]">{profile.provider} · provider diagnostics</span>
+            <span className="text-white/30 group-open:rotate-180 transition-transform">⌄</span>
+          </summary>
+          <div className={`grid gap-px border-t border-white/[0.08] bg-white/[0.06] ${providerRows.length >= 5 ? 'md:grid-cols-5' : 'md:grid-cols-3'}`}>
+            {providerRows.map(([label, value]) => (
+              <div key={label} className="bg-slate-950 px-3.5 py-3">
+                <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">{label}</p>
+                <p className="mt-1 text-sm font-medium text-white tabular-nums">{value}</p>
+              </div>
+            ))}
+          </div>
+        </details>
 
         <div className="relative rounded-2xl border border-white/10 bg-gradient-to-r from-slate-900/95 via-indigo-950/90 to-slate-900/95 overflow-hidden min-h-[108px]">
           <div className="absolute inset-0 grid items-center gap-[4px] px-5 opacity-70" style={{ gridTemplateColumns: `repeat(${heights.length}, minmax(0, 1fr))` }}>
@@ -371,10 +512,13 @@ export function VoiceInteractionArea({
           <div className="absolute inset-x-3 bottom-3 z-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl border border-white/10 bg-slate-950/80 backdrop-blur px-3 py-2">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-white/55">
               <span className="flex items-center gap-1.5"><Radio className="w-3 h-3 text-emerald-300" />{profile.transport}</span>
+              <span>{formatDuration(sessionElapsedSeconds)} session</span>
+              <span>{turnCount} {turnCount === 1 ? 'turn' : 'turns'}</span>
               <span>{profile.audio}</span>
               <span>{profile.turnTaking}</span>
             </div>
             <div className="flex items-center gap-2 self-end sm:self-auto">
+              <InputSparkline levels={voiceMetrics.inputLevels} micLive={isRecording} />
               <span className="text-[10px] text-white/45">{isRecording ? 'Mic live' : 'Mic paused'}</span>
               <button
                 onClick={onToggle}

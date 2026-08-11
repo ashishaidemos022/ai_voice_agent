@@ -28,12 +28,40 @@ import {
   recordBenchmarkWaveform
 } from '../lib/benchmark-instrumentation';
 import { loadBenchmarkAudio, saveBenchmarkPcm16Output } from '../lib/benchmark-audio-store';
+import {
+  EMPTY_VOICE_METRICS,
+  VoiceMetricsCollector,
+  type VoiceMetricsSnapshot,
+  type VoiceTurnMetric
+} from '../lib/voice-metrics';
 
 type LiveTranscripts = {
   user: Record<string, string>;
   assistant: Record<string, string>;
   activeUserId: string | null;
   activeAssistantId: string | null;
+};
+
+export type VoiceProviderMetrics = {
+  scribeMs: number | null;
+  llmMs: number | null;
+  ttsMs: number | null;
+  scribeConfidence: number | null;
+  creditsUsed: number | null;
+  outputAudioBufferDurationMs: number | null;
+  inputAudioTokens: number | null;
+  outputAudioTokens: number | null;
+};
+
+const EMPTY_PROVIDER_METRICS: VoiceProviderMetrics = {
+  scribeMs: null,
+  llmMs: null,
+  ttsMs: null,
+  scribeConfidence: null,
+  creditsUsed: null,
+  outputAudioBufferDurationMs: null,
+  inputAudioTokens: null,
+  outputAudioTokens: null
 };
 
 export function useVoiceAgent() {
@@ -56,6 +84,8 @@ export function useVoiceAgent() {
   const [ragInvoked, setRagInvoked] = useState(false);
   const [ragError, setRagError] = useState<string | null>(null);
   const [isRagLoading, setIsRagLoading] = useState(false);
+  const [voiceMetrics, setVoiceMetrics] = useState<VoiceMetricsSnapshot>(EMPTY_VOICE_METRICS);
+  const [providerMetrics, setProviderMetrics] = useState<VoiceProviderMetrics>(EMPTY_PROVIDER_METRICS);
 
   const audioManagerRef = useRef<AudioManager | null>(null);
   const realtimeClientRef = useRef<VoiceAdapter | null>(null);
@@ -72,6 +102,9 @@ export function useVoiceAgent() {
   const savedMessagesRef = useRef<Set<string>>(new Set());
   const isCleaningUpRef = useRef(false);
   const micStartedRef = useRef(false);
+  const isRecordingRef = useRef(false);
+  const agentStateRef = useRef<AgentState>('idle');
+  const sessionMetadataRef = useRef<Record<string, any>>({});
   const shouldPersistSession = useRef(true);
   const ragMetadataRef = useRef<{
     enabled: boolean;
@@ -89,17 +122,45 @@ export function useVoiceAgent() {
   const assistantTextBufferRef = useRef('');
   const usedAssistantTextRef = useRef(false);
   const benchmarkOutputChunksRef = useRef<string[]>([]);
+  const metricsCollectorRef = useRef<VoiceMetricsCollector | null>(null);
+  if (!metricsCollectorRef.current) {
+    metricsCollectorRef.current = new VoiceMetricsCollector(
+      setVoiceMetrics,
+      (_turn: VoiceTurnMetric, turns: VoiceTurnMetric[]) => {
+        const currentSessionId = sessionIdRef.current;
+        if (!currentSessionId) return;
+        const nextMetadata = {
+          ...sessionMetadataRef.current,
+          voice_metrics: {
+            version: 1,
+            clock: 'performance.now',
+            time_origin_ms: performance.timeOrigin,
+            turns
+          }
+        };
+        sessionMetadataRef.current = nextMetadata;
+        void supabase
+          .from('va_sessions')
+          .update({ session_metadata: nextMetadata, updated_at: new Date().toISOString() })
+          .eq('id', currentSessionId)
+          .then(({ error: metricError }) => {
+            if (metricError) console.warn('[useVoiceAgent] failed to persist turn metrics', metricError);
+          });
+      }
+    );
+  }
 
   const createSession = useCallback(async (sessionConfig: RealtimeConfig, configId: string | null) => {
     if (!configId) {
       throw new Error('An agent configuration must be selected before starting a session.');
     }
 
+    const sessionMetadata = { config: sessionConfig, configId };
     const { data, error: dbError } = await supabase
       .from('va_sessions')
       .insert({
         agent_id: configId,
-        session_metadata: { config: sessionConfig, configId },
+        session_metadata: sessionMetadata,
         status: 'active'
       })
       .select()
@@ -110,6 +171,7 @@ export function useVoiceAgent() {
       return null;
     }
 
+    sessionMetadataRef.current = sessionMetadata;
     return data.id;
   }, []);
 
@@ -199,6 +261,14 @@ export function useVoiceAgent() {
   useEffect(() => {
     configRef.current = config;
   }, [config]);
+
+  useEffect(() => {
+    isRecordingRef.current = isRecording;
+  }, [isRecording]);
+
+  useEffect(() => {
+    agentStateRef.current = agentState;
+  }, [agentState]);
 
   const mergeRealtimeConfig = useCallback((prev: RealtimeConfig | null, next: RealtimeConfig): RealtimeConfig => {
     const fallback = prev ?? next;
@@ -509,6 +579,7 @@ export function useVoiceAgent() {
           setLiveUserTranscript('');
         }
       } else {
+        metricsCollectorRef.current?.setAssistantTranscript(transcriptText);
         emitBenchmarkEvent('transcript.assistant_final', {
           transcript: transcriptText
         });
@@ -566,6 +637,7 @@ export function useVoiceAgent() {
       assistantTextBufferRef.current = '';
       if (!transcriptText) return;
       usedAssistantTextRef.current = true;
+      metricsCollectorRef.current?.setAssistantTranscript(transcriptText);
       await persistMessage('assistant', transcriptText);
       setLiveAssistantTranscript('');
     });
@@ -583,6 +655,7 @@ export function useVoiceAgent() {
       setIsProcessing(false);
       setAgentState('idle');
       setLiveAssistantTranscript('');
+      metricsCollectorRef.current?.markResponseDone();
       const usage = normalizeUsage(event?.response?.usage);
       if (usage && vaUser?.id) {
         await recordUsageEvent({
@@ -596,6 +669,10 @@ export function useVoiceAgent() {
           }
         });
       }
+    });
+
+    client.on('provider.metrics', (event: any) => {
+      setProviderMetrics((current) => ({ ...current, ...(event?.metrics || {}) }));
     });
 
     client.on('interruption', () => {
@@ -618,6 +695,7 @@ export function useVoiceAgent() {
         console.warn('[useVoiceAgent] Failed to parse tool arguments', parseError);
       }
       const toolEventId = id || crypto.randomUUID();
+      metricsCollectorRef.current?.toolDispatched(toolEventId);
       const startedAt = new Date().toISOString();
       setToolEvents((prev) => [
         ...prev,
@@ -656,6 +734,7 @@ export function useVoiceAgent() {
           )
         );
         client.sendFunctionCallOutput(id, result);
+        metricsCollectorRef.current?.toolReturned(toolEventId);
       } catch (toolError: any) {
         console.error('Tool execution error:', toolError);
         const message = toolError?.message || 'Tool execution failed';
@@ -672,11 +751,37 @@ export function useVoiceAgent() {
           )
         );
         client.sendFunctionCallOutput(id, { error: message });
+        metricsCollectorRef.current?.toolReturned(toolEventId);
       } finally {
         setIsProcessing(false);
       }
     });
   }, [persistMessage, resetTranscripts, vaUser?.id]);
+
+  const startMetering = useCallback(() => {
+    if (audioIntervalRef.current) clearInterval(audioIntervalRef.current);
+    audioIntervalRef.current = window.setInterval(() => {
+      const client = realtimeClientRef.current;
+      const waveform = client?.getWaveformData
+        ? client.getWaveformData()
+        : audioManagerRef.current?.getWaveformData();
+      const inputLevel = client?.getVolume
+        ? client.getVolume()
+        : (audioManagerRef.current?.getVolume() ?? 0);
+      const outputLevel = client?.getOutputVolume
+        ? client.getOutputVolume()
+        : (audioManagerRef.current?.getOutputVolume() ?? 0);
+      if (waveform) setWaveformData(new Uint8Array(waveform));
+      setVolume(inputLevel);
+      if (isRecordingRef.current) recordBenchmarkWaveform('user', inputLevel);
+      metricsCollectorRef.current?.sample(
+        inputLevel,
+        outputLevel,
+        isRecordingRef.current,
+        agentStateRef.current
+      );
+    }, 40);
+  }, []);
 
   const startRecording = useCallback(async () => {
     if (!realtimeClientRef.current) return;
@@ -694,21 +799,8 @@ export function useVoiceAgent() {
         });
       }
 
+      isRecordingRef.current = true;
       setIsRecording(true);
-
-      audioIntervalRef.current = setInterval(() => {
-        const waveform = realtimeClientRef.current?.getWaveformData
-          ? realtimeClientRef.current.getWaveformData()
-          : audioManagerRef.current?.getWaveformData();
-        const vol = realtimeClientRef.current?.getVolume
-          ? realtimeClientRef.current.getVolume()
-          : (audioManagerRef.current?.getVolume() ?? 0);
-        if (waveform) {
-          setWaveformData(new Uint8Array(waveform));
-          setVolume(vol);
-          recordBenchmarkWaveform('user', vol);
-        }
-      }, 40);
       micStartedRef.current = true;
     } catch (err) {
       console.error('Failed to start recording:', err);
@@ -723,15 +815,9 @@ export function useVoiceAgent() {
       if (!audioManagerRef.current) return;
       audioManagerRef.current.stopCapture();
     }
+    isRecordingRef.current = false;
     setIsRecording(false);
     micStartedRef.current = false;
-
-    if (audioIntervalRef.current) {
-      clearInterval(audioIntervalRef.current);
-      audioIntervalRef.current = null;
-    }
-    setWaveformData(null);
-    setVolume(0);
   }, []);
 
   const toggleRecording = useCallback(() => {
@@ -767,6 +853,8 @@ export function useVoiceAgent() {
         }
         const baseConfig = mergeRealtimeConfig(config, initConfig);
         const hydratedConfig = await hydrateConfigWithKnowledge(configId, baseConfig);
+        metricsCollectorRef.current?.reset();
+        setProviderMetrics(EMPTY_PROVIDER_METRICS);
         setConfig(hydratedConfig);
         setActiveConfigId(configId);
         activeConfigIdRef.current = configId;
@@ -898,6 +986,7 @@ export function useVoiceAgent() {
                         conversationId
                       });
                       console.log('[useVoiceAgent] ElevenLabs usage finalized', usage);
+                      return usage;
                     },
                     getSignedUrl: () =>
                       requestElevenLabsAgentSignedUrl({
@@ -949,6 +1038,7 @@ export function useVoiceAgent() {
           }
         }
         console.log('[useVoiceAgent] realtime socket connected');
+        startMetering();
         setAgentState('idle');
         const activeBenchmark = getBenchmarkTrace();
         if (
@@ -998,6 +1088,7 @@ export function useVoiceAgent() {
       hydrateConfigWithKnowledge,
       mergeRealtimeConfig,
       resetTranscripts,
+      startMetering,
       syncRagMetadata,
       vaUser?.id
     ]
@@ -1012,6 +1103,10 @@ export function useVoiceAgent() {
     });
 
     stopRecording();
+    if (audioIntervalRef.current) {
+      clearInterval(audioIntervalRef.current);
+      audioIntervalRef.current = null;
+    }
 
     if (realtimeClientRef.current) {
       try {
@@ -1062,6 +1157,8 @@ export function useVoiceAgent() {
     setRagError(null);
     setRagInvoked(false);
     setIsRagLoading(false);
+    setVoiceMetrics(EMPTY_VOICE_METRICS);
+    setProviderMetrics(EMPTY_PROVIDER_METRICS);
     syncRagMetadata(config);
     resetTranscripts();
     setIsProcessing(false);
@@ -1169,6 +1266,8 @@ export function useVoiceAgent() {
     ragInvoked,
     ragError,
     isRagLoading,
+    voiceMetrics,
+    providerMetrics,
     setConfig: updateConfig,
     setActiveConfig,
     initialize,

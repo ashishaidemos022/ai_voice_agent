@@ -23,6 +23,7 @@ const FORWARDED_EVENTS: VoiceEventType[] = [
   'response.created',
   'response.done',
   'usage.reported',
+  'provider.metrics',
   'interruption',
   'function_call',
   'conversation.item.created',
@@ -139,6 +140,10 @@ export class ElevenLabsVoiceAdapter implements VoiceAdapter {
 
   injectAudio(encodedAudio: ArrayBuffer): Promise<void> {
     return this.realtime.injectAudio(encodedAudio);
+  }
+
+  getOutputVolume(): number {
+    return this.realtime.getOutputVolume();
   }
 
   on(eventType: VoiceEventType, handler: (event: any) => void): void {

@@ -23,5 +23,6 @@ export interface VoiceAdapter {
   stopCapture?: () => void;
   getWaveformData?: () => Uint8Array | null;
   getVolume?: () => number;
+  getOutputVolume?: () => number;
   injectAudio?: (encodedAudio: ArrayBuffer) => Promise<void>;
 }

@@ -14,6 +14,7 @@ export class AudioManager {
   private initializationPromise: Promise<void> | null = null;
   private isPlayingAudio = false;
   private scheduledSources = new Map<AudioBufferSourceNode, () => void>();
+  private playbackLevels = new Map<AudioBufferSourceNode, number>();
   private nextPlaybackTime = 0;
   private workletReady = false;
   private readonly targetSampleRate = 24000;
@@ -231,6 +232,11 @@ export class AudioManager {
     return Math.sqrt(sum / dataArray.length);
   }
 
+  getOutputVolume(): number {
+    if (!this.playbackLevels.size) return 0;
+    return Math.max(...this.playbackLevels.values());
+  }
+
   async playAudioData(base64Audio: string): Promise<void> {
     return new Promise((resolve) => {
       try {
@@ -298,10 +304,15 @@ export class AudioManager {
       this.lastScheduledPlaybackEndMs = this.nextPlaybackTime * 1000;
       this.isPlayingAudio = true;
       this.scheduledSources.set(source, resolve);
+      const channel = buffer.getChannelData(0);
+      let energy = 0;
+      for (let index = 0; index < channel.length; index += 1) energy += channel[index] * channel[index];
+      this.playbackLevels.set(source, Math.sqrt(energy / Math.max(1, channel.length)));
 
       source.onended = () => {
         const pendingResolve = this.scheduledSources.get(source);
         this.scheduledSources.delete(source);
+        this.playbackLevels.delete(source);
         source.disconnect();
         pendingResolve?.();
         if (this.scheduledSources.size === 0) {
@@ -337,6 +348,7 @@ export class AudioManager {
       resolve();
     }
     this.scheduledSources.clear();
+    this.playbackLevels.clear();
     if (wasPlaying) emitBenchmarkEvent('interruption.audio_stopped');
   }
 

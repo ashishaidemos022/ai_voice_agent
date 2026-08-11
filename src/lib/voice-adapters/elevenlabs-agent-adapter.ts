@@ -6,7 +6,7 @@ import { beginBenchmarkTurn, emitBenchmarkEvent, emitBenchmarkMilestone } from '
 
 type DirectAgentSession = {
   getSignedUrl: () => Promise<string>;
-  finalizeUsage?: (conversationId: string) => Promise<void>;
+  finalizeUsage?: (conversationId: string) => Promise<any>;
   userId?: string;
 };
 
@@ -304,6 +304,10 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
     return this.conversation?.getInputVolume() ?? 0;
   }
 
+  getOutputVolume(): number {
+    return this.conversation?.getOutputVolume() ?? 0;
+  }
+
   on(eventType: VoiceEventType, handler: (event: any) => void): void {
     if (!this.handlers.has(eventType)) this.handlers.set(eventType, new Set());
     this.handlers.get(eventType)!.add(handler);
@@ -385,7 +389,21 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
     if (this.usageFinalized || !this.conversationId || !this.session.finalizeUsage) return;
     this.usageFinalized = true;
     try {
-      await this.session.finalizeUsage(this.conversationId);
+      const usage = await this.session.finalizeUsage(this.conversationId);
+      const metrics = usage?.provider_metrics;
+      if (metrics) {
+        this.emit('provider.metrics', {
+          type: 'provider.metrics',
+          provider: 'elevenlabs_agent',
+          metrics: {
+            scribeMs: metrics.scribe_ms,
+            llmMs: metrics.llm_ms,
+            ttsMs: metrics.tts_ms,
+            scribeConfidence: metrics.scribe_confidence,
+            creditsUsed: metrics.credits_used
+          }
+        });
+      }
     } catch (error) {
       // A failed finalization must be visible, but it should never turn a
       // successfully completed voice call into a client-facing call error.

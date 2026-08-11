@@ -225,6 +225,8 @@ export function VoiceAgent({
     ragInvoked,
     ragError,
     isRagLoading,
+    voiceMetrics,
+    providerMetrics,
     setConfig,
     setActiveConfig,
     initialize,
@@ -238,8 +240,8 @@ export function VoiceAgent({
       setSessionElapsedSeconds(0);
       return;
     }
-    const startedAt = Date.now();
-    const updateElapsed = () => setSessionElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    const startedAt = performance.now();
+    const updateElapsed = () => setSessionElapsedSeconds(Math.max(0, Math.floor((performance.now() - startedAt) / 1000)));
     updateElapsed();
     const timer = window.setInterval(updateElapsed, 1000);
     return () => window.clearInterval(timer);
@@ -1082,8 +1084,8 @@ export function VoiceAgent({
                                     config={config ?? currentConfig}
                                     sessionElapsedSeconds={sessionElapsedSeconds}
                                     turnCount={messages.filter((message) => message.role === 'user').length}
-                                    messageCount={messages.length}
-                                    toolCallCount={toolEvents.length}
+                                    voiceMetrics={voiceMetrics}
+                                    providerMetrics={providerMetrics}
                                   />
 
                                   <div className="flex-1 min-h-0 overflow-hidden">

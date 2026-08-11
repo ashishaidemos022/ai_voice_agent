@@ -48,6 +48,13 @@ export type ElevenLabsConversationUsage = {
   message_count: number;
   model: string | null;
   pending?: boolean;
+  provider_metrics?: {
+    scribe_ms: number | null;
+    llm_ms: number | null;
+    tts_ms: number | null;
+    scribe_confidence: number | null;
+    credits_used: number | null;
+  };
 };
 
 function functionUrl(): string {

@@ -38,6 +38,7 @@ export type RealtimeEvent =
   | { type: 'response.created'; id?: string }
   | { type: 'response.done'; response: any }
   | { type: 'usage.reported'; usage: any; response?: any }
+  | { type: 'provider.metrics'; provider: string; metrics: Record<string, number | null> }
   | { type: 'interruption' }
   | {
       type: 'function_call';
@@ -90,6 +91,9 @@ export class RealtimeAPIClient {
   private remoteRecordingChunks: Blob[] = [];
   private remoteWaveformContext: AudioContext | null = null;
   private remoteWaveformTimer: number | null = null;
+  private remoteAnalyser: AnalyserNode | null = null;
+  private remoteSamples: Uint8Array | null = null;
+  private outputAudioBufferStartedAt: number | null = null;
 
   constructor(config: RealtimeConfig, options?: RealtimeClientOptions) {
     this.config = config;
@@ -134,6 +138,8 @@ export class RealtimeAPIClient {
       void this.remoteWaveformContext.close();
     }
     this.remoteWaveformContext = null;
+    this.remoteAnalyser = null;
+    this.remoteSamples = null;
     if (this.webrtc) {
       return this.connectWebRTC();
     }
@@ -227,23 +233,19 @@ export class RealtimeAPIClient {
     this.remoteAudio = audio;
     pc.ontrack = (event) => {
       audio.srcObject = event.streams[0];
-      if (getBenchmarkTrace() && !this.remoteWaveformContext) {
+      if (!this.remoteWaveformContext) {
         try {
           this.remoteWaveformContext = new AudioContext();
           const source = this.remoteWaveformContext.createMediaStreamSource(event.streams[0]);
-          const analyser = this.remoteWaveformContext.createAnalyser();
-          analyser.fftSize = 256;
-          source.connect(analyser);
-          const samples = new Uint8Array(analyser.frequencyBinCount);
-          this.remoteWaveformTimer = window.setInterval(() => {
-            analyser.getByteTimeDomainData(samples);
-            let energy = 0;
-            samples.forEach((sample) => {
-              const value = (sample - 128) / 128;
-              energy += value * value;
-            });
-            recordBenchmarkWaveform('output', Math.sqrt(energy / samples.length));
-          }, 40);
+          this.remoteAnalyser = this.remoteWaveformContext.createAnalyser();
+          this.remoteAnalyser.fftSize = 256;
+          source.connect(this.remoteAnalyser);
+          this.remoteSamples = new Uint8Array(this.remoteAnalyser.frequencyBinCount);
+          if (getBenchmarkTrace()) {
+            this.remoteWaveformTimer = window.setInterval(() => {
+              recordBenchmarkWaveform('output', this.getOutputVolume());
+            }, 40);
+          }
         } catch (error) {
           console.warn('[VoiceBenchmark] native waveform capture unavailable', error);
         }
@@ -625,7 +627,38 @@ export class RealtimeAPIClient {
             usage: response.usage,
             response
           });
+          this.emit({
+            type: 'provider.metrics',
+            provider: 'openai_realtime',
+            metrics: {
+              inputAudioTokens: response.usage?.input_token_details?.audio_tokens ?? null,
+              outputAudioTokens: response.usage?.output_token_details?.audio_tokens ?? null
+            }
+          });
         }
+        break;
+      }
+
+      case 'output_audio_buffer.started':
+        this.outputAudioBufferStartedAt = performance.now();
+        this.emit({
+          type: 'provider.metrics',
+          provider: 'openai_realtime',
+          metrics: { outputAudioBufferStarted: 0 }
+        });
+        break;
+
+      case 'output_audio_buffer.stopped': {
+        const stoppedAt = performance.now();
+        this.emit({
+          type: 'provider.metrics',
+          provider: 'openai_realtime',
+          metrics: {
+            outputAudioBufferDurationMs:
+              this.outputAudioBufferStartedAt === null ? null : stoppedAt - this.outputAudioBufferStartedAt
+          }
+        });
+        this.outputAudioBufferStartedAt = null;
         break;
       }
 
@@ -982,6 +1015,8 @@ export class RealtimeAPIClient {
       void this.remoteWaveformContext.close();
     }
     this.remoteWaveformContext = null;
+    this.remoteAnalyser = null;
+    this.remoteSamples = null;
     void this.audioContext?.close();
     this.audioContext = null;
     this.analyser = null;
@@ -1030,5 +1065,18 @@ export class RealtimeAPIClient {
     if (!waveform?.length) return 0;
     const sum = waveform.reduce((total, value) => total + Math.pow((value - 128) / 128, 2), 0);
     return Math.min(1, Math.sqrt(sum / waveform.length));
+  }
+
+  getOutputVolume(): number {
+    if (!this.webrtc) return getAudioManager().getOutputVolume();
+    if (!this.remoteAnalyser || !this.remoteSamples) return 0;
+    const samples = this.remoteSamples as Uint8Array<ArrayBuffer>;
+    this.remoteAnalyser.getByteTimeDomainData(samples);
+    let energy = 0;
+    for (let index = 0; index < samples.length; index += 1) {
+      const value = (samples[index] - 128) / 128;
+      energy += value * value;
+    }
+    return Math.min(1, Math.sqrt(energy / Math.max(1, samples.length)));
   }
 }
