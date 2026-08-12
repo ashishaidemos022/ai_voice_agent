@@ -51,6 +51,7 @@ export type RealtimeEvent =
 
 type RealtimeClientOptions = {
   apiKey?: string;
+  provider?: 'openai' | 'xai';
   tools?: ReturnType<typeof getToolSchemas>;
   allowInterruptions?: boolean;
   textOnly?: boolean;
@@ -81,6 +82,7 @@ export class RealtimeAPIClient {
   private sessionUpdateSent = false;
   private pendingClear = true;
   private overrideApiKey?: string;
+  private provider: 'openai' | 'xai';
   private overrideTools?: ReturnType<typeof getToolSchemas>;
   private activeResponseCount = 0;
   private cancelPending = false;
@@ -98,6 +100,7 @@ export class RealtimeAPIClient {
   constructor(config: RealtimeConfig, options?: RealtimeClientOptions) {
     this.config = config;
     this.overrideApiKey = options?.apiKey;
+    this.provider = options?.provider ?? 'openai';
     this.overrideTools = options?.tools;
     this.allowInterruptions = options?.allowInterruptions ?? true;
     this.textOnly = options?.textOnly ?? false;
@@ -146,13 +149,19 @@ export class RealtimeAPIClient {
 
     const apiKey = this.overrideApiKey;
     if (!apiKey) {
-      throw new Error('WebSocket transport requires a server-issued ephemeral OpenAI key');
+      throw new Error('WebSocket transport requires a server-issued ephemeral provider key');
     }
 
     return new Promise((resolve, reject) => {
       try {
-        const url = `wss://api.openai.com/v1/realtime?model=${this.config.model}`;
-        this.ws = new WebSocket(url, ['realtime', `openai-insecure-api-key.${apiKey}`]);
+        const isXAI = this.provider === 'xai';
+        const url = isXAI
+          ? `wss://api.x.ai/v1/realtime?model=${encodeURIComponent(this.config.model)}`
+          : `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(this.config.model)}`;
+        const protocols = isXAI
+          ? [`xai-client-secret.${apiKey}`]
+          : ['realtime', `openai-insecure-api-key.${apiKey}`];
+        this.ws = new WebSocket(url, protocols);
 
         this.ws.onopen = () => {
           console.log('WebSocket connected successfully');
@@ -369,9 +378,33 @@ export class RealtimeAPIClient {
       this.config.rag_mode === 'guardrail'
         ? `${this.config.instructions}\n\nIf relevant knowledge from the approved knowledge base is unavailable, respond with "I do not have enough knowledge to answer that yet."\n\n${languageGuard}${a2uiInstruction}`
         : `${this.config.instructions}\n\n${languageGuard}${a2uiInstruction}`;
+    const isXAI = this.provider === 'xai';
     const sessionConfig: any = {
       type: 'session.update',
-      session: {
+      session: isXAI ? {
+        voice: this.config.voice,
+        instructions: ragInstructions,
+        reasoning: {
+          effort: this.config.voice_provider_config?.reasoning_effort === 'none' ? 'none' : 'high'
+        },
+        tools,
+        tool_choice: 'auto',
+        turn_detection: this.config.turn_detection === null
+          ? null
+          : this.config.turn_detection ?? {
+              type: 'server_vad',
+              threshold: 0.75,
+              prefix_padding_ms: 150,
+              silence_duration_ms: 700
+            },
+        audio: {
+          input: {
+            format: { type: 'audio/pcm', rate: 24000 },
+            transcription: { model: 'grok-transcribe', language_hint: 'en' }
+          },
+          output: { format: { type: 'audio/pcm', rate: 24000 } }
+        }
+      } : {
         type: 'realtime',
         model: this.config.model,
         output_modalities: this.textOnly ? ['text'] : ['audio'],
@@ -381,19 +414,21 @@ export class RealtimeAPIClient {
         max_output_tokens: this.config.max_response_output_tokens
       }
     };
-    sessionConfig.session.audio = {
+    if (!isXAI) sessionConfig.session.audio = {
       input: {
         ...(!this.webrtc ? { format: { type: 'audio/pcm', rate: 24000 } } : {}),
         transcription: {
           model: OPENAI_MODELS.transcription.accurate,
           language: 'en'
         },
-        turn_detection: this.config.turn_detection ?? {
-          type: 'server_vad',
-          threshold: 0.75,
-          prefix_padding_ms: 150,
-          silence_duration_ms: 700
-        }
+        turn_detection: this.config.turn_detection === null
+          ? null
+          : this.config.turn_detection ?? {
+              type: 'server_vad',
+              threshold: 0.75,
+              prefix_padding_ms: 150,
+              silence_duration_ms: 700
+            }
       },
       ...(!this.textOnly
         ? {
@@ -470,6 +505,16 @@ export class RealtimeAPIClient {
         this.emit({
           type: 'transcript.delta',
           delta: message.delta,
+          role: 'user',
+          itemId: message.item_id
+        });
+        break;
+
+      case 'conversation.item.input_audio_transcription.updated':
+        this.emit({ type: 'transcript.reset', role: 'user', itemId: message.item_id });
+        this.emit({
+          type: 'transcript.delta',
+          delta: message.transcript || '',
           role: 'user',
           itemId: message.item_id
         });
@@ -629,7 +674,7 @@ export class RealtimeAPIClient {
           });
           this.emit({
             type: 'provider.metrics',
-            provider: 'openai_realtime',
+            provider: this.provider === 'xai' ? 'xai_realtime' : 'openai_realtime',
             metrics: {
               inputAudioTokens: response.usage?.input_token_details?.audio_tokens ?? null,
               outputAudioTokens: response.usage?.output_token_details?.audio_tokens ?? null
@@ -643,7 +688,7 @@ export class RealtimeAPIClient {
         this.outputAudioBufferStartedAt = performance.now();
         this.emit({
           type: 'provider.metrics',
-          provider: 'openai_realtime',
+          provider: this.provider === 'xai' ? 'xai_realtime' : 'openai_realtime',
           metrics: { outputAudioBufferStarted: 0 }
         });
         break;
@@ -652,7 +697,7 @@ export class RealtimeAPIClient {
         const stoppedAt = performance.now();
         this.emit({
           type: 'provider.metrics',
-          provider: 'openai_realtime',
+          provider: this.provider === 'xai' ? 'xai_realtime' : 'openai_realtime',
           metrics: {
             outputAudioBufferDurationMs:
               this.outputAudioBufferStartedAt === null ? null : stoppedAt - this.outputAudioBufferStartedAt

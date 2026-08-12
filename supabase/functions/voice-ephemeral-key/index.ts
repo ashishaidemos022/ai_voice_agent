@@ -11,6 +11,7 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
 const OPENAI_BASE_URL = Deno.env.get('OPENAI_BASE_URL') || 'https://api.openai.com/v1';
+const XAI_BASE_URL = Deno.env.get('XAI_BASE_URL') || 'https://api.x.ai/v1';
 const SUPPORTED_REALTIME_VOICES = [
   'alloy',
   'ash',
@@ -184,6 +185,9 @@ function resolveAgentVoice(
   if (provider === 'openai_realtime') {
     return sanitizeVoice(embedTtsVoice || agentVoice || null);
   }
+  if (provider === 'xai_realtime') {
+    return agentVoice || 'eve';
+  }
   return agentVoiceId || null;
 }
 
@@ -277,14 +281,42 @@ async function createEphemeralSession(
   origin: string | null,
   tools: SerializedToolDefinition[]
 ) {
-  if (!OPENAI_API_KEY) {
-    throw new Error('OPENAI_API_KEY not set');
-  }
-
   const agentConfig = agent.agent_config;
   if (!agentConfig) {
     throw new Error('Agent configuration missing for embed');
   }
+
+  if (agentConfig.voice_provider === 'xai_realtime') {
+    if (!agentConfig.voice_provider_key_id) throw new Error('xAI provider key is missing');
+    const { data: keyRow, error: keyError } = await adminClient
+      .from('va_provider_keys')
+      .select('provider,encrypted_key,user_id')
+      .eq('id', agentConfig.voice_provider_key_id)
+      .eq('user_id', agentConfig.user_id)
+      .maybeSingle();
+    if (keyError) throw keyError;
+    if (!keyRow || keyRow.provider !== 'xai') throw new Error('A valid xAI provider key is required');
+    let xaiApiKey = '';
+    try {
+      xaiApiKey = atob(keyRow.encrypted_key);
+    } catch {
+      throw new Error('Stored xAI provider key could not be decoded');
+    }
+    const response = await fetch(`${XAI_BASE_URL}/realtime/client_secrets`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${xaiApiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ expires_after: { seconds: 300 } })
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload?.error?.message || 'Failed to create xAI realtime session');
+    if (!payload?.value) throw new Error('xAI did not return a client secret');
+    return { token: payload.value, expires_at: payload.expires_at ?? null, session: payload };
+  }
+
+  if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY not set');
 
   const model = normalizeRealtimeModel(
     agentConfig.model ||
@@ -407,6 +439,9 @@ function validateEmbedVoiceProvider(agentConfig: VoiceEmbedRecord['agent_config'
     if (!agentConfig.voice_provider_config?.agent_id) {
       throw new Error('ElevenLabs Agent ID is missing for this embed preset');
     }
+  }
+  if (provider === 'xai_realtime' && !agentConfig.voice_provider_key_id) {
+    throw new Error('xAI provider key is missing for this embed preset');
   }
   if (provider === 'personaplex') {
     if (!agentConfig.voice_id) {
@@ -946,7 +981,7 @@ Deno.serve(async (req: Request) => {
             }))
           },
           settings: {
-            rtc_enabled: embed.rtc_enabled,
+            rtc_enabled: provider === 'openai_realtime' && embed.rtc_enabled,
             allowed_origins: embed.allowed_origins || [],
             appearance: {
               logo_url: embed.logo_url ?? null,
@@ -1040,7 +1075,7 @@ Deno.serve(async (req: Request) => {
       voice_embed_id: embed.id,
       voice_embed_public_id: embed.public_id,
       client_session_id: body.client_session_id || null,
-      transport: embed.rtc_enabled ? 'webrtc' : 'websocket',
+      transport: provider === 'openai_realtime' && embed.rtc_enabled ? 'webrtc' : 'websocket',
       embed_origin: originHeader || null
     };
     const supabaseSessionId = await ensureSupabaseSession(embed, metadata);
@@ -1067,7 +1102,9 @@ Deno.serve(async (req: Request) => {
           voice_id: agentConfig.voice_id || null,
           voice_sample_rate_hz: agentConfig.voice_sample_rate_hz || null,
           turn_detection: resolveTurnDetection(agentConfig),
-          model: normalizeRealtimeModel(agentConfig.model || OPENAI_MODELS.realtime.default),
+          model: provider === 'xai_realtime'
+            ? (agentConfig.model || 'grok-voice-latest')
+            : normalizeRealtimeModel(agentConfig.model || OPENAI_MODELS.realtime.default),
           instructions: agentConfig.instructions || '',
           a2ui_enabled: agentConfig.a2ui_enabled ?? false,
           rag_enabled: agentConfig.rag_enabled ?? false,
@@ -1079,7 +1116,7 @@ Deno.serve(async (req: Request) => {
           }))
         },
         settings: {
-          rtc_enabled: embed.rtc_enabled,
+          rtc_enabled: provider === 'openai_realtime' && embed.rtc_enabled,
           appearance: {
             logo_url: embed.logo_url ?? null,
             brand_name: embed.brand_name ?? null,

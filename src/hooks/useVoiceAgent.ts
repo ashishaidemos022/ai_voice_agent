@@ -920,7 +920,7 @@ export function useVoiceAgent() {
         if (!audioManagerRef.current) {
           audioManagerRef.current = getAudioManager();
         }
-        if (audioManagerRef.current && (provider === 'personaplex' || provider === 'elevenlabs_tts')) {
+        if (audioManagerRef.current && (provider === 'personaplex' || provider === 'elevenlabs_tts' || provider === 'xai_realtime')) {
           if (audioManagerRef.current.isReady()) {
             console.warn('[useVoiceAgent] AudioManager already ready - reusing singleton');
           } else {
@@ -952,6 +952,9 @@ export function useVoiceAgent() {
             requestRealtimeWebSocketSecret(configId, benchmarkRunId)
           ]);
           elevenLabsSession = gateway;
+          realtimeWebSocketToken = realtimeSecret.token;
+        } else if (provider === 'xai_realtime') {
+          const realtimeSecret = await requestRealtimeWebSocketSecret(configId, benchmarkRunId);
           realtimeWebSocketToken = realtimeSecret.token;
         }
 
@@ -995,6 +998,11 @@ export function useVoiceAgent() {
                         origin: window.location.origin
                       })
                   })
+                : provider === 'xai_realtime'
+                  ? new RealtimeAPIClient(hydratedConfig, {
+                      apiKey: realtimeWebSocketToken || undefined,
+                      provider: 'xai'
+                    })
                 : await (async () => {
                     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
                     const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;

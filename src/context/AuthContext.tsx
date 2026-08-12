@@ -16,7 +16,7 @@ export type VaUserProfile = {
 export type ProviderKey = {
   id: string;
   user_id: string;
-  provider: 'openai' | 'elevenlabs';
+  provider: 'openai' | 'xai' | 'elevenlabs';
   key_alias: string;
   encrypted_key: string;
   last_four: string | null;

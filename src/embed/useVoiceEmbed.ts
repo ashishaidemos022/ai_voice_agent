@@ -50,7 +50,7 @@ export type UseVoiceEmbedResult = {
     name: string;
     summary?: string | null;
     voice?: string | null;
-    voice_provider?: 'openai_realtime' | 'personaplex' | 'elevenlabs_tts' | 'elevenlabs_agent' | null;
+    voice_provider?: 'openai_realtime' | 'xai_realtime' | 'personaplex' | 'elevenlabs_tts' | 'elevenlabs_agent' | null;
     a2ui_enabled?: boolean;
   } | null;
   isLoadingMeta: boolean;
@@ -593,11 +593,16 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
           throw new Error('OpenAI realtime token is missing for ElevenLabs embed session');
         }
       }
+      if (provider === 'xai_realtime' && !json?.token) {
+        throw new Error('xAI realtime token is missing for this embed session');
+      }
       const resolvedVoice = provider === 'personaplex'
         ? (json?.agent?.voice_id || null)
         : provider === 'elevenlabs_tts' || provider === 'elevenlabs_agent'
           ? (json?.agent?.voice_id || null)
-        : sanitizeVoice(json?.agent?.voice || null);
+          : provider === 'xai_realtime'
+            ? (json?.agent?.voice || 'eve')
+            : sanitizeVoice(json?.agent?.voice || null);
       setAgentMeta((prev) => ({
         name: json?.agent?.name || prev?.name || 'Voice Agent',
         summary: json?.agent?.summary || prev?.summary || null,
@@ -615,7 +620,7 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
 
       const realtimeConfig: RealtimeConfig = {
         model: json?.agent?.model || OPENAI_MODELS.realtime.default,
-        voice: sanitizeVoice(json?.agent?.voice),
+        voice: provider === 'xai_realtime' ? (json?.agent?.voice || 'eve') : sanitizeVoice(json?.agent?.voice),
         voice_provider: provider,
         voice_provider_config: json?.agent?.voice_provider_config ?? {},
         voice_persona_prompt: json?.agent?.voice_persona_prompt ?? null,
@@ -663,6 +668,12 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
             sessionId: json.session_id,
             origin: window.location.origin
           })
+        });
+      } else if (provider === 'xai_realtime') {
+        realtimeClient = new RealtimeAPIClient(realtimeConfig, {
+          apiKey: json.token,
+          provider: 'xai',
+          allowInterruptions: true
         });
       } else {
         const useWebRTC = Boolean(json?.settings?.rtc_enabled);
@@ -755,7 +766,9 @@ export function useVoiceEmbedSession(publicId: string): UseVoiceEmbedResult {
           ? (json?.agent?.voice_id || prev?.voice || null)
           : provider === 'elevenlabs_tts' || provider === 'elevenlabs_agent'
             ? (json?.agent?.voice_id || prev?.voice || null)
-          : sanitizeVoice(json?.agent?.voice || prev?.voice || null);
+            : provider === 'xai_realtime'
+              ? (json?.agent?.voice || prev?.voice || 'eve')
+              : sanitizeVoice(json?.agent?.voice || prev?.voice || null);
         return {
           name: json?.agent?.name || prev?.name || 'Voice Agent',
           summary: json?.agent?.summary || prev?.summary || null,

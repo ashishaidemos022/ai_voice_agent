@@ -33,6 +33,7 @@ import { Card, CardHeader } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { ToolSelectionPanel } from '../settings/ToolSelectionPanel';
 import { OPENAI_MODELS } from '../../../shared/openai-models';
+import { XAI_VOICE_MODELS, XAI_VOICES } from '../../../shared/xai-voice-models';
 import {
   listElevenLabsAgents,
   listElevenLabsVoices,
@@ -59,7 +60,7 @@ interface SettingsPanelProps {
 
 type ProviderKeyRow = {
   id: string;
-  provider: 'openai' | 'elevenlabs';
+  provider: 'openai' | 'xai' | 'elevenlabs';
   key_alias: string;
   last_four: string | null;
   created_at: string;
@@ -99,6 +100,11 @@ const VOICE_PROVIDERS = [
     value: 'openai_realtime',
     label: 'OpenAI Realtime',
     description: 'Low-latency realtime voice with tool calling.'
+  },
+  {
+    value: 'xai_realtime',
+    label: 'Grok Voice (direct)',
+    description: 'Native xAI speech-to-speech with Grok reasoning and tool calling.'
   },
   {
     value: 'personaplex',
@@ -180,6 +186,7 @@ export function SettingsPanel({
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [localProviderKeyId, setLocalProviderKeyId] = useState<string | null>(providerKeyId);
   const [localElevenLabsKeyId, setLocalElevenLabsKeyId] = useState<string | null>(null);
+  const [localXAIKeyId, setLocalXAIKeyId] = useState<string | null>(null);
   const [providerKeys, setProviderKeys] = useState<ProviderKeyRow[]>([]);
   const [keyAlias, setKeyAlias] = useState('Primary');
   const [apiKey, setApiKey] = useState('');
@@ -209,23 +216,30 @@ export function SettingsPanel({
   const latestOpenAIKeyId = providerKeys.find((key) => key.provider === 'openai')?.id ?? null;
   const latestElevenLabsKeyId = providerKeys.find((key) => key.provider === 'elevenlabs')?.id ?? null;
   const latestElevenLabsKey = providerKeys.find((key) => key.provider === 'elevenlabs') ?? null;
+  const latestXAIKeyId = providerKeys.find((key) => key.provider === 'xai')?.id ?? null;
+  const latestXAIKey = providerKeys.find((key) => key.provider === 'xai') ?? null;
   const effectiveOpenAIKeyId = localProviderKeyId ?? providerKeyId ?? latestOpenAIKeyId;
   const effectiveElevenLabsKeyId = localElevenLabsKeyId ?? latestElevenLabsKeyId;
   const resolvedProvider = config.voice_provider ?? 'openai_realtime';
   const isPersonaPlex = resolvedProvider === 'personaplex';
   const isElevenLabsTts = resolvedProvider === 'elevenlabs_tts';
   const isElevenLabsAgent = resolvedProvider === 'elevenlabs_agent';
+  const isXAI = resolvedProvider === 'xai_realtime';
   const isAppManagedElevenLabs = isElevenLabsAgent
     && config.voice_provider_config?.configuration_authority === 'app_managed';
   const isElevenLabs = isElevenLabsTts || isElevenLabsAgent;
-  const requiresProviderKey = isElevenLabs;
+  const requiresProviderKey = isElevenLabs || isXAI;
   const rawVoiceProviderKeyId = config.voice_provider_key_id ?? null;
   const isVoiceProviderKeyElevenLabs = rawVoiceProviderKeyId
     ? providerKeyById.get(rawVoiceProviderKeyId)?.provider === 'elevenlabs'
     : false;
   const effectiveVoiceProviderKeyId = isElevenLabs
     ? (isVoiceProviderKeyElevenLabs ? rawVoiceProviderKeyId : (effectiveElevenLabsKeyId ?? null))
-    : null;
+    : isXAI
+      ? (providerKeyById.get(rawVoiceProviderKeyId || '')?.provider === 'xai'
+          ? rawVoiceProviderKeyId
+          : (localXAIKeyId ?? latestXAIKeyId))
+      : null;
   const hasRequiredProviderKey = !requiresProviderKey || Boolean(effectiveVoiceProviderKeyId);
   const hasDirectAgentId = !isElevenLabsAgent || isAppManagedElevenLabs || Boolean(
     `${config.voice_provider_config?.agent_id || ''}`.trim()
@@ -350,6 +364,7 @@ export function SettingsPanel({
       setProviderKeys(rows);
       setLocalProviderKeyId((current) => current ?? rows.find((key) => key.provider === 'openai')?.id ?? null);
       setLocalElevenLabsKeyId((current) => current ?? rows.find((key) => key.provider === 'elevenlabs')?.id ?? null);
+      setLocalXAIKeyId((current) => current ?? rows.find((key) => key.provider === 'xai')?.id ?? null);
     } catch (error) {
       console.error('Failed to load provider keys:', error);
     }
@@ -372,7 +387,7 @@ export function SettingsPanel({
     if (!hasRequiredProviderKey && requiresProviderKey) {
       setSaveError(isElevenLabs
         ? 'Add an ElevenLabs API key before saving presets.'
-        : 'Add an OpenAI API key before saving presets.');
+        : 'Add an xAI API key before saving presets.');
       return;
     }
     if (!hasDirectAgentId) {
@@ -394,7 +409,7 @@ export function SettingsPanel({
       const savedPreset = await saveConfigPreset(
         presetData,
         userId,
-        !isElevenLabs ? (effectiveOpenAIKeyId ?? undefined) : undefined
+        !isElevenLabs && !isXAI ? (effectiveOpenAIKeyId ?? undefined) : undefined
       );
       if (isFirstPreset) {
         const { error: profileError } = await supabase
@@ -423,9 +438,9 @@ export function SettingsPanel({
     }
   };
 
-  const handleSaveProviderKey = async (provider: 'openai' | 'elevenlabs') => {
+  const handleSaveProviderKey = async (provider: 'openai' | 'xai' | 'elevenlabs') => {
     if (!apiKey.trim()) {
-      setKeyError(`Please provide your ${provider === 'elevenlabs' ? 'ElevenLabs' : 'OpenAI'} API key`);
+      setKeyError(`Please provide your ${provider === 'elevenlabs' ? 'ElevenLabs' : provider === 'xai' ? 'xAI' : 'OpenAI'} API key`);
       return;
     }
 
@@ -486,7 +501,13 @@ export function SettingsPanel({
       if (providerKeyRow.provider === 'elevenlabs') {
         setLocalElevenLabsKeyId(providerKeyRow.id);
       }
+      if (providerKeyRow.provider === 'xai') {
+        setLocalXAIKeyId(providerKeyRow.id);
+      }
       if (isElevenLabs && providerKeyRow.provider === 'elevenlabs') {
+        onConfigChange({ ...config, voice_provider_key_id: providerKeyRow.id });
+      }
+      if (isXAI && providerKeyRow.provider === 'xai') {
         onConfigChange({ ...config, voice_provider_key_id: providerKeyRow.id });
       }
       setApiKey('');
@@ -533,7 +554,7 @@ export function SettingsPanel({
     if (!hasRequiredProviderKey && requiresProviderKey) {
       setSaveError(isElevenLabs
         ? 'Add an ElevenLabs API key before saving presets.'
-        : 'Add an OpenAI API key before saving presets.');
+        : 'Add an xAI API key before saving presets.');
       return;
     }
     if (!hasDirectAgentId) {
@@ -982,38 +1003,73 @@ export function SettingsPanel({
               </div>
               <div className="col-span-2 grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="text-sm font-semibold text-white/80">OpenAI voice model</label>
+                  <label className="text-sm font-semibold text-white/80">
+                    {isXAI ? 'Grok voice model' : 'OpenAI voice model'}
+                  </label>
                   <select
                     value={config.model}
                     onChange={(e) => onConfigChange({ ...config, model: e.target.value })}
                     className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
                   >
-                    <option value={OPENAI_MODELS.realtime.default}>GPT Realtime 2.1 · best quality</option>
-                    <option value={OPENAI_MODELS.realtime.economy}>GPT Realtime 2.1 mini · lower cost</option>
+                    {isXAI ? (
+                      <>
+                        <option value={XAI_VOICE_MODELS.default}>Grok Voice latest · recommended</option>
+                        <option value={XAI_VOICE_MODELS.flagship}>Grok Voice Think Fast 2.0 · pinned</option>
+                        <option value={XAI_VOICE_MODELS.previous}>Grok Voice Think Fast 1.0 · previous</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value={OPENAI_MODELS.realtime.default}>GPT Realtime 2.1 · best quality</option>
+                        <option value={OPENAI_MODELS.realtime.economy}>GPT Realtime 2.1 mini · lower cost</option>
+                      </>
+                    )}
                   </select>
-                  <p className="text-xs text-white/50 mt-1">Realtime 2.1 is the recommended production default.</p>
+                  <p className="text-xs text-white/50 mt-1">
+                    {isXAI ? 'The latest alias follows xAI’s recommended production model.' : 'Realtime 2.1 is the recommended production default.'}
+                  </p>
                 </div>
-                <div>
-                  <label className="text-sm font-semibold text-white/80 flex items-center justify-between">
-                    Temperature
-                    <span className="text-xs text-white/50">{config.temperature.toFixed(1)}</span>
-                  </label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.1"
-                    value={config.temperature}
-                    onChange={(e) =>
-                      onConfigChange({
+                {isXAI ? (
+                  <div>
+                    <label className="text-sm font-semibold text-white/80">Reasoning effort</label>
+                    <select
+                      value={config.voice_provider_config?.reasoning_effort === 'none' ? 'none' : 'high'}
+                      onChange={(e) => onConfigChange({
                         ...config,
-                        temperature: parseFloat(e.target.value)
-                      })
-                    }
-                    className="w-full accent-cyan-300"
-                  />
-                  <p className="text-xs text-white/50 mt-1">Higher is more creative; lower is more deterministic.</p>
-                </div>
+                        voice_provider_config: {
+                          ...(config.voice_provider_config || {}),
+                          reasoning_effort: e.target.value
+                        }
+                      })}
+                      className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
+                    >
+                      <option value="high">High · deeper reasoning</option>
+                      <option value="none">None · lowest latency</option>
+                    </select>
+                    <p className="text-xs text-white/50 mt-1">Controls Grok reasoning for each voice turn.</p>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="text-sm font-semibold text-white/80 flex items-center justify-between">
+                      Temperature
+                      <span className="text-xs text-white/50">{config.temperature.toFixed(1)}</span>
+                    </label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.1"
+                      value={config.temperature}
+                      onChange={(e) =>
+                        onConfigChange({
+                          ...config,
+                          temperature: parseFloat(e.target.value)
+                        })
+                      }
+                      className="w-full accent-cyan-300"
+                    />
+                    <p className="text-xs text-white/50 mt-1">Higher is more creative; lower is more deterministic.</p>
+                  </div>
+                )}
                 <div>
                   <label className="text-sm font-semibold text-white/80 flex items-center justify-between">
                     Max response tokens
@@ -1025,15 +1081,18 @@ export function SettingsPanel({
                     max={16000}
                     step={128}
                     value={config.max_response_output_tokens}
+                    disabled={isXAI}
                     onChange={(e) =>
                       onConfigChange({
                         ...config,
                         max_response_output_tokens: parseInt(e.target.value || '0', 10)
                       })
                     }
-                    className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
+                    className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white disabled:opacity-50"
                   />
-                  <p className="text-xs text-white/50 mt-1">Keep within model limits to avoid truncation.</p>
+                  <p className="text-xs text-white/50 mt-1">
+                    {isXAI ? 'Managed by the Grok Voice API.' : 'Keep within model limits to avoid truncation.'}
+                  </p>
                 </div>
               </div>
             </CardHeader>
@@ -1059,13 +1118,26 @@ export function SettingsPanel({
                       value={resolvedProvider}
                       onChange={(e) => {
                         const nextProvider = e.target.value as RealtimeConfig['voice_provider'];
+                        const nextIsXAI = nextProvider === 'xai_realtime';
                         onConfigChange({
                           ...config,
                           voice_provider: nextProvider,
                           voice_provider_key_id: nextProvider === 'elevenlabs_tts' || nextProvider === 'elevenlabs_agent'
                             ? (effectiveElevenLabsKeyId ?? null)
-                            : null,
+                            : nextIsXAI
+                              ? (localXAIKeyId ?? latestXAIKeyId)
+                              : null,
                           voice_provider_config: config.voice_provider_config ?? {},
+                          model: nextIsXAI
+                            ? XAI_VOICE_MODELS.default
+                            : config.model.startsWith('grok-voice-')
+                              ? OPENAI_MODELS.realtime.default
+                              : config.model,
+                          voice: nextIsXAI
+                            ? 'eve'
+                            : XAI_VOICES.some((voice) => voice.value === config.voice)
+                              ? 'alloy'
+                              : config.voice,
                           voice_sample_rate_hz: nextProvider === 'personaplex'
                             ? (config.voice_sample_rate_hz ?? 24000)
                             : (config.voice_sample_rate_hz ?? null),
@@ -1087,6 +1159,8 @@ export function SettingsPanel({
                     <label className="text-sm font-semibold text-white/80">
                       {isPersonaPlex
                         ? 'PersonaPlex voice ID'
+                        : isXAI
+                          ? 'Grok voice'
                         : isElevenLabsTts
                           ? 'ElevenLabs voice ID'
                           : isElevenLabsAgent
@@ -1220,7 +1294,7 @@ export function SettingsPanel({
                         }}
                         className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
                       >
-                        {(isPersonaPlex ? PERSONAPLEX_VOICE_OPTIONS : VOICE_OPTIONS).map((option) => (
+                        {(isPersonaPlex ? PERSONAPLEX_VOICE_OPTIONS : isXAI ? XAI_VOICES : VOICE_OPTIONS).map((option) => (
                           <option key={option.value} value={option.value}>
                             {option.label} — {option.description}
                           </option>
@@ -1280,6 +1354,64 @@ export function SettingsPanel({
                       PersonaPlex runs at 24kHz mono audio. Your gateway should enforce resampling before streaming.
                     </p>
                   </div>
+                </div>
+              )}
+              {isXAI && (
+                <div className="rounded-xl border border-cyan-400/20 bg-cyan-500/5 p-4 space-y-3">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/70">Direct connection</p>
+                      <h4 className="text-sm font-semibold text-white">xAI API key</h4>
+                      <p className="text-xs text-white/60">
+                        The key stays server-side. The browser receives only a short-lived xAI client secret.
+                      </p>
+                    </div>
+                    {latestXAIKey ? (
+                      <div className="text-xs text-emerald-200 bg-emerald-500/10 border border-emerald-400/30 rounded-lg px-3 py-1.5">
+                        Saved: {latestXAIKey.key_alias} {latestXAIKey.last_four ? `••••${latestXAIKey.last_four}` : ''}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-amber-200 bg-amber-500/10 border border-amber-400/30 rounded-lg px-3 py-1.5">
+                        Required before saving this preset
+                      </div>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-xs font-semibold text-white/70">Key label</label>
+                      <input
+                        value={keyAlias}
+                        onChange={(e) => setKeyAlias(e.target.value)}
+                        placeholder="Primary, Production, etc."
+                        className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
+                        disabled={isSavingKey}
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="text-xs font-semibold text-white/70">API key</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="password"
+                          value={apiKey}
+                          onChange={(e) => setApiKey(e.target.value)}
+                          placeholder="xai-..."
+                          className="flex-1 px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white font-mono"
+                          disabled={isSavingKey}
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => handleSaveProviderKey('xai')}
+                          disabled={isSavingKey || !apiKey.trim()}
+                          className="bg-cyan-500/80 hover:bg-cyan-400 text-white"
+                        >
+                          {isSavingKey ? 'Saving...' : (latestXAIKey ? 'Update key' : 'Save key')}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-white/50">Used only by the Supabase function that mints ephemeral xAI credentials.</p>
+                  {keyError && <p className="text-xs text-rose-300">{keyError}</p>}
+                  {keySuccessMessage && <p className="text-xs text-emerald-200">{keySuccessMessage}</p>}
                 </div>
               )}
               {isElevenLabs && (

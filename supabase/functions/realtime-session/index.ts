@@ -11,6 +11,7 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
 const OPENAI_BASE_URL = Deno.env.get('OPENAI_BASE_URL') || 'https://api.openai.com/v1';
+const XAI_BASE_URL = Deno.env.get('XAI_BASE_URL') || 'https://api.x.ai/v1';
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error('Supabase service role credentials are missing');
@@ -38,8 +39,6 @@ Deno.serve(async (req: Request) => {
     if (req.method !== 'POST') {
       return new Response('Method not allowed', { status: 405, headers: corsHeaders });
     }
-    if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not configured');
-
     const contentType = req.headers.get('content-type') || '';
     const isWebRTCRequest = contentType.includes('application/sdp');
     const isClientSecretRequest = contentType.includes('application/json');
@@ -78,7 +77,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: storedAgent, error: agentError } = await adminClient
       .from('va_agent_configs')
-      .select('id,user_id,model,voice,instructions,max_response_output_tokens,turn_detection_enabled,turn_detection_config')
+      .select('id,user_id,model,voice,instructions,max_response_output_tokens,turn_detection_enabled,turn_detection_config,voice_provider,voice_provider_key_id')
       .eq('id', agentId)
       .eq('user_id', vaUser.id)
       .maybeSingle();
@@ -87,6 +86,62 @@ Deno.serve(async (req: Request) => {
       return new Response('Agent configuration not found', { status: 404, headers: corsHeaders });
     }
     let agent = storedAgent;
+    const voiceProvider = storedAgent.voice_provider || 'openai_realtime';
+
+    if (voiceProvider === 'xai_realtime') {
+      if (!isClientSecretRequest) {
+        return new Response('xAI Realtime currently uses the WebSocket transport', {
+          status: 400,
+          headers: corsHeaders
+        });
+      }
+      if (!storedAgent.voice_provider_key_id) {
+        return new Response('xAI provider key is missing', { status: 400, headers: corsHeaders });
+      }
+      const { data: keyRow, error: keyError } = await adminClient
+        .from('va_provider_keys')
+        .select('provider,encrypted_key,user_id')
+        .eq('id', storedAgent.voice_provider_key_id)
+        .eq('user_id', vaUser.id)
+        .maybeSingle();
+      if (keyError) throw keyError;
+      if (!keyRow || keyRow.provider !== 'xai') {
+        return new Response('A valid xAI provider key is required', { status: 400, headers: corsHeaders });
+      }
+      let xaiApiKey = '';
+      try {
+        xaiApiKey = atob(keyRow.encrypted_key);
+      } catch {
+        throw new Error('Stored xAI provider key could not be decoded');
+      }
+      const xaiResponse = await fetch(`${XAI_BASE_URL}/realtime/client_secrets`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${xaiApiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ expires_after: { seconds: 300 } })
+      });
+      const responseBody = await xaiResponse.text();
+      if (!xaiResponse.ok) {
+        return new Response(responseBody, {
+          status: xaiResponse.status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+      const payload = JSON.parse(responseBody);
+      if (!payload?.value) throw new Error('xAI did not return a client secret');
+      return new Response(JSON.stringify({
+        token: payload.value,
+        expires_at: payload.expires_at ?? null,
+        provider: 'xai'
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not configured');
 
     const benchmarkRunId = new URL(req.url).searchParams.get('benchmark_run_id');
     if (benchmarkRunId) {

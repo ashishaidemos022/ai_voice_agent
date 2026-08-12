@@ -144,6 +144,40 @@ function runtimeProfile(config: RealtimeConfig): RuntimeProfile {
   const providerConfig = config.voice_provider_config || {};
   const silenceMs = config.turn_detection?.silence_duration_ms ?? 700;
 
+  if (provider === 'xai_realtime') {
+    return {
+      provider: 'xAI',
+      architecture: 'Grok Voice · direct speech to speech',
+      summary: 'A native Grok voice model handles transcription, reasoning, tool use, and speech in one realtime session.',
+      transport: 'WebSocket · ephemeral session',
+      audio: 'PCM 24 kHz · bidirectional streaming',
+      turnTaking: `xAI server VAD · ${silenceMs} ms silence`,
+      stages: [
+        {
+          label: 'Transcription',
+          model: 'grok-transcribe',
+          detail: 'xAI streaming transcription',
+          icon: Mic,
+          accent: 'text-cyan-200'
+        },
+        {
+          label: 'Realtime intelligence',
+          model: config.model,
+          detail: 'Native Grok reasoning and tool calling',
+          icon: BrainCircuit,
+          accent: 'text-violet-200'
+        },
+        {
+          label: 'Native speech output',
+          model: config.model,
+          detail: `Grok voice · ${config.voice || 'eve'}`,
+          icon: AudioWaveform,
+          accent: 'text-amber-200'
+        }
+      ]
+    };
+  }
+
   if (provider === 'elevenlabs_agent') {
     const effectiveModel = providerConfig.app_managed?.effective_tts_model_id
       || normalizeElevenLabsModel(providerConfig.model_id);

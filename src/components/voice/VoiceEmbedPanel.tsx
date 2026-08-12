@@ -96,6 +96,7 @@ export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelPro
 
   const voiceProvider = (agentPreset?.voice_provider ?? 'openai_realtime') as
     | 'openai_realtime'
+    | 'xai_realtime'
     | 'personaplex'
     | 'elevenlabs_tts'
     | 'elevenlabs_agent';
@@ -103,6 +104,7 @@ export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelPro
   const agentVoiceLabel = useMemo(() => {
     if (!agentPreset) return null;
     if (voiceProvider === 'openai_realtime') return agentPreset.voice || 'alloy';
+    if (voiceProvider === 'xai_realtime') return agentPreset.voice || 'eve';
     if (voiceProvider === 'elevenlabs_agent') return agentPreset.voice_provider_config?.agent_id || null;
     return agentPreset.voice_id || null;
   }, [agentPreset, voiceProvider]);
@@ -411,6 +413,8 @@ export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelPro
                   <span className="font-semibold">
                     {voiceProvider === 'openai_realtime'
                       ? 'OpenAI (Realtime)'
+                      : voiceProvider === 'xai_realtime'
+                        ? 'Grok Voice (direct)'
                       : voiceProvider === 'elevenlabs_agent'
                         ? 'ElevenLabs Agent (direct)'
                       : voiceProvider === 'elevenlabs_tts'
@@ -433,7 +437,9 @@ export function VoiceEmbedPanel({ agentConfigId, agentName }: VoiceEmbedPanelPro
                       ? 'agent_id'
                       : voiceProvider === 'elevenlabs_tts'
                         ? 'voice_id'
-                        : 'persona_voice_id'}:{' '}
+                        : voiceProvider === 'xai_realtime'
+                          ? 'voice'
+                          : 'persona_voice_id'}:{' '}
                     {agentVoiceLabel || 'Missing'}
                   </p>
                   {!agentVoiceLabel && (

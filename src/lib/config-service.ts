@@ -2,6 +2,7 @@ import { supabase } from './supabase';
 import { RealtimeConfig } from '../types/voice-agent';
 import type { RagMode, RagSpace } from '../types/rag';
 import { normalizeRealtimeModel } from '../../shared/openai-models';
+import { normalizeXAIVoiceModel } from '../../shared/xai-voice-models';
 
 const RAG_RELATION_SELECT = `
   *,
@@ -60,7 +61,7 @@ export interface AgentConfigPreset {
   chat_theme?: Record<string, any> | null;
   a2ui_enabled?: boolean;
   voice: string;
-  voice_provider?: 'openai_realtime' | 'personaplex' | 'elevenlabs_tts' | 'elevenlabs_agent' | null;
+  voice_provider?: 'openai_realtime' | 'xai_realtime' | 'personaplex' | 'elevenlabs_tts' | 'elevenlabs_agent' | null;
   voice_provider_key_id?: string | null;
   voice_provider_config?: Record<string, any> | null;
   voice_persona_prompt?: string | null;
@@ -102,7 +103,9 @@ export interface AgentTemplate {
 }
 
 export function configPresetToRealtimeConfig(preset: AgentConfigPreset): RealtimeConfig {
-  const normalizedModel = normalizeRealtimeModel(preset.model);
+  const normalizedModel = preset.voice_provider === 'xai_realtime'
+    ? normalizeXAIVoiceModel(preset.model)
+    : normalizeRealtimeModel(preset.model);
   const vectorStoreIds = (preset.knowledge_spaces || [])
     .map((binding) => binding.rag_space?.vector_store_id)
     .filter((id): id is string => Boolean(id));
@@ -139,7 +142,7 @@ export function realtimeConfigToPreset(config: RealtimeConfig, name: string): Pa
     a2ui_enabled: config.a2ui_enabled ?? false,
     voice: config.voice,
     voice_provider: provider,
-    voice_provider_key_id: provider === 'elevenlabs_tts' || provider === 'elevenlabs_agent'
+    voice_provider_key_id: provider === 'elevenlabs_tts' || provider === 'elevenlabs_agent' || provider === 'xai_realtime'
       ? (config.voice_provider_key_id ?? null)
       : null,
     voice_provider_config: config.voice_provider_config ?? {},
