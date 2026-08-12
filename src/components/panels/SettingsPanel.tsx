@@ -33,7 +33,12 @@ import { Card, CardHeader } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { ToolSelectionPanel } from '../settings/ToolSelectionPanel';
 import { OPENAI_MODELS } from '../../../shared/openai-models';
-import { XAI_VOICE_MODELS, XAI_VOICES } from '../../../shared/xai-voice-models';
+import {
+  normalizeXAIVoiceLanguage,
+  XAI_VOICE_LANGUAGES,
+  XAI_VOICE_MODELS,
+  XAI_VOICES
+} from '../../../shared/xai-voice-models';
 import {
   listElevenLabsAgents,
   listElevenLabsVoices,
@@ -1358,6 +1363,27 @@ export function SettingsPanel({
               )}
               {isXAI && (
                 <div className="rounded-xl border border-cyan-400/20 bg-cyan-500/5 p-4 space-y-3">
+                  <div>
+                    <label className="text-sm font-semibold text-white/80">Grok conversation language</label>
+                    <select
+                      value={normalizeXAIVoiceLanguage(config.voice_provider_config?.xai_language)}
+                      onChange={(e) => onConfigChange({
+                        ...config,
+                        voice_provider_config: {
+                          ...(config.voice_provider_config ?? {}),
+                          xai_language: e.target.value
+                        }
+                      })}
+                      className="mt-1 w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
+                    >
+                      {XAI_VOICE_LANGUAGES.map((language) => (
+                        <option key={language.value} value={language.value}>{language.label}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-white/50 mt-1">
+                      Auto-detect follows the language of each utterance and supports mid-conversation switching.
+                    </p>
+                  </div>
                   <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                     <div>
                       <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/70">Direct connection</p>

@@ -1,5 +1,9 @@
 import { RealtimeConfig } from '../types/voice-agent';
 import { OPENAI_MODELS } from '../../shared/openai-models';
+import {
+  getXAIVoiceLanguageLabel,
+  normalizeXAIVoiceLanguage
+} from '../../shared/xai-voice-models';
 import { getToolSchemas } from './tools-registry';
 import { getAudioManager } from './audio-manager';
 import {
@@ -367,15 +371,20 @@ export class RealtimeAPIClient {
       return;
     }
     const tools = this.overrideTools ?? getToolSchemas();
-    const languageGuard = 'Always respond in English unless the user explicitly requests a different language.';
+    const isXAI = this.provider === 'xai';
+    const xaiLanguage = normalizeXAIVoiceLanguage(this.config.voice_provider_config?.xai_language);
+    const languageInstruction = isXAI
+      ? xaiLanguage === 'auto'
+        ? "Detect the language of the user's latest utterance and respond naturally in that language. Switch languages immediately when the user switches languages or explicitly requests another language."
+        : `Respond in ${getXAIVoiceLanguageLabel(xaiLanguage)} unless the user explicitly requests another language.`
+      : 'Always respond in English unless the user explicitly requests a different language.';
     const a2uiInstruction = this.config.a2ui_enabled
       ? '\n\nWhen useful, you may include a JSON object with {"a2ui":{"version":"0.8","ui":<tree>},"fallback_text":"..."}.\nIf A2UI is not needed, respond normally with text.\nFor time/weather requests, prefer a Card with props {variant:\"time\", icon, title, subtitle, meta, badges, accent_color} and children Text nodes for the main time/weather values.'
       : '';
     const ragInstructions =
       this.config.rag_mode === 'guardrail'
-        ? `${this.config.instructions}\n\nIf relevant knowledge from the approved knowledge base is unavailable, respond with "I do not have enough knowledge to answer that yet."\n\n${languageGuard}${a2uiInstruction}`
-        : `${this.config.instructions}\n\n${languageGuard}${a2uiInstruction}`;
-    const isXAI = this.provider === 'xai';
+        ? `${this.config.instructions}\n\nIf relevant knowledge from the approved knowledge base is unavailable, respond with "I do not have enough knowledge to answer that yet."\n\n${languageInstruction}${a2uiInstruction}`
+        : `${this.config.instructions}\n\n${languageInstruction}${a2uiInstruction}`;
     const sessionConfig: any = {
       type: 'session.update',
       session: isXAI ? {
@@ -397,7 +406,10 @@ export class RealtimeAPIClient {
         audio: {
           input: {
             format: { type: 'audio/pcm', rate: 24000 },
-            transcription: { model: 'grok-transcribe', language_hint: 'en' }
+            transcription: {
+              model: 'grok-transcribe',
+              ...(xaiLanguage !== 'auto' ? { language_hint: xaiLanguage } : {})
+            }
           },
           output: { format: { type: 'audio/pcm', rate: 24000 } }
         }
