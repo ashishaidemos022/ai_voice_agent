@@ -80,7 +80,6 @@ export class RealtimeAPIClient {
   private bufferedSamples = 0;
   private hasReceivedAudio = false;
   private sessionUpdateSent = false;
-  private pendingClear = true;
   private overrideApiKey?: string;
   private provider: 'openai' | 'xai';
   private overrideTools?: ReturnType<typeof getToolSchemas>;
@@ -121,7 +120,6 @@ export class RealtimeAPIClient {
     });
     this.intentionalClose = false;
     this.sessionUpdateSent = false;
-    this.pendingClear = true;
     this.hasReceivedAudio = false;
     this.hasBufferedAudio = false;
     this.bufferedSamples = 0;
@@ -358,7 +356,6 @@ export class RealtimeAPIClient {
     }
     this.intentionalClose = false;
     this.sessionUpdateSent = false;
-    this.pendingClear = true;
     this.activeResponseCount = 0;
     this.cancelPending = false;
     return this.connect();
@@ -468,11 +465,11 @@ export class RealtimeAPIClient {
         beginBenchmarkTurn();
         emitBenchmarkEvent('vad.speech_started');
         this.emit({ type: 'speech.started' });
-        // Reset local counters but defer server clear until we stream audio
+        // Server VAD has already detected speech in the current input buffer.
+        // Never clear that buffer here: doing so erases the active utterance.
         this.bufferedSamples = 0;
         this.hasBufferedAudio = false;
         this.hasReceivedAudio = false;
-        this.pendingClear = true;
         if (this.agentState === 'speaking' && this.allowInterruptions) {
           this.cancelResponse();
           this.emit({ type: 'interruption' });
@@ -485,7 +482,6 @@ export class RealtimeAPIClient {
         emitBenchmarkEvent('vad.speech_stopped');
         this.emit({ type: 'speech.stopped' });
         // With server VAD, let the server handle commit; just reset local flags
-        this.pendingClear = true;
         this.hasBufferedAudio = false;
         this.hasReceivedAudio = false;
         this.bufferedSamples = 0;
@@ -498,7 +494,6 @@ export class RealtimeAPIClient {
         this.hasBufferedAudio = false;
         this.hasReceivedAudio = false;
         this.bufferedSamples = 0;
-        this.pendingClear = false;
         break;
 
       case 'conversation.item.input_audio_transcription.delta':
@@ -737,14 +732,6 @@ export class RealtimeAPIClient {
       return;
     }
 
-    if (this.pendingClear) {
-      this.hasBufferedAudio = false;
-      this.bufferedSamples = 0;
-      this.hasReceivedAudio = false;
-      this.pendingClear = false;
-      this.send({ type: 'input_audio_buffer.clear' });
-    }
-
     const base64Audio = this.arrayBufferToBase64(audioData.buffer);
     this.hasBufferedAudio = true;
     this.bufferedSamples += audioData.length;
@@ -776,7 +763,6 @@ export class RealtimeAPIClient {
     this.hasBufferedAudio = false;
     this.bufferedSamples = 0;
     this.hasReceivedAudio = false;
-    this.pendingClear = false;
     this.send({
       type: 'input_audio_buffer.clear'
     });
@@ -848,7 +834,6 @@ export class RealtimeAPIClient {
     this.hasBufferedAudio = false;
     this.bufferedSamples = 0;
     this.hasReceivedAudio = false;
-    this.pendingClear = true;
     this.cancelPending = true;
     this.send({
       type: 'response.cancel'
@@ -1019,7 +1004,6 @@ export class RealtimeAPIClient {
   disconnect(): void {
     this.intentionalClose = true;
     this.sessionUpdateSent = false;
-    this.pendingClear = true;
     this.hasReceivedAudio = false;
     this.hasBufferedAudio = false;
     this.bufferedSamples = 0;
