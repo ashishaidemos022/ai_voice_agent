@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { OPENAI_MODELS } from '../shared/openai-models.ts';
-import { resolveRouteFromSignals } from '../shared/model-routing.ts';
+import { reconcileRouteSignals, resolveRouteFromSignals } from '../shared/model-routing.ts';
 import { assertWorkflowSplitIntegrity, ROUTING_EVAL_CASES } from '../scripts/routing-eval/benchmark.ts';
 import { calculateEvalSummary } from '../scripts/routing-eval/metrics.ts';
 import { runCandidate } from '../scripts/routing-eval/openai-runner.ts';
@@ -36,6 +36,11 @@ test('routing policy follows task type and reserves Sol for consequential or dee
   }, 'ambiguous');
   assert.equal(ambiguous.model, OPENAI_MODELS.chat.economy);
   assert.equal(ambiguous.reasonCode, 'uncertain_bounded_task');
+  const reconciled = reconcileRouteSignals('Hi, can you help me check an insurance claim?', {
+    taskType: 'classification', complexity: 0.8, confidence: 0.9, requiresTools: false, consequential: false
+  });
+  assert.equal(reconciled.taskType, 'grounded_answer');
+  assert.equal(resolveRouteFromSignals(reconciled, 'greeting').model, OPENAI_MODELS.chat.economy);
 });
 
 test('deterministic scorer checks text, safety constraints, length, and tools', () => {

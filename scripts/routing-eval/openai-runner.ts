@@ -4,6 +4,7 @@ import {
   heuristicRouteSignals,
   ROUTE_SIGNALS_JSON_SCHEMA,
   ROUTING_CLASSIFIER_INSTRUCTIONS,
+  reconcileRouteSignals,
   resolveRouteFromSignals,
   type ChatRoutingModel,
   type ChatTaskType,
@@ -207,7 +208,7 @@ export async function classifyForAuto(apiKey: string, item: RoutingEvalCase): Pr
     max_output_tokens: 180
   });
   const responseUsage = usage(json);
-  const signals = normalizedSignals(JSON.parse(outputText(json)), fallback);
+  const signals = reconcileRouteSignals(item.prompt, normalizedSignals(JSON.parse(outputText(json)), fallback));
   return {
     caseId: item.id,
     model: resolveRouteFromSignals(signals, item.id).model,

@@ -7,6 +7,7 @@ import {
   isChatRoutingModel,
   ROUTE_SIGNALS_JSON_SCHEMA,
   ROUTING_CLASSIFIER_INSTRUCTIONS,
+  reconcileRouteSignals,
   resolveRouteFromSignals,
   type ChatRouteDecision,
   type ChatRoutingModel,
@@ -132,7 +133,7 @@ async function classifyTurn(params: {
     if (!response.ok) throw new Error(json?.error?.message || 'Router request failed');
     const usage = usageFromResponse(json);
     return {
-      signals: normalizeSignals(JSON.parse(outputText(json)), fallback),
+      signals: reconcileRouteSignals(params.text, normalizeSignals(JSON.parse(outputText(json)), fallback)),
       latencyMs: Date.now() - startedAt,
       costUsd: estimateTextCost(model, usage.inputTokens, usage.outputTokens, usage.cachedInputTokens),
       usage,

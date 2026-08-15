@@ -194,3 +194,19 @@ export function heuristicRouteSignals(text: string, hasTools: boolean): RouteSig
     consequential
   };
 }
+
+export function reconcileRouteSignals(text: string, signals: RouteSignals): RouteSignals {
+  const normalized = text.toLowerCase();
+  const boundedTask = signals.taskType === 'classification' || signals.taskType === 'transformation';
+  const conversationalOpening = /\b(can|could|would|will) you help\b|\bhelp me\b/.test(normalized);
+  const explicitBoundedRequest = /\b(classify|categorize|extract|rewrite|rephrase|translate|format|convert|label|return (?:only )?json)\b/.test(normalized);
+  if (boundedTask && conversationalOpening && !explicitBoundedRequest) {
+    return {
+      ...signals,
+      taskType: 'grounded_answer',
+      complexity: Math.min(signals.complexity, 0.35),
+      requiresTools: false
+    };
+  }
+  return signals;
+}
