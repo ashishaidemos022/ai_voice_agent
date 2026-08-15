@@ -3,6 +3,8 @@ import {
   Bot,
   BookOpenCheck,
   Clock,
+  Cpu,
+  DollarSign,
   Loader2,
   MessageSquare,
   Play,
@@ -10,7 +12,8 @@ import {
   Sparkles,
   Square,
   Terminal,
-  UserRound
+  UserRound,
+  Zap
 } from 'lucide-react';
 import { useChatAgent } from '../../hooks/useChatAgent';
 import { useAuth } from '../../context/AuthContext';
@@ -33,6 +36,38 @@ import { configPresetToRealtimeConfig } from '../../lib/config-service';
 import type { RealtimeConfig } from '../../types/voice-agent';
 import { A2UIRenderer } from '../a2ui/A2UIRenderer';
 import { formatA2UIEventMessage, getA2UIEventDisplay, parseA2UIPayload, type A2UIEvent } from '../../lib/a2ui';
+import { Badge } from '../ui/Badge';
+import { CHAT_ROUTING_MODELS, type ChatRouteDecision, type ChatRoutingStrategy } from '../../../shared/model-routing';
+import { OPENAI_MODELS } from '../../../shared/openai-models';
+
+const MODEL_LABELS: Record<string, string> = {
+  [OPENAI_MODELS.chat.nano]: 'GPT-5.4 Nano',
+  [OPENAI_MODELS.chat.economy]: 'GPT-5.6 Luna',
+  [OPENAI_MODELS.chat.mini]: 'GPT-5.4 Mini',
+  [OPENAI_MODELS.chat.default]: 'GPT-5.6 Terra',
+  [OPENAI_MODELS.chat.frontier]: 'GPT-5.6 Sol'
+};
+
+type SavedRoutingRun = {
+  workflowKey: string;
+  strategy: ChatRoutingStrategy;
+  costUsd: number;
+  turns: number;
+  models: Record<string, number>;
+  savedAt: string;
+};
+
+const formatRouteCost = (value = 0) => value < 0.01 ? `$${value.toFixed(5)}` : `$${value.toFixed(3)}`;
+
+function workflowFingerprint(turns: string[]): string {
+  const value = turns.join('\u241e');
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${turns.length}:${(hash >>> 0).toString(16)}`;
+}
 
 const formatRelative = (dateString?: string | null) => {
   if (!dateString) return 'moments ago';
@@ -97,7 +132,12 @@ export function ChatAgent({
     ragInvoked,
     ragError,
     isRagLoading,
-    refreshTools
+    refreshTools,
+    routingStrategy,
+    setRoutingStrategy,
+    fixedModel,
+    setFixedModel,
+    currentRoute
   } = useChatAgent();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMCPPanelOpen, setIsMCPPanelOpen] = useState(false);
@@ -105,6 +145,13 @@ export function ChatAgent({
   const [chatConfig, setChatConfig] = useState<RealtimeConfig | null>(null);
   const [composerValue, setComposerValue] = useState('');
   const [viewMode, setViewMode] = useState<'current' | 'history'>('current');
+  const [savedRuns, setSavedRuns] = useState<SavedRoutingRun[]>(() => {
+    try {
+      return JSON.parse(window.localStorage.getItem('chat-routing-comparison-runs') || '[]');
+    } catch {
+      return [];
+    }
+  });
   const activePreset = useMemo(() => presets.find((p) => p.id === activePresetId), [presets, activePresetId]);
   const providerKeyId = activePreset?.provider_key_id || providerKeys[0]?.id || null;
 
@@ -112,6 +159,44 @@ export function ChatAgent({
     return viewMode === 'current' ? messages : historicalMessages;
   }, [messages, historicalMessages, viewMode]);
   const a2uiEnabled = Boolean(activePreset?.a2ui_enabled);
+  const routingReceipt = useMemo(() => {
+    const routes = messages
+      .map((message) => message.raw?.routing)
+      .filter((route): route is ChatRouteDecision => Boolean(route));
+    const models = routes.reduce<Record<string, number>>((counts, route) => {
+      counts[route.model] = (counts[route.model] || 0) + 1;
+      return counts;
+    }, {});
+    const userTurns = messages.filter((message) => message.sender === 'user').map((message) => message.content.trim());
+    return {
+      costUsd: routes.reduce((sum, route) => sum + (route.routerCostUsd || 0) + (route.answerCostUsd || 0), 0),
+      routerCostUsd: routes.reduce((sum, route) => sum + (route.routerCostUsd || 0), 0),
+      answerCostUsd: routes.reduce((sum, route) => sum + (route.answerCostUsd || 0), 0),
+      turns: routes.length,
+      models,
+      workflowKey: userTurns.length ? workflowFingerprint(userTurns) : ''
+    };
+  }, [messages]);
+  const comparisonRun = useMemo(() => savedRuns
+    .filter((run) => run.workflowKey && run.workflowKey === routingReceipt.workflowKey && run.strategy !== routingStrategy)
+    .sort((a, b) => b.savedAt.localeCompare(a.savedAt))[0], [routingReceipt.workflowKey, routingStrategy, savedRuns]);
+
+  const handleEndSession = useCallback(() => {
+    if (routingReceipt.turns > 0 && routingReceipt.workflowKey) {
+      const nextRun: SavedRoutingRun = {
+        workflowKey: routingReceipt.workflowKey,
+        strategy: routingStrategy,
+        costUsd: routingReceipt.costUsd,
+        turns: routingReceipt.turns,
+        models: routingReceipt.models,
+        savedAt: new Date().toISOString()
+      };
+      const next = [nextRun, ...savedRuns].slice(0, 12);
+      setSavedRuns(next);
+      window.localStorage.setItem('chat-routing-comparison-runs', JSON.stringify(next));
+    }
+    void endSession();
+  }, [endSession, routingReceipt, routingStrategy, savedRuns]);
 
   const handleA2UIEvent = useCallback((event: A2UIEvent) => {
     void sendMessage(formatA2UIEventMessage(event));
@@ -176,7 +261,7 @@ export function ChatAgent({
             <Button
               variant="destructive"
               size="sm"
-              onClick={endSession}
+              onClick={handleEndSession}
               disabled={isConnecting}
             >
               <Square className="w-4 h-4" />
@@ -232,6 +317,56 @@ export function ChatAgent({
               <p className="text-xs text-white/50">
                 {activePreset?.summary || 'Select a preset to load its instructions and tool set.'}
               </p>
+              <div className="pt-4 mt-4 border-t border-white/10">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.25em] text-white/40">Model strategy</p>
+                    <p className="text-sm text-white/70 mt-1">Lock one model or route every turn by task.</p>
+                  </div>
+                  <Badge variant={routingStrategy === 'auto' ? 'success' : 'warning'}>
+                    {routingStrategy === 'auto' ? <Zap className="w-3 h-3" /> : <Cpu className="w-3 h-3" />}
+                    {routingStrategy === 'auto' ? 'Auto' : 'Fixed'}
+                  </Badge>
+                </div>
+                <div className="grid grid-cols-2 gap-2 mt-3">
+                  {(['auto', 'fixed'] as const).map((strategy) => (
+                    <button
+                      key={strategy}
+                      type="button"
+                      disabled={Boolean(session)}
+                      onClick={() => setRoutingStrategy(strategy)}
+                      className={cn(
+                        'rounded-xl border px-3 py-2 text-sm transition disabled:opacity-50',
+                        routingStrategy === strategy
+                          ? 'border-cyan-300 bg-cyan-500/15 text-cyan-100'
+                          : 'border-white/10 bg-black/20 text-white/60 hover:border-white/30'
+                      )}
+                    >
+                      {strategy === 'auto' ? 'Auto route' : 'Fixed model'}
+                    </button>
+                  ))}
+                </div>
+                {routingStrategy === 'fixed' ? (
+                  <select
+                    value={fixedModel}
+                    disabled={Boolean(session)}
+                    onChange={(event) => setFixedModel(event.target.value as typeof fixedModel)}
+                    className="w-full mt-3 rounded-xl bg-slate-950 border border-white/10 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400/60 disabled:opacity-50"
+                  >
+                    {CHAT_ROUTING_MODELS.map((model) => (
+                      <option key={model} value={model}>{MODEL_LABELS[model]}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {CHAT_ROUTING_MODELS.map((model) => (
+                      <span key={model} className="rounded-full border border-white/10 bg-black/20 px-2 py-1 text-[10px] text-white/55">
+                        {MODEL_LABELS[model].replace('GPT-', '')}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </Card>
 
@@ -265,6 +400,9 @@ export function ChatAgent({
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full" style={{ backgroundColor: isStreaming ? '#22d3ee' : '#475569' }} />
                   <span className="text-xs text-white/60">{isStreaming ? 'Streaming response…' : 'Standing by'}</span>
+                  {currentRoute && isStreaming && (
+                    <Badge variant="secondary">Routing to {MODEL_LABELS[currentRoute.model] || currentRoute.model}</Badge>
+                  )}
                 </div>
               )}
             </div>
@@ -329,7 +467,7 @@ export function ChatAgent({
                   <div className="flex items-center justify-between mt-3">
                     <div className="flex items-center gap-2 text-xs text-white/50">
                       <Terminal className="w-3.5 h-3.5" />
-                      Streaming via OpenAI Realtime
+                      Responses API · {routingStrategy === 'auto' ? 'dynamic routing' : MODEL_LABELS[fixedModel]}
                     </div>
                     <Button
                       size="sm"
@@ -346,6 +484,57 @@ export function ChatAgent({
         </div>
 
         <div className="flex flex-col gap-6 min-h-0 overflow-y-auto pr-1">
+          <Card className="p-5 bg-slate-900/40 border-white/5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.25em] text-white/40">Conversation receipt</p>
+                <p className="text-lg font-semibold text-white mt-1">Cost by routing strategy</p>
+              </div>
+              <DollarSign className="w-5 h-5 text-emerald-300" />
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-4">
+              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-white/40">Current run</p>
+                <p className="text-2xl font-semibold text-white mt-1">{formatRouteCost(routingReceipt.costUsd)}</p>
+                <p className="text-xs text-white/45 mt-1">{routingReceipt.turns} completed turns</p>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-white/40">Router overhead</p>
+                <p className="text-2xl font-semibold text-white mt-1">{formatRouteCost(routingReceipt.routerCostUsd)}</p>
+                <p className="text-xs text-white/45 mt-1">Included in total</p>
+              </div>
+            </div>
+            <div className="mt-4 space-y-2">
+              {Object.entries(routingReceipt.models).map(([model, count]) => (
+                <div key={model} className="flex items-center justify-between text-xs text-white/60">
+                  <span>{MODEL_LABELS[model] || model}</span>
+                  <span>{count} turn{count === 1 ? '' : 's'}</span>
+                </div>
+              ))}
+              {!routingReceipt.turns && <p className="text-xs text-white/45">Complete a turn to see model mix and cost.</p>}
+            </div>
+            {comparisonRun && routingReceipt.turns === comparisonRun.turns && (
+              <div className="mt-4 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-200/70">Matched workflow comparison</p>
+                <div className="flex items-end justify-between mt-2">
+                  <div>
+                    <p className="text-xs text-white/50">Previous {comparisonRun.strategy} run</p>
+                    <p className="text-lg font-semibold text-white">{formatRouteCost(comparisonRun.costUsd)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-white/50">Current {routingStrategy} run</p>
+                    <p className="text-lg font-semibold text-emerald-200">{formatRouteCost(routingReceipt.costUsd)}</p>
+                  </div>
+                </div>
+                <p className="text-xs text-emerald-100/80 mt-2">
+                  {comparisonRun.costUsd > routingReceipt.costUsd
+                    ? `${Math.round((1 - routingReceipt.costUsd / comparisonRun.costUsd) * 100)}% lower cost across the same scripted turns.`
+                    : 'The current run did not reduce cost for this workflow.'}
+                </p>
+              </div>
+            )}
+          </Card>
+
           <ToolExecutionFeed
             events={toolEvents}
             toolSummary={toolSummary}
@@ -499,7 +688,7 @@ export function ChatAgent({
       onSettingsClick={() => setIsSettingsOpen(true)}
       onMCPClick={() => setIsMCPPanelOpen(true)}
       onIntegrationsClick={() => setIsN8NPanelOpen(true)}
-      onEndSession={endSession}
+      onEndSession={handleEndSession}
       viewMode={viewMode}
       onBackToCurrent={() => {
         setViewMode('current');
@@ -572,6 +761,7 @@ function ChatBubble({ message, a2uiEnabled, onA2UIEvent }: {
   const shouldRenderMarkdown = !shouldRenderA2UI && !isUser && containsMarkdownMedia(
     parsedA2UI?.fallbackText || displayText
   );
+  const route = message.raw?.routing;
   return (
     <div className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
       <div
@@ -586,6 +776,7 @@ function ChatBubble({ message, a2uiEnabled, onA2UIEvent }: {
           {isUser ? <UserRound className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
           <span>{isUser ? 'You' : 'Assistant'}</span>
           {message.isStreaming && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+          {route && <Badge variant="secondary" className="normal-case tracking-normal">{MODEL_LABELS[route.model] || route.model}</Badge>}
         </div>
         {shouldRenderA2UI ? (
           <A2UIRenderer
@@ -607,6 +798,21 @@ function ChatBubble({ message, a2uiEnabled, onA2UIEvent }: {
             <Sparkles className="w-3 h-3" />
             Tool: {message.toolName}
           </p>
+        )}
+        {route && (
+          <details className="mt-3 border-t border-white/10 pt-2 text-xs text-white/55">
+            <summary className="cursor-pointer text-cyan-200/80 hover:text-cyan-100">
+              Why this model? · {formatRouteCost((route.routerCostUsd || 0) + (route.answerCostUsd || 0))}
+            </summary>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2">
+              <span>Task</span><span className="text-white/80">{route.taskType.replace(/_/g, ' ')}</span>
+              <span>Reasoning</span><span className="text-white/80">{route.reasoningEffort}</span>
+              <span>Confidence</span><span className="text-white/80">{Math.round(route.confidence * 100)}%</span>
+              <span>Response time</span><span className="text-white/80">{route.answerLatencyMs || 0}ms</span>
+              <span>Router overhead</span><span className="text-white/80">{formatRouteCost(route.routerCostUsd)}</span>
+            </div>
+            <p className="mt-2 text-white/65">{route.reason}</p>
+          </details>
         )}
       </div>
     </div>

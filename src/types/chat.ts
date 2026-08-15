@@ -1,3 +1,5 @@
+import type { ChatRouteDecision } from '../../shared/model-routing';
+
 export type AgentTag = {
   id: string;
   label: string;
@@ -36,7 +38,7 @@ export type ChatMessage = {
   createdAt: string;
   streamed?: boolean;
   toolName?: string | null;
-  raw?: Record<string, any> | null;
+  raw?: (Record<string, unknown> & { routing?: ChatRouteDecision }) | null;
   isStreaming?: boolean;
 };
 

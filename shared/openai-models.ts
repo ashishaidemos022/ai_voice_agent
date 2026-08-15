@@ -7,7 +7,9 @@ export const OPENAI_MODELS = {
   chat: {
     frontier: 'gpt-5.6-sol',
     default: 'gpt-5.6-terra',
-    economy: 'gpt-5.6-luna'
+    economy: 'gpt-5.6-luna',
+    mini: 'gpt-5.4-mini',
+    nano: 'gpt-5.4-nano'
   },
   transcription: {
     accurate: 'gpt-4o-transcribe',
@@ -61,20 +63,32 @@ export const OPENAI_MODEL_PRICING: Partial<Record<OpenAIModelId, ModelPricing>> 
     textOutputPer1M: 30
   },
   'gpt-5.6-terra': {
-    textInputPer1M: 2.5,
-    cachedTextInputPer1M: 0.25,
-    textOutputPer1M: 15
+    textInputPer1M: 2,
+    cachedTextInputPer1M: 0.2,
+    textOutputPer1M: 12
   },
   'gpt-5.6-luna': {
-    textInputPer1M: 1,
-    cachedTextInputPer1M: 0.1,
-    textOutputPer1M: 6
+    textInputPer1M: 0.2,
+    cachedTextInputPer1M: 0.02,
+    textOutputPer1M: 1.2
+  },
+  'gpt-5.4-mini': {
+    textInputPer1M: 0.75,
+    cachedTextInputPer1M: 0.075,
+    textOutputPer1M: 4.5
+  },
+  'gpt-5.4-nano': {
+    textInputPer1M: 0.2,
+    cachedTextInputPer1M: 0.02,
+    textOutputPer1M: 1.25
   },
   'gpt-4.1-mini': {
     textInputPer1M: 0.15,
     textOutputPer1M: 0.6
   }
 };
+
+export const OPENAI_PRICING_EFFECTIVE_DATE = '2026-08-15';
 
 export function getOpenAIModelPricing(model?: string | null): ModelPricing | undefined {
   const candidate = model?.trim();

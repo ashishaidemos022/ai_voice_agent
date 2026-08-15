@@ -20,8 +20,12 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { runRagAugmentation } from '../lib/rag-service';
 import type { RagAugmentationResult } from '../types/rag';
-import { normalizeUsage, recordUsageEvent } from '../lib/usage-tracker';
 import { OPENAI_MODELS, normalizeChatModel } from '../../shared/openai-models';
+import type {
+  ChatRouteDecision,
+  ChatRoutingModel,
+  ChatRoutingStrategy
+} from '../../shared/model-routing';
 
 const MAX_CONTEXT_MESSAGES = 40;
 const DEFAULT_CHAT_MODEL = OPENAI_MODELS.chat.default;
@@ -54,10 +58,12 @@ export function useChatAgent() {
   const [ragError, setRagError] = useState<string | null>(null);
   const [isRagLoading, setIsRagLoading] = useState(false);
   const [availableTools, setAvailableTools] = useState<Tool[]>([]);
+  const [routingStrategy, setRoutingStrategy] = useState<ChatRoutingStrategy>('auto');
+  const [fixedModel, setFixedModel] = useState<ChatRoutingModel>(OPENAI_MODELS.chat.frontier);
+  const [currentRoute, setCurrentRoute] = useState<ChatRouteDecision | null>(null);
 
   const realtimeRef = useRef<ChatRealtimeClient | null>(null);
   const sessionRef = useRef<ChatSession | null>(null);
-  const activePresetRef = useRef<AgentConfigPreset | null>(null);
   const responseStartMsRef = useRef<number | null>(null);
   const firstTokenRecordedRef = useRef(false);
 
@@ -79,10 +85,6 @@ export function useChatAgent() {
   useEffect(() => {
     refreshPresets();
   }, [refreshPresets]);
-
-  useEffect(() => {
-    activePresetRef.current = presets.find((preset) => preset.id === activePresetId) || null;
-  }, [presets, activePresetId]);
 
   const refreshHistorySessions = useCallback(async () => {
     if (!vaUser) return;
@@ -146,6 +148,7 @@ export function useChatAgent() {
     setIsConnected(false);
     setIsStreaming(false);
     setLiveAssistantText('');
+    setCurrentRoute(null);
     responseStartMsRef.current = null;
     firstTokenRecordedRef.current = false;
   }, [activePresetId, presets]);
@@ -195,7 +198,7 @@ export function useChatAgent() {
     setLiveAssistantText((prev) => `${prev}${delta}`);
   }, []);
 
-  const handleAssistantCompleted = useCallback(async (text: string) => {
+  const handleAssistantCompleted = useCallback(async (text: string, route?: ChatRouteDecision) => {
     const finalText = (text || liveAssistantText).trim();
     setLiveAssistantText('');
     setIsStreaming(false);
@@ -208,7 +211,8 @@ export function useChatAgent() {
       sessionId: sessionRef.current.id,
       sender: 'assistant',
       content: finalText,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      raw: route ? { routing: route } : null
     };
     setMessages((prev) => [...prev, message].slice(-MAX_CONTEXT_MESSAGES));
     try {
@@ -216,6 +220,7 @@ export function useChatAgent() {
         sessionId: sessionRef.current.id,
         sender: 'assistant',
         message: finalText,
+        raw: route ? { routing: route } : null,
         streamed: true
       });
     } catch (err) {
@@ -235,26 +240,13 @@ export function useChatAgent() {
       handleAssistantDelta(evt.delta);
     });
     client.on('response.completed', (evt) => {
-      handleAssistantCompleted(evt.text);
+      handleAssistantCompleted(evt.text, evt.route);
     });
     client.on('response.started', () => {
       setIsStreaming(true);
     });
-    client.on('usage.reported', async (evt) => {
-      const usage = normalizeUsage(evt.usage);
-      if (!usage || !vaUser) return;
-      const preset = activePresetRef.current;
-      const model = evt.model || (preset ? resolveChatRealtimeModel(preset) : DEFAULT_CHAT_MODEL);
-      await recordUsageEvent({
-        userId: vaUser.id,
-        source: 'chat',
-        model,
-        usage,
-        metadata: {
-          chat_session_id: sessionRef.current?.id || null,
-          agent_preset_id: activePresetRef.current?.id || activePresetId || null
-        }
-      });
+    client.on('routing.selected', (evt) => {
+      setCurrentRoute(evt.route);
     });
     client.on('function_call', async (event) => {
       if (!sessionRef.current) return;
@@ -294,7 +286,7 @@ export function useChatAgent() {
         client.sendToolOutput(event.call.id, { error: message });
       }
     });
-  }, [handleAssistantCompleted, handleAssistantDelta, vaUser, activePresetId]);
+  }, [handleAssistantCompleted, handleAssistantDelta]);
 
   const startSession = useCallback(async () => {
     if (!vaUser) {
@@ -327,7 +319,12 @@ export function useChatAgent() {
       const newSession = await createChatSession({
         userId: vaUser.id,
         agentPresetId: preset.id,
-        source: 'app'
+        source: 'app',
+        metadata: {
+          routing_strategy: routingStrategy,
+          fixed_model: routingStrategy === 'fixed' ? fixedModel : null,
+          routing_policy_version: 'chat-router-v1'
+        }
       });
       sessionRef.current = newSession;
       setSession(newSession);
@@ -349,7 +346,10 @@ export function useChatAgent() {
         a2ui_enabled: preset.a2ui_enabled ?? false,
         ragMode: preset.rag_mode,
         ragEnabled: preset.rag_enabled,
-        vectorStoreIds
+        vectorStoreIds,
+        sessionId: newSession.id,
+        routingStrategy,
+        fixedModel
       });
 
       attachRealtimeHandlers(realtimeRef.current);
@@ -364,7 +364,7 @@ export function useChatAgent() {
       setIsConnecting(false);
       refreshHistorySessions();
     }
-  }, [activePresetId, attachRealtimeHandlers, cleanupRealtime, endSession, loadToolsForPreset, presets, refreshHistorySessions, vaUser]);
+  }, [activePresetId, attachRealtimeHandlers, cleanupRealtime, endSession, fixedModel, loadToolsForPreset, presets, refreshHistorySessions, routingStrategy, vaUser]);
 
   const sendMessage = useCallback(async (text: string) => {
     const trimmed = text.trim();
@@ -373,6 +373,7 @@ export function useChatAgent() {
       setError('Start a chat session first');
       return;
     }
+    setCurrentRoute(null);
 
     const outgoing: ChatMessage = {
       id: crypto.randomUUID(),
@@ -508,6 +509,11 @@ export function useChatAgent() {
     ragError,
     isRagLoading,
     availableTools,
-    refreshTools
+    refreshTools,
+    routingStrategy,
+    setRoutingStrategy,
+    fixedModel,
+    setFixedModel,
+    currentRoute
   };
 }

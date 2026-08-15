@@ -1,16 +1,22 @@
 import { getToolSchemas } from './tools-registry';
 import { supabase } from './supabase';
 import type { RagMode } from '../types/rag';
+import type {
+  ChatRouteDecision,
+  ChatRoutingModel,
+  ChatRoutingStrategy
+} from '../../shared/model-routing';
 
 export type ChatRealtimeEvent =
   | { type: 'connected' }
   | { type: 'disconnected'; reason?: string }
   | { type: 'error'; error: string }
   | { type: 'response.delta'; delta: string }
-  | { type: 'response.completed'; text: string }
+  | { type: 'response.completed'; text: string; route?: ChatRouteDecision }
   | { type: 'response.started' }
+  | { type: 'routing.selected'; route: ChatRouteDecision }
   | { type: 'function_call'; call: { id: string; name: string; arguments: string } }
-  | { type: 'usage.reported'; usage: any; model?: string };
+  | { type: 'usage.reported'; usage: unknown; model?: string; route?: ChatRouteDecision };
 
 export interface ChatRealtimeConfig {
   agentId: string;
@@ -22,6 +28,9 @@ export interface ChatRealtimeConfig {
   ragMode?: RagMode;
   ragEnabled?: boolean;
   vectorStoreIds?: string[];
+  sessionId: string;
+  routingStrategy: ChatRoutingStrategy;
+  fixedModel: ChatRoutingModel;
 }
 
 export class ChatRealtimeClient {
@@ -33,6 +42,8 @@ export class ChatRealtimeClient {
   private pendingOutputItems: any[] = [];
   private pendingCallIds = new Set<string>();
   private pendingToolOutputs: any[] = [];
+  private activeTurnId: string | null = null;
+  private activeRoute: ChatRouteDecision | null = null;
 
   constructor(config: ChatRealtimeConfig) {
     this.config = config;
@@ -56,6 +67,8 @@ export class ChatRealtimeClient {
     this.pendingOutputItems = [];
     this.pendingCallIds.clear();
     this.pendingToolOutputs = [];
+    this.activeTurnId = null;
+    this.activeRoute = null;
     this.emit({ type: 'disconnected', reason: 'client-disconnected' });
     this.eventHandlers.clear();
   }
@@ -66,6 +79,8 @@ export class ChatRealtimeClient {
 
   sendUserMessage(text: string) {
     if (!this.connected || !text.trim()) return;
+    this.activeTurnId = crypto.randomUUID();
+    this.activeRoute = null;
     this.input.push({ role: 'user', content: text.trim() });
     void this.createResponse();
   }
@@ -116,6 +131,11 @@ export class ChatRealtimeClient {
         },
         body: JSON.stringify({
           agent_id: this.config.agentId,
+          session_id: this.config.sessionId,
+          turn_id: this.activeTurnId,
+          routing_strategy: this.config.routingStrategy,
+          fixed_model: this.config.fixedModel,
+          route_decision: this.activeRoute,
           input: this.input,
           instructions_suffix: this.instructionsSuffix.join('\n\n') || undefined,
           tools: getToolSchemas()
@@ -124,6 +144,23 @@ export class ChatRealtimeClient {
       this.instructionsSuffix = [];
       const json = await response.json();
       if (!response.ok) throw new Error(json?.error?.message || json?.error || 'Responses request failed');
+
+      const responseRoute = json._routing as ChatRouteDecision | undefined;
+      if (responseRoute) {
+        if (!this.activeRoute) {
+          this.activeRoute = responseRoute;
+          this.emit({ type: 'routing.selected', route: this.activeRoute });
+        } else {
+          this.activeRoute = {
+            ...this.activeRoute,
+            answerLatencyMs: (this.activeRoute.answerLatencyMs || 0) + (responseRoute.answerLatencyMs || 0),
+            answerCostUsd: (this.activeRoute.answerCostUsd || 0) + (responseRoute.answerCostUsd || 0),
+            inputTokens: (this.activeRoute.inputTokens || 0) + (responseRoute.inputTokens || 0),
+            cachedInputTokens: (this.activeRoute.cachedInputTokens || 0) + (responseRoute.cachedInputTokens || 0),
+            outputTokens: (this.activeRoute.outputTokens || 0) + (responseRoute.outputTokens || 0)
+          };
+        }
+      }
 
       const outputItems = Array.isArray(json.output) ? json.output : [];
       const functionCalls = outputItems.filter((item: any) => item?.type === 'function_call');
@@ -142,12 +179,12 @@ export class ChatRealtimeClient {
           .map((content: any) => content.text || '')
           .join('')).trim();
         if (text) this.emit({ type: 'response.delta', delta: text });
-        this.emit({ type: 'response.completed', text });
+        this.emit({ type: 'response.completed', text, route: this.activeRoute || undefined });
       }
-      if (json.usage) this.emit({ type: 'usage.reported', usage: json.usage, model: json.model });
+      if (json.usage) this.emit({ type: 'usage.reported', usage: json.usage, model: json.model, route: this.activeRoute || undefined });
     } catch (error) {
       this.emit({ type: 'error', error: error instanceof Error ? error.message : 'Responses request failed' });
-      this.emit({ type: 'response.completed', text: '' });
+      this.emit({ type: 'response.completed', text: '', route: this.activeRoute || undefined });
     }
   }
 
