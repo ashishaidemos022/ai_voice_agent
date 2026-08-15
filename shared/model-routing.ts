@@ -136,7 +136,7 @@ export function resolveRouteFromSignals(
     };
   }
   if (signals.taskType === 'classification' || signals.taskType === 'transformation') {
-    if (signals.confidence < 0.75) {
+    if (signals.confidence < 0.8) {
       return {
         ...base,
         model: OPENAI_MODELS.chat.economy,

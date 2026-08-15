@@ -32,7 +32,7 @@ test('routing policy follows task type and reserves Sol for consequential or dee
     assert.equal(route.model, expected, item.id);
   }
   const ambiguous = resolveRouteFromSignals({
-    taskType: 'classification', complexity: 0.2, confidence: 0.62, requiresTools: false, consequential: false
+    taskType: 'classification', complexity: 0.2, confidence: 0.78, requiresTools: false, consequential: false
   }, 'ambiguous');
   assert.equal(ambiguous.model, OPENAI_MODELS.chat.economy);
   assert.equal(ambiguous.reasonCode, 'uncertain_bounded_task');
