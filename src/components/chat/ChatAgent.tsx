@@ -160,14 +160,16 @@ export function ChatAgent({
   }, [messages, historicalMessages, viewMode]);
   const a2uiEnabled = Boolean(activePreset?.a2ui_enabled);
   const routingReceipt = useMemo(() => {
-    const routes = messages
+    const routes = visibleMessages
       .map((message) => message.raw?.routing)
       .filter((route): route is ChatRouteDecision => Boolean(route));
     const models = routes.reduce<Record<string, number>>((counts, route) => {
       counts[route.model] = (counts[route.model] || 0) + 1;
       return counts;
     }, {});
-    const userTurns = messages.filter((message) => message.sender === 'user').map((message) => message.content.trim());
+    const userTurns = visibleMessages
+      .filter((message) => message.sender === 'user')
+      .map((message) => message.content.trim());
     return {
       costUsd: routes.reduce((sum, route) => sum + (route.routerCostUsd || 0) + (route.answerCostUsd || 0), 0),
       routerCostUsd: routes.reduce((sum, route) => sum + (route.routerCostUsd || 0), 0),
@@ -176,7 +178,7 @@ export function ChatAgent({
       models,
       workflowKey: userTurns.length ? workflowFingerprint(userTurns) : ''
     };
-  }, [messages]);
+  }, [visibleMessages]);
   const comparisonRun = useMemo(() => savedRuns
     .filter((run) => run.workflowKey && run.workflowKey === routingReceipt.workflowKey && run.strategy !== routingStrategy)
     .sort((a, b) => b.savedAt.localeCompare(a.savedAt))[0], [routingReceipt.workflowKey, routingStrategy, savedRuns]);
