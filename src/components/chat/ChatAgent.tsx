@@ -290,8 +290,8 @@ export function ChatAgent({
         </div>
       </div>
 
-      <div className="flex-1 grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-6 p-8 min-h-0 overflow-hidden">
-        <div className="flex flex-col gap-6 min-h-0 overflow-hidden">
+      <div className="flex-1 grid grid-cols-1 2xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] gap-6 p-4 lg:p-8 min-h-0 overflow-y-auto 2xl:overflow-hidden">
+        <div className="flex flex-col gap-6 min-h-[720px] 2xl:min-h-0 2xl:overflow-hidden">
           <Card className="p-5 bg-slate-900/40 border-white/5">
             <div className="flex items-center justify-between">
               <div>
