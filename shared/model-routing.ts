@@ -27,6 +27,30 @@ export type RouteSignals = {
   consequential: boolean;
 };
 
+export const ROUTING_CLASSIFIER_INSTRUCTIONS = [
+  'Classify the task for model routing. Judge the requested work, not its subject alone.',
+  'Use high_stakes only when an incorrect answer could materially affect health, safety, legal rights, finances, security, compliance, or irreversible data.',
+  'Sensitive-looking identifiers or subject matter do not by themselves make a bounded extraction, lookup, or summary high_stakes.',
+  'Use transformation for bounded rewriting, formatting, extraction, translation, or classification.',
+  'Use tool_use when completing the request depends on an available external tool.',
+  'Use analysis when the answer itself requires multi-step comparison, calculation, diagnosis, trade-off evaluation, or planning.',
+  'Calibrate complexity to cognitive work: 0.0-0.3 bounded tasks, 0.3-0.55 grounded answers or one-tool calls, 0.55-0.85 multi-step analysis, and above 0.85 only for genuinely difficult reasoning.',
+  'Return only the required JSON object.'
+].join('\n');
+
+export const ROUTE_SIGNALS_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    task_type: { type: 'string', enum: ['classification', 'transformation', 'grounded_answer', 'tool_use', 'analysis', 'high_stakes'] },
+    complexity: { type: 'number', minimum: 0, maximum: 1 },
+    confidence: { type: 'number', minimum: 0, maximum: 1 },
+    requires_tools: { type: 'boolean' },
+    consequential: { type: 'boolean' }
+  },
+  required: ['task_type', 'complexity', 'confidence', 'requires_tools', 'consequential']
+} as const;
+
 export type ChatRouteDecision = RouteSignals & {
   turnId: string;
   strategy: ChatRoutingStrategy;
@@ -75,7 +99,7 @@ export function resolveRouteFromSignals(
     policyVersion: 'chat-router-v1' as const
   };
 
-  if (signals.consequential || signals.taskType === 'high_stakes' || signals.complexity >= 0.88) {
+  if (signals.consequential || signals.taskType === 'high_stakes') {
     return {
       ...base,
       model: OPENAI_MODELS.chat.frontier,
@@ -84,7 +108,16 @@ export function resolveRouteFromSignals(
       reason: 'Consequential or deeply complex reasoning benefits from the capability-first model.'
     };
   }
-  if (signals.taskType === 'analysis' || signals.complexity >= 0.66) {
+  if (signals.taskType === 'analysis') {
+    if (signals.complexity >= 0.88) {
+      return {
+        ...base,
+        model: OPENAI_MODELS.chat.frontier,
+        reasoningEffort: 'high',
+        reasonCode: 'deep_multi_step_analysis',
+        reason: 'This analysis is complex enough to benefit from the capability-first model.'
+      };
+    }
     return {
       ...base,
       model: OPENAI_MODELS.chat.default,
@@ -103,6 +136,15 @@ export function resolveRouteFromSignals(
     };
   }
   if (signals.taskType === 'classification' || signals.taskType === 'transformation') {
+    if (signals.confidence < 0.75) {
+      return {
+        ...base,
+        model: OPENAI_MODELS.chat.economy,
+        reasoningEffort: 'none',
+        reasonCode: 'uncertain_bounded_task',
+        reason: 'The task appears bounded, but low routing confidence favors the conversational economy model.'
+      };
+    }
     return {
       ...base,
       model: OPENAI_MODELS.chat.nano,

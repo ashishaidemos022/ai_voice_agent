@@ -5,6 +5,8 @@ import {
   estimateTextCost,
   heuristicRouteSignals,
   isChatRoutingModel,
+  ROUTE_SIGNALS_JSON_SCHEMA,
+  ROUTING_CLASSIFIER_INSTRUCTIONS,
   resolveRouteFromSignals,
   type ChatRouteDecision,
   type ChatRoutingModel,
@@ -94,6 +96,7 @@ function normalizeSignals(rawValue: unknown, fallback: RouteSignals): RouteSigna
 
 async function classifyTurn(params: {
   text: string;
+  taskContext: string;
   tools: unknown[];
   safetyIdentifier: string;
 }): Promise<{ signals: RouteSignals; latencyMs: number; costUsd: number; usage: Usage; model: string }> {
@@ -106,16 +109,10 @@ async function classifyTurn(params: {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
       body: JSON.stringify({
         model,
-        instructions: [
-          'Classify the task for model routing. Judge the requested work, not its subject alone.',
-          'Use high_stakes only when an incorrect answer could materially affect health, safety, legal rights, finances, security, compliance, or irreversible data.',
-          'Use transformation for bounded rewriting, formatting, extraction, translation, or classification.',
-          'Use tool_use when completing the request depends on an available external tool.',
-          'Return only the required JSON object.'
-        ].join('\n'),
+        instructions: ROUTING_CLASSIFIER_INSTRUCTIONS,
         input: [{
           role: 'user',
-          content: `Available tools: ${params.tools.map((tool) => asRecord(tool).name).filter((name): name is string => typeof name === 'string').join(', ') || 'none'}\n\nTask:\n${params.text}`
+          content: `Agent task context:\n${params.taskContext.slice(0, 2400) || 'General assistant'}\n\nAvailable tools: ${params.tools.map((tool) => asRecord(tool).name).filter((name): name is string => typeof name === 'string').join(', ') || 'none'}\n\nCurrent user task:\n${params.text}`
         }],
         reasoning: { effort: 'none' },
         text: {
@@ -123,18 +120,7 @@ async function classifyTurn(params: {
             type: 'json_schema',
             name: 'route_signals',
             strict: true,
-            schema: {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                task_type: { type: 'string', enum: ['classification', 'transformation', 'grounded_answer', 'tool_use', 'analysis', 'high_stakes'] },
-                complexity: { type: 'number', minimum: 0, maximum: 1 },
-                confidence: { type: 'number', minimum: 0, maximum: 1 },
-                requires_tools: { type: 'boolean' },
-                consequential: { type: 'boolean' }
-              },
-              required: ['task_type', 'complexity', 'confidence', 'requires_tools', 'consequential']
-            }
+            schema: ROUTE_SIGNALS_JSON_SCHEMA
           }
         },
         max_output_tokens: 180,
@@ -311,6 +297,7 @@ Deno.serve(async (req: Request) => {
       if (strategy === 'auto') {
         const classified = await classifyTurn({
           text: latestUserText(body.input),
+          taskContext: typeof agent.instructions === 'string' ? agent.instructions : '',
           tools: Array.isArray(body.tools) ? body.tools : [],
           safetyIdentifier
         });

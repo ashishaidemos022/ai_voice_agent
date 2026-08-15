@@ -51,6 +51,7 @@ const MODEL_LABELS: Record<string, string> = {
 type SavedRoutingRun = {
   workflowKey: string;
   strategy: ChatRoutingStrategy;
+  fixedModel?: string;
   costUsd: number;
   turns: number;
   models: Record<string, number>;
@@ -176,6 +177,7 @@ export function ChatAgent({
       answerCostUsd: routes.reduce((sum, route) => sum + (route.answerCostUsd || 0), 0),
       turns: routes.length,
       models,
+      routes,
       workflowKey: userTurns.length ? workflowFingerprint(userTurns) : ''
     };
   }, [visibleMessages]);
@@ -188,6 +190,7 @@ export function ChatAgent({
       const nextRun: SavedRoutingRun = {
         workflowKey: routingReceipt.workflowKey,
         strategy: routingStrategy,
+        fixedModel: routingStrategy === 'fixed' ? fixedModel : undefined,
         costUsd: routingReceipt.costUsd,
         turns: routingReceipt.turns,
         models: routingReceipt.models,
@@ -198,7 +201,7 @@ export function ChatAgent({
       window.localStorage.setItem('chat-routing-comparison-runs', JSON.stringify(next));
     }
     void endSession();
-  }, [endSession, routingReceipt, routingStrategy, savedRuns]);
+  }, [endSession, fixedModel, routingReceipt, routingStrategy, savedRuns]);
 
   const handleA2UIEvent = useCallback((event: A2UIEvent) => {
     void sendMessage(formatA2UIEventMessage(event));
@@ -490,37 +493,99 @@ export function ChatAgent({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs uppercase tracking-[0.25em] text-white/40">Conversation receipt</p>
-                <p className="text-lg font-semibold text-white mt-1">Cost by routing strategy</p>
+                <p className="text-lg font-semibold text-white mt-1">Routing decisions & cost</p>
               </div>
-              <DollarSign className="w-5 h-5 text-emerald-300" />
+              <div className="flex items-center gap-2">
+                <Badge variant={routingStrategy === 'auto' ? 'success' : 'warning'}>
+                  {routingStrategy === 'auto' ? <Zap className="w-3 h-3" /> : <Cpu className="w-3 h-3" />}
+                  {routingStrategy === 'auto' ? 'Auto active' : `Fixed · ${MODEL_LABELS[fixedModel]?.replace('GPT-', '')}`}
+                </Badge>
+                <DollarSign className="w-5 h-5 text-emerald-300" />
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-3 mt-4">
-              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+            <div className="grid grid-cols-3 gap-2 mt-4">
+              <div className="col-span-3 rounded-xl border border-emerald-400/20 bg-gradient-to-br from-emerald-500/10 to-cyan-500/5 p-3">
                 <p className="text-[10px] uppercase tracking-[0.2em] text-white/40">Current run</p>
                 <p className="text-2xl font-semibold text-white mt-1">{formatRouteCost(routingReceipt.costUsd)}</p>
                 <p className="text-xs text-white/45 mt-1">{routingReceipt.turns} completed turns</p>
               </div>
-              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+              <div className="rounded-xl border border-white/10 bg-black/20 p-3 col-span-1">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-white/40">Answer</p>
+                <p className="text-sm font-semibold text-white mt-1">{formatRouteCost(routingReceipt.answerCostUsd)}</p>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-black/20 p-3 col-span-2">
                 <p className="text-[10px] uppercase tracking-[0.2em] text-white/40">Router overhead</p>
-                <p className="text-2xl font-semibold text-white mt-1">{formatRouteCost(routingReceipt.routerCostUsd)}</p>
-                <p className="text-xs text-white/45 mt-1">Included in total</p>
+                <div className="flex items-end justify-between gap-2 mt-1">
+                  <p className="text-sm font-semibold text-white">{formatRouteCost(routingReceipt.routerCostUsd)}</p>
+                  <p className="text-[10px] text-white/40">included in total</p>
+                </div>
               </div>
             </div>
-            <div className="mt-4 space-y-2">
+            <div className="mt-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-white/40">Model mix</p>
+                <span className="text-[10px] text-white/35">chat-router-v1</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
               {Object.entries(routingReceipt.models).map(([model, count]) => (
-                <div key={model} className="flex items-center justify-between text-xs text-white/60">
-                  <span>{MODEL_LABELS[model] || model}</span>
-                  <span>{count} turn{count === 1 ? '' : 's'}</span>
-                </div>
+                <span key={model} className="rounded-full border border-cyan-400/20 bg-cyan-500/5 px-2 py-1 text-[10px] text-cyan-100/80">
+                  {MODEL_LABELS[model] || model} × {count}
+                </span>
               ))}
+              </div>
               {!routingReceipt.turns && <p className="text-xs text-white/45">Complete a turn to see model mix and cost.</p>}
             </div>
+            {routingReceipt.routes.length > 0 && (
+              <div className="mt-4 border-t border-white/10 pt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-white/40">Decision ledger</p>
+                  <span className="text-[10px] text-white/35">one model per turn</span>
+                </div>
+                <div className="space-y-2">
+                  {routingReceipt.routes.map((route, index) => (
+                    <details key={route.turnId || index} className="group rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                      <summary className="cursor-pointer list-none flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={cn(
+                            'w-6 h-6 shrink-0 rounded-full flex items-center justify-center text-[10px] font-semibold border',
+                            route.model === OPENAI_MODELS.chat.frontier
+                              ? 'border-fuchsia-300/40 bg-fuchsia-500/10 text-fuchsia-200'
+                              : route.model === OPENAI_MODELS.chat.default
+                                ? 'border-indigo-300/40 bg-indigo-500/10 text-indigo-200'
+                                : 'border-emerald-300/30 bg-emerald-500/10 text-emerald-200'
+                          )}>{index + 1}</span>
+                          <div className="min-w-0">
+                            <p className="text-xs text-white/85 truncate">{MODEL_LABELS[route.model] || route.model}</p>
+                            <p className="text-[10px] text-white/40 capitalize truncate">{route.taskType.replace(/_/g, ' ')} · {route.reasoningEffort} reasoning</p>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-xs text-emerald-200">{formatRouteCost((route.routerCostUsd || 0) + (route.answerCostUsd || 0))}</p>
+                          <p className="text-[10px] text-white/35">{route.answerLatencyMs || 0}ms</p>
+                        </div>
+                      </summary>
+                      <div className="mt-2 pt-2 border-t border-white/10 text-[11px] text-white/55">
+                        <p>{route.reason}</p>
+                        <div className="flex justify-between mt-2 text-white/40">
+                          <span>Confidence {Math.round(route.confidence * 100)}%</span>
+                          <span>Router {formatRouteCost(route.routerCostUsd)}</span>
+                        </div>
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              </div>
+            )}
             {comparisonRun && routingReceipt.turns === comparisonRun.turns && (
               <div className="mt-4 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3">
-                <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-200/70">Matched workflow comparison</p>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-200/70">Actual matched conversation</p>
                 <div className="flex items-end justify-between mt-2">
                   <div>
-                    <p className="text-xs text-white/50">Previous {comparisonRun.strategy} run</p>
+                    <p className="text-xs text-white/50">
+                      Previous {comparisonRun.strategy === 'fixed'
+                        ? `fixed ${MODEL_LABELS[comparisonRun.fixedModel || OPENAI_MODELS.chat.frontier]?.replace('GPT-', '')}`
+                        : 'auto'} run
+                    </p>
                     <p className="text-lg font-semibold text-white">{formatRouteCost(comparisonRun.costUsd)}</p>
                   </div>
                   <div className="text-right">
@@ -530,9 +595,10 @@ export function ChatAgent({
                 </div>
                 <p className="text-xs text-emerald-100/80 mt-2">
                   {comparisonRun.costUsd > routingReceipt.costUsd
-                    ? `${Math.round((1 - routingReceipt.costUsd / comparisonRun.costUsd) * 100)}% lower cost across the same scripted turns.`
+                    ? `${Math.round((1 - routingReceipt.costUsd / comparisonRun.costUsd) * 100)}% lower cost across the same user turns.`
                     : 'The current run did not reduce cost for this workflow.'}
                 </p>
+                <p className="text-[10px] text-white/40 mt-1">Compare the two transcripts to confirm outcome parity.</p>
               </div>
             )}
           </Card>
@@ -778,7 +844,11 @@ function ChatBubble({ message, a2uiEnabled, onA2UIEvent }: {
           {isUser ? <UserRound className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
           <span>{isUser ? 'You' : 'Assistant'}</span>
           {message.isStreaming && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-          {route && <Badge variant="secondary" className="normal-case tracking-normal">{MODEL_LABELS[route.model] || route.model}</Badge>}
+          {route && (
+            <Badge variant={route.strategy === 'auto' ? 'success' : 'warning'} className="normal-case tracking-normal">
+              {route.strategy === 'auto' ? 'Auto' : 'Fixed'} · {MODEL_LABELS[route.model] || route.model}
+            </Badge>
+          )}
         </div>
         {shouldRenderA2UI ? (
           <A2UIRenderer
@@ -804,13 +874,15 @@ function ChatBubble({ message, a2uiEnabled, onA2UIEvent }: {
         {route && (
           <details className="mt-3 border-t border-white/10 pt-2 text-xs text-white/55">
             <summary className="cursor-pointer text-cyan-200/80 hover:text-cyan-100">
-              Why this model? · {formatRouteCost((route.routerCostUsd || 0) + (route.answerCostUsd || 0))}
+              Model decision receipt · {formatRouteCost((route.routerCostUsd || 0) + (route.answerCostUsd || 0))}
             </summary>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2">
+              <span>Selected model</span><span className="text-white/80">{MODEL_LABELS[route.model] || route.model}</span>
               <span>Task</span><span className="text-white/80">{route.taskType.replace(/_/g, ' ')}</span>
               <span>Reasoning</span><span className="text-white/80">{route.reasoningEffort}</span>
               <span>Confidence</span><span className="text-white/80">{Math.round(route.confidence * 100)}%</span>
               <span>Response time</span><span className="text-white/80">{route.answerLatencyMs || 0}ms</span>
+              <span>Answer cost</span><span className="text-white/80">{formatRouteCost(route.answerCostUsd)}</span>
               <span>Router overhead</span><span className="text-white/80">{formatRouteCost(route.routerCostUsd)}</span>
             </div>
             <p className="mt-2 text-white/65">{route.reason}</p>
