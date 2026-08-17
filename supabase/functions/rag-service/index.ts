@@ -197,8 +197,8 @@ async function runRagQuery(params: {
 
   const instructions =
     params.ragMode === 'guardrail'
-      ? 'You may ONLY answer using the retrieved knowledge. If the knowledge base does not contain the answer, respond with answer: "INSUFFICIENT" and return an empty citations array.'
-      : 'Prefer retrieved knowledge when answering questions. Always include concise citations referencing the document title or filename.';
+      ? 'You may ONLY answer using the retrieved knowledge. If the knowledge base does not contain the answer, respond with answer: "INSUFFICIENT" and return an empty citations array. The vector store is not a source of customer history or conversation state. Never invent a citation, filename, customer event, purchase, return, or preference.'
+      : 'Prefer retrieved knowledge when answering questions. Cite only files actually returned by file search, using their real filename or document title. The vector store is not a source of customer history or conversation state. Never invent a citation, source title, customer event, purchase, return, or preference. Omit unsupported claims.';
 
   const body = {
     model: params.model || 'gpt-4.1-mini',

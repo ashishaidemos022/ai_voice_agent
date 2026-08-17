@@ -26,6 +26,7 @@ import type {
   ChatRoutingModel,
   ChatRoutingStrategy
 } from '../../shared/model-routing';
+import { shouldRunRagForTurn } from '../../shared/rag-routing';
 
 const MAX_CONTEXT_MESSAGES = 40;
 const DEFAULT_CHAT_MODEL = OPENAI_MODELS.chat.default;
@@ -387,11 +388,17 @@ export function useChatAgent() {
 
     const preset = presets.find((p) => p.id === activePresetId);
     const hasKnowledgeSpaces = (preset?.knowledge_spaces?.length || 0) > 0;
-    const canRunRag = preset?.rag_enabled && hasKnowledgeSpaces && Boolean(realtimeRef.current);
+    const knowledgeNeeded = shouldRunRagForTurn(trimmed);
+    const canRunRag = preset?.rag_enabled && hasKnowledgeSpaces && knowledgeNeeded && Boolean(realtimeRef.current);
     if (!preset?.rag_enabled) {
       console.debug('[RAG] Skipping augmentation - preset disabled', { presetId: preset?.id });
     } else if (!hasKnowledgeSpaces) {
       console.debug('[RAG] Skipping augmentation - no knowledge spaces attached', { presetId: preset?.id });
+    } else if (!knowledgeNeeded) {
+      console.debug('[RAG] Skipping augmentation - turn does not require knowledge retrieval', { presetId: preset?.id });
+      setRagResult(null);
+      setRagInvoked(false);
+      setRagError(null);
     }
     let ragContext: RagAugmentationResult | null = null;
 

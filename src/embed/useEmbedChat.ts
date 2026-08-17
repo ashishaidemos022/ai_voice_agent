@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { buildEmbedFunctionUrl, resolveEmbedApiBase } from './embed-api';
+import { shouldRunRagForTurn } from '../../shared/rag-routing';
 
 export type EmbedMessage = {
   id: string;
@@ -209,7 +210,10 @@ export function useEmbedChat(publicId: string, options?: { persist?: boolean }) 
           }));
 
         const shouldRunRag =
-          agentMeta?.ragEnabled && (agentMeta.knowledgeSpaceIds?.length || 0) > 0 && Boolean(agentMeta.id);
+          agentMeta?.ragEnabled
+          && (agentMeta.knowledgeSpaceIds?.length || 0) > 0
+          && Boolean(agentMeta.id)
+          && shouldRunRagForTurn(trimmed);
 
         if (shouldRunRag) {
           try {

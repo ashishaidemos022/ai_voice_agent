@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import { executeTool, loadMCPTools } from '../lib/tools-registry';
 import { Message, RealtimeConfig, VoiceToolEvent } from '../types/voice-agent';
 import { runRagAugmentation } from '../lib/rag-service';
+import { shouldRunRagForTurn } from '../../shared/rag-routing';
 import type { RagAugmentationResult, RagMode } from '../types/rag';
 import { configPresetToRealtimeConfig, getConfigPresetById } from '../lib/config-service';
 import { useAuth } from '../context/AuthContext';
@@ -343,6 +344,13 @@ export function useVoiceAgent() {
   const maybeRunRagAugmentation = useCallback(async (transcriptText: string) => {
     const query = (transcriptText || '').trim();
     if (!query) {
+      setRagInvoked(false);
+      setRagResult(null);
+      setRagError(null);
+      ragResponsePendingRef.current = false;
+      return;
+    }
+    if (!shouldRunRagForTurn(query)) {
       setRagInvoked(false);
       setRagResult(null);
       setRagError(null);

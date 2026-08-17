@@ -43,6 +43,69 @@ test('routing policy follows task type and reserves Sol for consequential or dee
   assert.equal(resolveRouteFromSignals(reconciled, 'greeting').model, OPENAI_MODELS.chat.economy);
 });
 
+test('shopping catalog discovery with a budget routes as tool use, not a consequential purchase', () => {
+  const reconciled = reconcileRouteSignals(
+    'Query the Supabase footwear catalog and recommend matches under $600.',
+    {
+      taskType: 'high_stakes',
+      complexity: 0.55,
+      confidence: 0.9,
+      requiresTools: true,
+      consequential: true
+    }
+  );
+  const route = resolveRouteFromSignals(reconciled, 'shopping-discovery');
+  assert.equal(reconciled.consequential, false);
+  assert.equal(reconciled.taskType, 'tool_use');
+  assert.equal(route.model, OPENAI_MODELS.chat.mini);
+});
+
+test('Vault Noir journey reconciles the exact previously misrouted prompts', () => {
+  const cases = [
+    {
+      id: 'shopping-opening',
+      prompt: "> Hi, I'm shopping for a polished men's work shoe.",
+      signals: { taskType: 'analysis' as const, complexity: 0.6, confidence: 0.72, requiresTools: false, consequential: false },
+      expectedModel: OPENAI_MODELS.chat.economy,
+      expectedTask: 'grounded_answer'
+    },
+    {
+      id: 'cached-product-comparison',
+      prompt: 'Compare Forge Derby and Bastion Loafer using the results you already have. Weigh toe room, break-in, eight-hour comfort, rain, longevity, resolvability, price, and my return history. Do not query again.',
+      signals: { taskType: 'analysis' as const, complexity: 0.78, confidence: 0.74, requiresTools: false, consequential: true },
+      expectedModel: OPENAI_MODELS.chat.default,
+      expectedTask: 'analysis'
+    },
+    {
+      id: 'structured-customer-lookup',
+      prompt: 'Yes, you may use my email to check my footwear preferences, purchases, and returns. Summarize only what matters.',
+      signals: { taskType: 'analysis' as const, complexity: 0.6, confidence: 0.72, requiresTools: true, consequential: false },
+      expectedModel: OPENAI_MODELS.chat.mini,
+      expectedTask: 'tool_use'
+    },
+    {
+      id: 'pre-purchase-review',
+      prompt: "Before I spend money, re-check the selected product's catalog price and availability in Supabase, reconcile the fit risk with my return history, and tell me exactly what the storefront must confirm before I pay.",
+      signals: { taskType: 'analysis' as const, complexity: 0.78, confidence: 0.74, requiresTools: true, consequential: false },
+      expectedModel: OPENAI_MODELS.chat.frontier,
+      expectedTask: 'high_stakes'
+    },
+    {
+      id: 'passive-storefront-handoff',
+      prompt: 'Take me to that product so I can select the live variant and complete checkout securely.',
+      signals: { taskType: 'tool_use' as const, complexity: 0.35, confidence: 0.8, requiresTools: true, consequential: true },
+      expectedModel: OPENAI_MODELS.chat.economy,
+      expectedTask: 'grounded_answer'
+    }
+  ];
+  for (const item of cases) {
+    const reconciled = reconcileRouteSignals(item.prompt, item.signals);
+    const route = resolveRouteFromSignals(reconciled, item.id);
+    assert.equal(reconciled.taskType, item.expectedTask, item.id);
+    assert.equal(route.model, item.expectedModel, item.id);
+  }
+});
+
 test('deterministic scorer checks text, safety constraints, length, and tools', () => {
   const score = scoreDeterministic({
     requiredPatterns: ['Pending Review'], forbiddenPatterns: ['approved'], maxWords: 12,

@@ -197,6 +197,50 @@ export function heuristicRouteSignals(text: string, hasTools: boolean): RouteSig
 
 export function reconcileRouteSignals(text: string, signals: RouteSignals): RouteSignals {
   const normalized = text.toLowerCase();
+  const passiveStorefrontHandoff = /\b(?:take me to|open|show me|give me|send me)\b[^.\n]*\b(?:product|storefront)\b/.test(normalized)
+    && !/\b(?:create (?:a )?checkout|place (?:the )?order|pay now|charge|complete (?:the )?purchase)\b/.test(normalized);
+  if (passiveStorefrontHandoff) {
+    return {
+      ...signals,
+      taskType: 'grounded_answer',
+      complexity: Math.min(signals.complexity, 0.25),
+      requiresTools: false,
+      consequential: false
+    };
+  }
+  const explicitPurchaseReview = /\b(?:before i (?:spend|pay|buy)|before (?:paying|purchasing)|pre-purchase)\b/.test(normalized)
+    && /\b(?:price|availability|total|risk|verify|re-?check|reconcile)\b/.test(normalized);
+  if (explicitPurchaseReview) {
+    return {
+      ...signals,
+      taskType: 'high_stakes',
+      complexity: Math.max(signals.complexity, 0.7),
+      requiresTools: true,
+      consequential: true
+    };
+  }
+  const structuredCustomerLookup = signals.requiresTools
+    && /\b(?:check|look up|query|fetch|retrieve)\b/.test(normalized)
+    && /\b(?:profile|preferences|purchases|orders|returns|history|account)\b/.test(normalized);
+  if (structuredCustomerLookup) {
+    return {
+      ...signals,
+      taskType: 'tool_use',
+      complexity: Math.min(signals.complexity, 0.55),
+      consequential: false
+    };
+  }
+  const simpleShoppingOpening = /^(?:>\s*)?(?:hi[\s,!.-]*)?(?:i(?:'m| am)|we(?:'re| are))\s+(?:shopping|looking)\b/.test(normalized)
+    && !/\b(?:compare|analy[sz]e|recommend|query|search|find|check|verify)\b/.test(normalized);
+  if (simpleShoppingOpening) {
+    return {
+      ...signals,
+      taskType: 'grounded_answer',
+      complexity: Math.min(signals.complexity, 0.3),
+      requiresTools: false,
+      consequential: false
+    };
+  }
   const boundedTask = signals.taskType === 'classification' || signals.taskType === 'transformation';
   const conversationalOpening = /\b(can|could|would|will) you help\b|\bhelp me\b/.test(normalized);
   const explicitBoundedRequest = /\b(classify|categorize|extract|rewrite|rephrase|translate|format|convert|label|return (?:only )?json)\b/.test(normalized);
@@ -206,6 +250,29 @@ export function reconcileRouteSignals(text: string, signals: RouteSignals): Rout
       taskType: 'grounded_answer',
       complexity: Math.min(signals.complexity, 0.35),
       requiresTools: false
+    };
+  }
+  const cachedProductComparison = /\bcompare\b/.test(normalized)
+    && /\b(?:toe|fit|comfort|break-?in|rain|longevity|resolva(?:ble|bility)|price|return history)\b/.test(normalized)
+    && /\b(?:results you already have|do not query again|don't query again)\b/.test(normalized);
+  if (cachedProductComparison) {
+    return {
+      ...signals,
+      taskType: 'analysis',
+      complexity: Math.min(0.87, Math.max(signals.complexity, 0.65)),
+      requiresTools: false,
+      consequential: false
+    };
+  }
+  const shoppingDiscovery = /\b(query|search|find|recommend|match|catalog|browse)\b/.test(normalized)
+    && /\b(shoe|shoes|footwear|product|products|catalog|shopping)\b/.test(normalized);
+  const transactionCommitment = /\b(pay|payment|checkout|purchase|buy now|place (?:the )?order|spend money|charge|confirm (?:the )?order)\b/.test(normalized);
+  if (shoppingDiscovery && !transactionCommitment && signals.requiresTools) {
+    return {
+      ...signals,
+      taskType: 'tool_use',
+      complexity: Math.min(signals.complexity, 0.55),
+      consequential: false
     };
   }
   return signals;
