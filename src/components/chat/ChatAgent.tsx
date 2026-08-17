@@ -18,7 +18,8 @@ import {
 import { useChatAgent } from '../../hooks/useChatAgent';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '../ui/Button';
-import { MarkdownContent, containsMarkdownMedia } from '../ui/MarkdownContent';
+import { containsRichContent } from '../ui/markdown-utils';
+import { MessageContent } from '../ui/MessageContent';
 import { Card } from '../ui/Card';
 import { ChatMessage } from '../../types/chat';
 import { cn } from '../../lib/utils';
@@ -34,8 +35,7 @@ import { N8NPanel } from '../panels/N8NPanel';
 import { SettingsPanel } from '../panels/SettingsPanel';
 import { configPresetToRealtimeConfig } from '../../lib/config-service';
 import type { RealtimeConfig } from '../../types/voice-agent';
-import { A2UIRenderer } from '../a2ui/A2UIRenderer';
-import { formatA2UIEventMessage, getA2UIEventDisplay, parseA2UIPayload, type A2UIEvent } from '../../lib/a2ui';
+import { formatA2UIEventMessage, type A2UIEvent } from '../../lib/a2ui';
 import { Badge } from '../ui/Badge';
 import { CHAT_ROUTING_MODELS, type ChatRouteDecision, type ChatRoutingStrategy } from '../../../shared/model-routing';
 import { OPENAI_MODELS } from '../../../shared/openai-models';
@@ -146,6 +146,7 @@ export function ChatAgent({
   const [chatConfig, setChatConfig] = useState<RealtimeConfig | null>(null);
   const [composerValue, setComposerValue] = useState('');
   const [viewMode, setViewMode] = useState<'current' | 'history'>('current');
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [savedRuns, setSavedRuns] = useState<SavedRoutingRun[]>(() => {
     try {
       return JSON.parse(window.localStorage.getItem('chat-routing-comparison-runs') || '[]');
@@ -227,11 +228,32 @@ export function ChatAgent({
 
   const showHistoryDetail = viewMode === 'history';
   const conversationRef = useRef<HTMLDivElement | null>(null);
+  const shouldFollowConversationRef = useRef(true);
+
+  const scrollToLatest = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const container = conversationRef.current;
+    if (!container) return;
+    const resolvedBehavior = behavior === 'smooth' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      ? 'auto'
+      : behavior;
+    shouldFollowConversationRef.current = true;
+    setShowJumpToLatest(false);
+    container.scrollTo({ top: container.scrollHeight, behavior: resolvedBehavior });
+  }, []);
+
+  const handleConversationScroll = useCallback(() => {
+    const container = conversationRef.current;
+    if (!container) return;
+    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 96;
+    shouldFollowConversationRef.current = isNearBottom;
+    setShowJumpToLatest(!isNearBottom);
+  }, []);
 
   useEffect(() => {
-    if (!conversationRef.current) return;
-    conversationRef.current.scrollTop = conversationRef.current.scrollHeight;
-  }, [visibleMessages, liveAssistantText, showHistoryDetail]);
+    if (!shouldFollowConversationRef.current) return;
+    const frame = window.requestAnimationFrame(() => scrollToLatest('auto'));
+    return () => window.cancelAnimationFrame(frame);
+  }, [visibleMessages, liveAssistantText, showHistoryDetail, scrollToLatest]);
 
   useEffect(() => {
     if (!activePreset) {
@@ -375,7 +397,7 @@ export function ChatAgent({
             </div>
           </Card>
 
-          <Card className="flex-1 flex flex-col bg-slate-900/40 border-white/5 overflow-hidden">
+          <Card className="relative flex-1 flex flex-col bg-slate-900/40 border-white/5 overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
               <div className="flex items-center gap-3">
                 <MessageSquare className="w-5 h-5 text-indigo-200" />
@@ -412,7 +434,16 @@ export function ChatAgent({
               )}
             </div>
 
-            <div ref={conversationRef} className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+            <div
+              ref={conversationRef}
+              onScroll={handleConversationScroll}
+              role="log"
+              aria-label={showHistoryDetail ? 'Historical conversation' : 'Live conversation'}
+              aria-live={showHistoryDetail ? 'off' : 'polite'}
+              aria-relevant="additions text"
+              aria-busy={isStreaming}
+              className="flex-1 overflow-y-auto px-6 py-4 space-y-4"
+            >
               {visibleMessages.length === 0 && !showHistoryDetail && (
                 <div className="text-center text-white/50 py-16">
                   <p className="text-lg font-medium">Ask anything.</p>
@@ -451,6 +482,16 @@ export function ChatAgent({
                 <p className="text-sm text-rose-300">{historyError}</p>
               )}
             </div>
+
+            {showJumpToLatest && (
+              <button
+                type="button"
+                onClick={() => scrollToLatest()}
+                className="absolute bottom-28 right-8 z-20 rounded-full border border-white/15 bg-slate-900/95 px-3 py-2 text-xs text-white shadow-lg backdrop-blur hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+              >
+                Jump to latest
+              </button>
+            )}
 
             {!showHistoryDetail && (
               <div className="border-t border-white/5 p-5">
@@ -822,19 +863,14 @@ function ChatBubble({ message, a2uiEnabled, onA2UIEvent }: {
   onA2UIEvent: (event: A2UIEvent) => void;
 }) {
   const isUser = message.sender === 'user';
-  const parsedA2UI = !isUser ? parseA2UIPayload(message.content) : null;
-  const shouldRenderA2UI = !isUser && a2uiEnabled && Boolean(parsedA2UI?.ui);
-  const eventDisplay = isUser ? getA2UIEventDisplay(message.content) : null;
-  const displayText = eventDisplay ? `Action: ${eventDisplay}` : message.content;
-  const shouldRenderMarkdown = !shouldRenderA2UI && !isUser && containsMarkdownMedia(
-    parsedA2UI?.fallbackText || displayText
-  );
+  const isRich = !isUser && containsRichContent(message.content);
   const route = message.raw?.routing;
   return (
-    <div className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
+    <div className={cn('flex min-w-0', isUser ? 'justify-end' : 'justify-start')}>
       <div
         className={cn(
-          'rounded-2xl px-4 py-3 max-w-[80%] shadow',
+          'min-w-0 rounded-2xl px-4 py-3 shadow',
+          isRich ? 'w-full max-w-[56rem]' : 'max-w-[80%]',
           isUser
             ? 'bg-indigo-500 text-white rounded-br-sm'
             : 'bg-white/5 text-white rounded-bl-sm border border-white/10'
@@ -850,21 +886,13 @@ function ChatBubble({ message, a2uiEnabled, onA2UIEvent }: {
             </Badge>
           )}
         </div>
-        {shouldRenderA2UI ? (
-          <A2UIRenderer
-            ui={parsedA2UI!.ui}
-            fallbackText={parsedA2UI!.fallbackText || message.content}
-            onEvent={onA2UIEvent}
-          />
-        ) : shouldRenderMarkdown ? (
-          <MarkdownContent
-            content={parsedA2UI?.fallbackText && !isUser ? parsedA2UI.fallbackText : displayText}
-          />
-        ) : (
-          <p className="text-sm leading-relaxed whitespace-pre-wrap">
-            {parsedA2UI?.fallbackText && !isUser ? parsedA2UI.fallbackText : displayText}
-          </p>
-        )}
+        <MessageContent
+          content={message.content}
+          role={message.sender}
+          a2uiEnabled={a2uiEnabled}
+          onA2UIEvent={onA2UIEvent}
+          richContent={message.raw?.content}
+        />
         {message.toolName && (
           <p className="text-[11px] text-white/50 mt-2 flex items-center gap-1">
             <Sparkles className="w-3 h-3" />

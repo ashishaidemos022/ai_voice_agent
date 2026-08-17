@@ -317,6 +317,10 @@ Deno.serve(async (req: Request) => {
     const instructions = [
       agent.instructions,
       'Always reply in English unless the user explicitly asks for another language.',
+      'Format normal responses with GitHub-flavored Markdown. Use Markdown tables for comparisons and Markdown images with descriptive alt text when returning visual results.',
+      agent.a2ui_enabled
+        ? 'When interactive UI is useful, you may return {"a2ui":{"version":"0.8","ui":<tree>},"fallback_text":"..."}. Supported components are Card, Text, Button, Input, Select, Form, Map, Calendar, Image, and Table.'
+        : null,
       body.instructions_suffix
     ].filter(Boolean).join('\n\n');
     const payload: Record<string, unknown> = {

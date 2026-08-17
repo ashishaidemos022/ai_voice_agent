@@ -1,5 +1,6 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 import { Button } from '../ui/Button';
+import { MarkdownContent, RichImage } from '../ui/MarkdownContent';
 import type { A2UIElement, A2UIEvent } from '../../lib/a2ui';
 
 const FormContext = createContext<{
@@ -375,6 +376,36 @@ function A2UICalendar({ node }: { node: A2UIElement }) {
   );
 }
 
+function A2UIImage({ node }: { node: A2UIElement }) {
+  const src = typeof node.props?.src === 'string'
+    ? node.props.src
+    : typeof node.props?.url === 'string'
+    ? node.props.url
+    : '';
+  const alt = typeof node.props?.alt === 'string' ? node.props.alt : '';
+  const caption = typeof node.props?.caption === 'string' ? node.props.caption : undefined;
+  return <RichImage src={src} alt={alt} title={caption} />;
+}
+
+function A2UITable({ node }: { node: A2UIElement }) {
+  type Column = string | { key?: string; label?: string };
+  const columns = (Array.isArray(node.props?.columns) ? node.props.columns : []) as Column[];
+  const rows = (Array.isArray(node.props?.rows) ? node.props.rows : []) as unknown[];
+  if (!columns.length) return null;
+  const labels = columns.map((column) => typeof column === 'string' ? column : String(column.label || column.key || ''));
+  const keys = columns.map((column, index) => typeof column === 'string' ? column : String(column.key || index));
+  const clean = (value: unknown) => String(value ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' / ');
+  const header = `| ${labels.map(clean).join(' | ')} |`;
+  const divider = `| ${labels.map(() => '---').join(' | ')} |`;
+  const body = rows.map((row) => {
+    const record = row && typeof row === 'object' ? row as Record<string, unknown> : {};
+    const cells = Array.isArray(row) ? row : keys.map((key) => record[key]);
+    return `| ${cells.map(clean).join(' | ')} |`;
+  }).join('\n');
+  const caption = typeof node.props?.caption === 'string' ? `**${node.props.caption}**\n\n` : '';
+  return <MarkdownContent content={`${caption}${header}\n${divider}\n${body}`} />;
+}
+
 export function A2UIRenderer({ ui, fallbackText, onEvent, className }: A2UIRendererProps) {
   const nodes = Array.isArray(ui) ? ui : [ui];
 
@@ -410,6 +441,10 @@ export function A2UIRenderer({ ui, fallbackText, onEvent, className }: A2UIRende
         return <A2UIMap key={key} node={node} />;
       case 'Calendar':
         return <A2UICalendar key={key} node={node} />;
+      case 'Image':
+        return <A2UIImage key={key} node={node} />;
+      case 'Table':
+        return <A2UITable key={key} node={node} />;
       default:
         return null;
     }
@@ -431,7 +466,7 @@ export function A2UIRenderer({ ui, fallbackText, onEvent, className }: A2UIRende
         {!nodes.length && fallbackText && <p className="text-sm whitespace-pre-wrap">{fallbackText}</p>}
       </div>
     );
-  } catch (error) {
+  } catch {
     if (fallbackText) {
       return <p className="text-sm whitespace-pre-wrap">{fallbackText}</p>;
     }

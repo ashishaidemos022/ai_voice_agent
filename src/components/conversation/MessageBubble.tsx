@@ -2,9 +2,9 @@ import { motion } from 'framer-motion';
 import { User, Bot } from 'lucide-react';
 import { Message } from '../../types/voice-agent';
 import { ToolCallIndicator } from './ToolCallIndicator';
-import { A2UIRenderer } from '../a2ui/A2UIRenderer';
-import { MarkdownContent, containsMarkdownMedia } from '../ui/MarkdownContent';
-import { getA2UIEventDisplay, parseA2UIPayload, type A2UIEvent } from '../../lib/a2ui';
+import { containsRichContent } from '../ui/markdown-utils';
+import { MessageContent } from '../ui/MessageContent';
+import type { A2UIEvent } from '../../lib/a2ui';
 
 interface MessageBubbleProps {
   message: Message;
@@ -15,13 +15,7 @@ interface MessageBubbleProps {
 export function MessageBubble({ message, a2uiEnabled = false, onA2UIEvent }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
-  const parsedA2UI = !isUser ? parseA2UIPayload(message.content) : null;
-  const shouldRenderA2UI = !isUser && a2uiEnabled && Boolean(parsedA2UI?.ui);
-  const eventDisplay = isUser ? getA2UIEventDisplay(message.content) : null;
-  const displayText = eventDisplay ? `Action: ${eventDisplay}` : message.content;
-  const shouldRenderMarkdown = !shouldRenderA2UI && !isUser && containsMarkdownMedia(
-    parsedA2UI?.fallbackText || displayText
-  );
+  const isRich = !isUser && containsRichContent(message.content);
 
   const time = new Date(message.timestamp).toLocaleTimeString('en-US', {
     hour: '2-digit',
@@ -41,9 +35,9 @@ export function MessageBubble({ message, a2uiEnabled = false, onA2UIEvent }: Mes
         </div>
       )}
 
-      <div className={`flex flex-col max-w-[65%] ${isUser ? 'items-end' : 'items-start'}`}>
+      <div className={`flex flex-col min-w-0 ${isRich ? 'w-full max-w-[90%]' : 'max-w-[65%]'} ${isUser ? 'items-end' : 'items-start'}`}>
         <div
-          className={`px-4 py-3 rounded-2xl ${
+          className={`min-w-0 px-4 py-3 rounded-2xl ${isRich ? 'w-full' : ''} ${
             isUser
               ? 'bg-blue-500 text-white shadow-sm'
               : isSystem
@@ -51,21 +45,12 @@ export function MessageBubble({ message, a2uiEnabled = false, onA2UIEvent }: Mes
               : 'bg-white text-gray-900 border border-gray-200 shadow-sm'
           }`}
         >
-          {shouldRenderA2UI ? (
-            <A2UIRenderer
-              ui={parsedA2UI!.ui}
-              fallbackText={parsedA2UI!.fallbackText || message.content}
-              onEvent={onA2UIEvent}
-            />
-          ) : shouldRenderMarkdown ? (
-            <MarkdownContent
-              content={parsedA2UI?.fallbackText && !isUser ? parsedA2UI.fallbackText : displayText}
-            />
-          ) : (
-            <p className="text-sm whitespace-pre-wrap leading-relaxed">
-              {parsedA2UI?.fallbackText && !isUser ? parsedA2UI.fallbackText : displayText}
-            </p>
-          )}
+          <MessageContent
+            content={message.content}
+            role={message.role}
+            a2uiEnabled={a2uiEnabled}
+            onA2UIEvent={onA2UIEvent}
+          />
         </div>
 
         {message.tool_calls && message.tool_calls.length > 0 && (

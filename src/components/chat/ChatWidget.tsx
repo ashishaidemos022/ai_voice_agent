@@ -3,7 +3,8 @@ import { Loader2, MessageCircle, Shield, Sparkles } from 'lucide-react';
 import { useChatAgent } from '../../hooks/useChatAgent';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '../ui/Button';
-import { MarkdownContent, containsMarkdownMedia } from '../ui/MarkdownContent';
+import { containsRichContent } from '../ui/markdown-utils';
+import { MessageContent } from '../ui/MessageContent';
 import { cn } from '../../lib/utils';
 
 const params = new URLSearchParams(window.location.search);
@@ -87,7 +88,14 @@ export function ChatWidget() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+      <div
+        className="flex-1 overflow-y-auto px-4 py-3 space-y-3"
+        role="log"
+        aria-label="Conversation"
+        aria-live="polite"
+        aria-relevant="additions text"
+        aria-busy={isStreaming}
+      >
         {!vaUser && !isLoading && (
           <div className="text-sm text-center opacity-80">
             Provide a valid Supabase JWT token via <code className="px-1 py-0.5 rounded bg-black/20">data-user-jwt</code> to unlock the widget.
@@ -99,12 +107,13 @@ export function ChatWidget() {
           </div>
         )}
         {visibleMessages.map((message) => {
-          const shouldRenderMarkdown = message.sender !== 'user' && containsMarkdownMedia(message.content);
+          const isRich = message.sender !== 'user' && containsRichContent(message.content);
           return (
           <div
             key={message.id}
             className={cn(
-              'px-3 py-2 rounded-2xl text-sm max-w-[85%]',
+              'min-w-0 px-3 py-2 rounded-2xl text-sm',
+              isRich ? 'w-full max-w-full' : 'max-w-[85%]',
               message.sender === 'user'
                 ? theme === 'light'
                   ? 'bg-indigo-500 text-white ml-auto rounded-br-sm'
@@ -118,11 +127,7 @@ export function ChatWidget() {
               {message.sender === 'user' ? 'You' : 'Agent'}
               {message.isStreaming && <Loader2 className="w-3 h-3 animate-spin" />}
             </div>
-            {shouldRenderMarkdown ? (
-              <MarkdownContent content={message.content} />
-            ) : (
-              <p className="leading-relaxed whitespace-pre-wrap">{message.content}</p>
-            )}
+            <MessageContent content={message.content} role={message.sender} />
           </div>
         )})}
       </div>

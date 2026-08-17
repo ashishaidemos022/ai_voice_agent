@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { Loader2, MessageCircle, RotateCcw, Sparkles } from 'lucide-react';
 import { useEmbedChat, type ChatEmbedAppearance } from './useEmbedChat';
 import { Button } from '../components/ui/Button';
-import { MarkdownContent, containsMarkdownMedia } from '../components/ui/MarkdownContent';
+import { containsRichContent } from '../components/ui/markdown-utils';
+import { MessageContent } from '../components/ui/MessageContent';
 import { cn } from '../lib/utils';
-import { A2UIRenderer } from '../components/a2ui/A2UIRenderer';
-import { formatA2UIEventMessage, getA2UIEventDisplay, parseA2UIPayload, type A2UIEvent } from '../lib/a2ui';
+import { formatA2UIEventMessage, type A2UIEvent } from '../lib/a2ui';
 
 function resolvePublicId(): string | null {
   if (typeof window === 'undefined') return null;
@@ -44,9 +44,11 @@ function buildAppearanceVars(appearance: ChatEmbedAppearance | null | undefined)
 
 export function ChatEmbedView({ publicId, theme, isWidget }: ChatEmbedViewProps) {
   const [composer, setComposer] = useState('');
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const scrollAnchorRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const shouldFollowRef = useRef(true);
 
   const {
     messages,
@@ -110,7 +112,9 @@ export function ChatEmbedView({ publicId, theme, isWidget }: ChatEmbedViewProps)
   } as CSSProperties;
 
   useEffect(() => {
+    if (!shouldFollowRef.current) return;
     const frame = window.requestAnimationFrame(() => {
+      setShowJumpToLatest(false);
       const container = scrollContainerRef.current;
       if (container && container.scrollHeight > container.clientHeight + 4) {
         container.scrollTop = container.scrollHeight;
@@ -189,7 +193,22 @@ export function ChatEmbedView({ publicId, theme, isWidget }: ChatEmbedViewProps)
         </Button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3" ref={scrollContainerRef}>
+      <div
+        className="relative flex-1 overflow-y-auto px-4 py-3 space-y-3"
+        ref={scrollContainerRef}
+        role="log"
+        aria-label="Conversation"
+        aria-live="polite"
+        aria-relevant="additions text"
+        aria-busy={isSending}
+        onScroll={() => {
+          const container = scrollContainerRef.current;
+          if (!container) return;
+          const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
+          shouldFollowRef.current = isNearBottom;
+          setShowJumpToLatest(!isNearBottom);
+        }}
+      >
         {isLoadingMeta && (
           <div className="flex items-center gap-2 text-sm opacity-80" style={helperTextStyle}>
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -206,18 +225,13 @@ export function ChatEmbedView({ publicId, theme, isWidget }: ChatEmbedViewProps)
         )}
         {messages.map((message) => {
           const isUser = message.role === 'user';
-          const parsedA2UI = !isUser ? parseA2UIPayload(message.content) : null;
-          const shouldRenderA2UI = !isUser && a2uiEnabled && Boolean(parsedA2UI?.ui);
-          const eventDisplay = isUser ? getA2UIEventDisplay(message.content) : null;
-          const displayText = eventDisplay ? `Action: ${eventDisplay}` : message.content;
-          const shouldRenderMarkdown = !shouldRenderA2UI && !isUser && containsMarkdownMedia(
-            parsedA2UI?.fallbackText || displayText
-          );
+          const isRich = !isUser && containsRichContent(message.content);
           return (
           <div
             key={message.id}
             className={cn(
-              'px-3 py-2 rounded-2xl text-sm max-w-[85%]',
+              'min-w-0 px-3 py-2 rounded-2xl text-sm',
+              isRich ? 'w-full max-w-full' : 'max-w-[85%]',
               message.role === 'user'
                 ? theme === 'light'
                   ? 'bg-indigo-600 text-white ml-auto rounded-br-sm'
@@ -235,23 +249,13 @@ export function ChatEmbedView({ publicId, theme, isWidget }: ChatEmbedViewProps)
             <div className={cn('text-[10px] uppercase tracking-[0.25em] mb-1 flex items-center gap-1', message.role === 'user' ? 'opacity-70' : 'opacity-60')}>
               {message.role === 'user' ? 'You' : 'Agent'}
             </div>
-            {shouldRenderA2UI ? (
-              <A2UIRenderer
-                ui={parsedA2UI!.ui}
-                fallbackText={parsedA2UI!.fallbackText || message.content}
-                onEvent={handleA2UIEvent}
-                className="space-y-3 text-current"
-              />
-            ) : shouldRenderMarkdown ? (
-              <MarkdownContent
-                content={parsedA2UI?.fallbackText && !isUser ? parsedA2UI.fallbackText : displayText}
-                className="text-current"
-              />
-            ) : (
-              <p className="leading-relaxed whitespace-pre-wrap">
-                {parsedA2UI?.fallbackText && !isUser ? parsedA2UI.fallbackText : displayText}
-              </p>
-            )}
+            <MessageContent
+              content={message.content}
+              role={message.role}
+              a2uiEnabled={a2uiEnabled}
+              onA2UIEvent={handleA2UIEvent}
+              className="text-current"
+            />
           </div>
         )})}
         {isSending && (
@@ -282,6 +286,20 @@ export function ChatEmbedView({ publicId, theme, isWidget }: ChatEmbedViewProps)
           <div className="text-xs text-rose-300">{error}</div>
         )}
         <div ref={scrollAnchorRef} />
+        {showJumpToLatest && (
+          <button
+            type="button"
+            onClick={() => {
+              shouldFollowRef.current = true;
+              setShowJumpToLatest(false);
+              const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+              scrollAnchorRef.current?.scrollIntoView({ behavior, block: 'end' });
+            }}
+            className="sticky bottom-2 ml-auto block rounded-full border border-current/15 bg-slate-900/95 px-3 py-2 text-xs text-white shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+          >
+            Jump to latest
+          </button>
+        )}
       </div>
 
       <div

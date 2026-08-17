@@ -8,6 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "test:gateway": "node --test tests/elevenlabs-gateway.test.js",
+    "test:chat-ui": "node --experimental-strip-types --test tests/chat-rich-content.test.ts",
     "test:routing-eval": "node --experimental-strip-types --test tests/routing-eval.test.ts",
     "routing:eval": "node --experimental-strip-types scripts/routing-eval/cli.ts",
     "routing:eval:live": "node --experimental-strip-types scripts/routing-eval/cli.ts --live",
@@ -26,6 +27,8 @@
     "opus-recorder": "^8.0.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.4.0",
     "ws": "^8.21.3",
     "zustand": "^4.5.2"

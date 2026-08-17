@@ -30,6 +30,22 @@ export type ChatSession = {
   lastMessageAt?: string | null;
 };
 
+export type RichMessageContentPart =
+  | { type: 'text'; text: string; format?: 'plain' | 'markdown' }
+  | { type: 'image'; url: string; alt: string; width?: number; height?: number; caption?: string }
+  | {
+      type: 'table';
+      columns: Array<{ key: string; label: string; align?: 'left' | 'center' | 'right' }>;
+      rows: Array<Record<string, string | number | boolean | null>>;
+      caption?: string;
+    }
+  | { type: 'a2ui'; version: '0.8'; payload: Record<string, unknown> };
+
+export type RichMessageContent = {
+  version: 1;
+  parts: RichMessageContentPart[];
+};
+
 export type ChatMessage = {
   id: string;
   sessionId: string;
@@ -38,7 +54,10 @@ export type ChatMessage = {
   createdAt: string;
   streamed?: boolean;
   toolName?: string | null;
-  raw?: (Record<string, unknown> & { routing?: ChatRouteDecision }) | null;
+  raw?: (Record<string, unknown> & {
+    routing?: ChatRouteDecision;
+    content?: RichMessageContent;
+  }) | null;
   isStreaming?: boolean;
 };
 

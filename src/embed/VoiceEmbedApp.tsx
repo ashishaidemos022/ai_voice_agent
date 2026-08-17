@@ -4,8 +4,8 @@ import { cn } from '../lib/utils';
 import { Button } from '../components/ui/Button';
 import { ChatEmbedView } from './ChatEmbedApp';
 import { useVoiceEmbedSession, type VoiceEmbedAppearance } from './useVoiceEmbed';
-import { A2UIRenderer } from '../components/a2ui/A2UIRenderer';
-import { getA2UIEventDisplay, parseA2UIPayload } from '../lib/a2ui';
+import { containsRichContent } from '../components/ui/markdown-utils';
+import { MessageContent } from '../components/ui/MessageContent';
 
 function resolveVoicePublicId(): string | null {
   if (typeof window === 'undefined') return null;
@@ -324,7 +324,14 @@ export function VoiceEmbedApp() {
             <p className="text-sm font-semibold">Conversation log</p>
             <span className="text-xs text-white/60">{messages.length} turns</span>
           </div>
-          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+          <div
+            className="flex-1 overflow-y-auto px-5 py-4 space-y-3"
+            role="log"
+            aria-label="Voice conversation"
+            aria-live="polite"
+            aria-relevant="additions text"
+            aria-busy={status === 'thinking' || status === 'speaking'}
+          >
             {messages.length === 0 ? (
               <p
                 className={cn('text-sm', theme === 'light' ? 'text-slate-500' : 'text-white/60')}
@@ -335,15 +342,13 @@ export function VoiceEmbedApp() {
             ) : (
               messages.map((message) => {
                 const isUser = message.role === 'user';
-                const parsedA2UI = !isUser ? parseA2UIPayload(message.content) : null;
-                const shouldRenderA2UI = !isUser && a2uiEnabled && Boolean(parsedA2UI?.ui);
-                const eventDisplay = isUser ? getA2UIEventDisplay(message.content) : null;
-                const displayText = eventDisplay ? `Action: ${eventDisplay}` : message.content;
+                const isRich = !isUser && containsRichContent(message.content);
                 return (
                   <div
                     key={message.id}
                     className={cn(
-                      'px-4 py-3 rounded-2xl text-sm max-w-[85%]',
+                      'min-w-0 px-4 py-3 rounded-2xl text-sm',
+                      isRich ? 'w-full max-w-full' : 'max-w-[85%]',
                       message.role === 'user'
                         ? theme === 'light'
                           ? 'bg-indigo-600 text-white ml-auto rounded-br-sm'
@@ -361,18 +366,13 @@ export function VoiceEmbedApp() {
                     <p className="text-[10px] uppercase tracking-[0.2em] mb-1 opacity-60">
                       {message.role === 'user' ? 'You' : 'Agent'}
                     </p>
-                    {shouldRenderA2UI ? (
-                      <A2UIRenderer
-                        ui={parsedA2UI!.ui}
-                        fallbackText={parsedA2UI!.fallbackText || message.content}
-                        onEvent={sendA2UIEvent}
-                        className="space-y-3 text-current"
-                      />
-                    ) : (
-                      <p className="leading-relaxed whitespace-pre-wrap">
-                        {parsedA2UI?.fallbackText && !isUser ? parsedA2UI.fallbackText : displayText}
-                      </p>
-                    )}
+                    <MessageContent
+                      content={message.content}
+                      role={message.role}
+                      a2uiEnabled={a2uiEnabled}
+                      onA2UIEvent={sendA2UIEvent}
+                      className="text-current"
+                    />
                   </div>
                 );
               })

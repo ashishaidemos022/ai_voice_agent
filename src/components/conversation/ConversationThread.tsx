@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Loader2, MessageSquare } from "lucide-react";
 import { AgentState } from "../../lib/realtime-client";
@@ -40,24 +40,33 @@ export function ConversationThread({
   onA2UIEvent
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const shouldFollowRef = useRef(true);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
 
   const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
     if (!scrollRef.current) return;
     const container = scrollRef.current;
     window.requestAnimationFrame(() => {
+      const resolvedBehavior = behavior === "smooth" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : behavior;
+      shouldFollowRef.current = true;
+      setShowJumpToLatest(false);
       container.scrollTo({
         top: container.scrollHeight,
-        behavior
+        behavior: resolvedBehavior
       });
     });
   };
 
   useLayoutEffect(() => {
-    scrollToBottom(isHistorical ? "auto" : "smooth");
+    if (shouldFollowRef.current || isHistorical) {
+      scrollToBottom(isHistorical ? "auto" : "smooth");
+    }
   }, [messages, isHistorical]);
 
   useEffect(() => {
-    if (isHistorical) return;
+    if (isHistorical || !shouldFollowRef.current) return;
     scrollToBottom("smooth");
   }, [liveAssistantTranscript, liveUserTranscript, isHistorical]);
 
@@ -75,6 +84,18 @@ export function ConversationThread({
 
       <div
         ref={scrollRef}
+        onScroll={() => {
+          const container = scrollRef.current;
+          if (!container) return;
+          const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 96;
+          shouldFollowRef.current = isNearBottom;
+          setShowJumpToLatest(!isNearBottom);
+        }}
+        role="log"
+        aria-label={isHistorical ? "Historical conversation" : "Live conversation"}
+        aria-live={isHistorical ? "off" : "polite"}
+        aria-relevant="additions text"
+        aria-busy={isProcessing}
         className="flex-1 overflow-y-auto px-5 py-4 space-y-3 min-h-0"
       >
         {isLoadingHistory && (
@@ -162,6 +183,15 @@ export function ConversationThread({
           </div>
         )}
       </div>
+      {showJumpToLatest && (
+        <button
+          type="button"
+          onClick={() => scrollToBottom("smooth")}
+          className="absolute bottom-4 right-4 z-20 rounded-full border border-white/15 bg-slate-900/95 px-3 py-2 text-xs text-white shadow-lg backdrop-blur hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+        >
+          Jump to latest
+        </button>
+      )}
     </Card>
   );
 }
