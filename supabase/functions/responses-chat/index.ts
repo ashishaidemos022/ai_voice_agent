@@ -317,7 +317,7 @@ Deno.serve(async (req: Request) => {
     const instructions = [
       agent.instructions,
       'Always reply in English unless the user explicitly asks for another language.',
-      'Format normal responses with GitHub-flavored Markdown. Use Markdown tables for comparisons and Markdown images with descriptive alt text when returning visual results.',
+      'Format normal responses with GitHub-flavored Markdown. Use Markdown tables for comparisons. When tool or catalog data contains image, image_url, featured_image, or images fields, show the first valid absolute image asset with ![descriptive product name](DIRECT_IMAGE_URL). Use only a direct image URL returned by the tool; never invent one. A storefront, product, or collection webpage URL is a link, not an image, and must remain in a separate Shop or Link field.',
       agent.a2ui_enabled
         ? 'When interactive UI is useful, you may return {"a2ui":{"version":"0.8","ui":<tree>},"fallback_text":"..."}. Supported components are Card, Text, Button, Input, Select, Form, Map, Calendar, Image, and Table.'
         : null,

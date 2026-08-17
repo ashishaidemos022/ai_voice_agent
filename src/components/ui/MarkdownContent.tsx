@@ -10,6 +10,7 @@ import { Check, Copy, ExternalLink, ImageOff, Maximize2, X } from 'lucide-react'
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { cn } from '../../lib/utils';
+import { isDirectImageUrl } from './markdown-utils';
 
 type MarkdownContentProps = {
   content: string;
@@ -38,7 +39,9 @@ function safeImageUrl(url: string): string {
   }
 }
 
-export function RichImage({ src: rawSrc, alt = '', title }: ComponentPropsWithoutRef<'img'>) {
+type RichImageProps = ComponentPropsWithoutRef<'img'> & { compact?: boolean };
+
+export function RichImage({ src: rawSrc, alt = '', title, compact = false }: RichImageProps) {
   const src = safeImageUrl(rawSrc || '');
   const [isOpen, setIsOpen] = useState(false);
   const [hasError, setHasError] = useState(false);
@@ -64,7 +67,10 @@ export function RichImage({ src: rawSrc, alt = '', title }: ComponentPropsWithou
   }
 
   return (
-    <figure className="group/image my-4 overflow-hidden rounded-xl border border-current/15 bg-black/10">
+    <figure className={cn(
+      'group/image overflow-hidden rounded-xl border border-current/15 bg-black/10',
+      compact ? 'my-1 w-44 max-w-full' : 'my-4'
+    )}>
       <button
         type="button"
         className="relative block w-full cursor-zoom-in overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
@@ -79,7 +85,10 @@ export function RichImage({ src: rawSrc, alt = '', title }: ComponentPropsWithou
           decoding="async"
           referrerPolicy="no-referrer"
           onError={() => setHasError(true)}
-          className="max-h-[36rem] w-full bg-black/10 object-contain"
+          className={cn(
+            'w-full bg-black/10 object-contain',
+            compact ? 'h-28' : 'max-h-[36rem]'
+          )}
         />
         <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-slate-950/80 px-2 py-1 text-[11px] text-white opacity-0 shadow transition-opacity group-hover/image:opacity-100 group-focus-within/image:opacity-100">
           <Maximize2 className="h-3 w-3" aria-hidden="true" /> Preview
@@ -224,17 +233,19 @@ export function MarkdownContent({ content, className }: MarkdownContentProps) {
           li: ({ children }) => <li className="pl-1">{children}</li>,
           blockquote: ({ children }) => <blockquote className="my-3 border-l-2 border-cyan-400/60 pl-4 italic opacity-80">{children}</blockquote>,
           hr: () => <hr className="my-4 border-current/15" />,
-          a: ({ href = '', children }) => (
-            <a
-              href={href}
-              target={href.startsWith('#') ? undefined : '_blank'}
-              rel="noopener noreferrer"
-              className="break-words font-medium underline decoration-current/40 underline-offset-2 hover:decoration-current"
-            >
-              {children}
-              {!href.startsWith('#') && <ExternalLink className="ml-1 inline h-3 w-3" aria-hidden="true" />}
-            </a>
-          ),
+          a: ({ href = '', children }) => isDirectImageUrl(href) ? (
+            <RichImage src={href} alt={flattenText(children) || 'Product image'} compact />
+          ) : (
+              <a
+                href={href}
+                target={href.startsWith('#') ? undefined : '_blank'}
+                rel="noopener noreferrer"
+                className="break-words font-medium underline decoration-current/40 underline-offset-2 hover:decoration-current"
+              >
+                {children}
+                {!href.startsWith('#') && <ExternalLink className="ml-1 inline h-3 w-3" aria-hidden="true" />}
+              </a>
+            ),
           img: RichImage,
           table: RichTable,
           thead: ({ children }) => <thead className="sticky top-0 z-10 bg-slate-800 text-slate-100">{children}</thead>,
