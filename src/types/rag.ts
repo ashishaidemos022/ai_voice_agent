@@ -65,6 +65,11 @@ export interface RagAugmentationResult {
   citations: RagCitation[];
   vectorStoreIds: string[];
   ragMode: RagMode;
+  model?: string;
+  tokenUsage?: Record<string, any> | null;
+  modelCostUsd?: number;
+  toolCostUsd?: number;
+  estimatedCostUsd?: number;
   guardrailTriggered?: boolean;
   createdAt: string;
 }

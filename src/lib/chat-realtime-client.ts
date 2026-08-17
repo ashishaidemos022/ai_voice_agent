@@ -77,10 +77,29 @@ export class ChatRealtimeClient {
     return this.connected;
   }
 
-  sendUserMessage(text: string) {
+  sendUserMessage(text: string, ragCost?: { total: number; model: number; tool: number }) {
     if (!this.connected || !text.trim()) return;
     this.activeTurnId = crypto.randomUUID();
     this.activeRoute = null;
+    if (ragCost && ragCost.total > 0) {
+      this.activeRoute = {
+        turnId: this.activeTurnId,
+        strategy: this.config.routingStrategy,
+        model: this.config.fixedModel,
+        reasoningEffort: 'none',
+        reasonCode: 'pending_route',
+        reason: 'Route pending.',
+        policyVersion: 'chat-router-v1',
+        taskType: 'grounded_answer',
+        complexity: 0,
+        confidence: 0,
+        requiresTools: false,
+        consequential: false,
+        ragCostUsd: ragCost.total,
+        ragModelCostUsd: ragCost.model,
+        ragToolCostUsd: ragCost.tool
+      };
+    }
     this.input.push({ role: 'user', content: text.trim() });
     void this.createResponse();
   }
@@ -135,7 +154,7 @@ export class ChatRealtimeClient {
           turn_id: this.activeTurnId,
           routing_strategy: this.config.routingStrategy,
           fixed_model: this.config.fixedModel,
-          route_decision: this.activeRoute,
+          route_decision: this.activeRoute?.reasonCode === 'pending_route' ? undefined : this.activeRoute,
           input: this.input,
           instructions_suffix: this.instructionsSuffix.join('\n\n') || undefined,
           tools: getToolSchemas()
@@ -147,8 +166,13 @@ export class ChatRealtimeClient {
 
       const responseRoute = json._routing as ChatRouteDecision | undefined;
       if (responseRoute) {
-        if (!this.activeRoute) {
-          this.activeRoute = responseRoute;
+        if (!this.activeRoute || this.activeRoute.reasonCode === 'pending_route') {
+          this.activeRoute = {
+            ...responseRoute,
+            ragCostUsd: this.activeRoute?.ragCostUsd,
+            ragModelCostUsd: this.activeRoute?.ragModelCostUsd,
+            ragToolCostUsd: this.activeRoute?.ragToolCostUsd
+          };
           this.emit({ type: 'routing.selected', route: this.activeRoute });
         } else {
           this.activeRoute = {

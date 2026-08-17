@@ -38,7 +38,7 @@ import type { RealtimeConfig } from '../../types/voice-agent';
 import { formatA2UIEventMessage, type A2UIEvent } from '../../lib/a2ui';
 import { Badge } from '../ui/Badge';
 import { CHAT_ROUTING_MODELS, type ChatRouteDecision, type ChatRoutingStrategy } from '../../../shared/model-routing';
-import { OPENAI_MODELS } from '../../../shared/openai-models';
+import { OPENAI_MODELS, OPENAI_PRICING_EFFECTIVE_DATE } from '../../../shared/openai-models';
 
 const MODEL_LABELS: Record<string, string> = {
   [OPENAI_MODELS.chat.nano]: 'GPT-5.4 Nano',
@@ -173,9 +173,10 @@ export function ChatAgent({
       .filter((message) => message.sender === 'user')
       .map((message) => message.content.trim());
     return {
-      costUsd: routes.reduce((sum, route) => sum + (route.routerCostUsd || 0) + (route.answerCostUsd || 0), 0),
+      costUsd: routes.reduce((sum, route) => sum + (route.routerCostUsd || 0) + (route.answerCostUsd || 0) + (route.ragCostUsd || 0), 0),
       routerCostUsd: routes.reduce((sum, route) => sum + (route.routerCostUsd || 0), 0),
       answerCostUsd: routes.reduce((sum, route) => sum + (route.answerCostUsd || 0), 0),
+      ragCostUsd: routes.reduce((sum, route) => sum + (route.ragCostUsd || 0), 0),
       turns: routes.length,
       models,
       routes,
@@ -549,17 +550,23 @@ export function ChatAgent({
                 <p className="text-[10px] uppercase tracking-[0.2em] text-white/40">Current run</p>
                 <p className="text-2xl font-semibold text-white mt-1">{formatRouteCost(routingReceipt.costUsd)}</p>
                 <p className="text-xs text-white/45 mt-1">{routingReceipt.turns} completed turns</p>
+                <p className="text-[10px] text-white/35 mt-1">Estimated OpenAI API cost · standard processing · rates checked {OPENAI_PRICING_EFFECTIVE_DATE}</p>
               </div>
-              <div className="rounded-xl border border-white/10 bg-black/20 p-3 col-span-1">
+              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-white/40">Answer</p>
                 <p className="text-sm font-semibold text-white mt-1">{formatRouteCost(routingReceipt.answerCostUsd)}</p>
               </div>
-              <div className="rounded-xl border border-white/10 bg-black/20 p-3 col-span-2">
+              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                 <p className="text-[10px] uppercase tracking-[0.2em] text-white/40">Router overhead</p>
                 <div className="flex items-end justify-between gap-2 mt-1">
                   <p className="text-sm font-semibold text-white">{formatRouteCost(routingReceipt.routerCostUsd)}</p>
                   <p className="text-[10px] text-white/40">included in total</p>
                 </div>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-white/40">Knowledge retrieval</p>
+                <p className="text-sm font-semibold text-white mt-1">{formatRouteCost(routingReceipt.ragCostUsd)}</p>
+                <p className="text-[10px] text-white/40 mt-1">model + file search</p>
               </div>
             </div>
             <div className="mt-4">
@@ -601,7 +608,7 @@ export function ChatAgent({
                           </div>
                         </div>
                         <div className="text-right shrink-0">
-                          <p className="text-xs text-emerald-200">{formatRouteCost((route.routerCostUsd || 0) + (route.answerCostUsd || 0))}</p>
+                          <p className="text-xs text-emerald-200">{formatRouteCost((route.routerCostUsd || 0) + (route.answerCostUsd || 0) + (route.ragCostUsd || 0))}</p>
                           <p className="text-[10px] text-white/35">{route.answerLatencyMs || 0}ms</p>
                         </div>
                       </summary>
@@ -610,6 +617,7 @@ export function ChatAgent({
                         <div className="flex justify-between mt-2 text-white/40">
                           <span>Confidence {Math.round(route.confidence * 100)}%</span>
                           <span>Router {formatRouteCost(route.routerCostUsd)}</span>
+                          {(route.ragCostUsd || 0) > 0 && <span>Retrieval {formatRouteCost(route.ragCostUsd)}</span>}
                         </div>
                       </div>
                     </details>
@@ -902,7 +910,7 @@ function ChatBubble({ message, a2uiEnabled, onA2UIEvent }: {
         {route && (
           <details className="mt-3 border-t border-white/10 pt-2 text-xs text-white/55">
             <summary className="cursor-pointer text-cyan-200/80 hover:text-cyan-100">
-              Model decision receipt · {formatRouteCost((route.routerCostUsd || 0) + (route.answerCostUsd || 0))}
+              Model decision receipt · {formatRouteCost((route.routerCostUsd || 0) + (route.answerCostUsd || 0) + (route.ragCostUsd || 0))}
             </summary>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2">
               <span>Selected model</span><span className="text-white/80">{MODEL_LABELS[route.model] || route.model}</span>
@@ -912,6 +920,7 @@ function ChatBubble({ message, a2uiEnabled, onA2UIEvent }: {
               <span>Response time</span><span className="text-white/80">{route.answerLatencyMs || 0}ms</span>
               <span>Answer cost</span><span className="text-white/80">{formatRouteCost(route.answerCostUsd)}</span>
               <span>Router overhead</span><span className="text-white/80">{formatRouteCost(route.routerCostUsd)}</span>
+              {(route.ragCostUsd || 0) > 0 && <><span>Knowledge retrieval</span><span className="text-white/80">{formatRouteCost(route.ragCostUsd)}</span></>}
             </div>
             <p className="mt-2 text-white/65">{route.reason}</p>
           </details>

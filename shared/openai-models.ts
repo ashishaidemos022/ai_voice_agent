@@ -83,12 +83,17 @@ export const OPENAI_MODEL_PRICING: Partial<Record<OpenAIModelId, ModelPricing>> 
     textOutputPer1M: 1.25
   },
   'gpt-4.1-mini': {
-    textInputPer1M: 0.15,
-    textOutputPer1M: 0.6
+    textInputPer1M: 0.4,
+    cachedTextInputPer1M: 0.1,
+    textOutputPer1M: 1.6
   }
 };
 
-export const OPENAI_PRICING_EFFECTIVE_DATE = '2026-08-15';
+export const OPENAI_TOOL_PRICING = {
+  fileSearchPerCall: 2.5 / 1000
+} as const;
+
+export const OPENAI_PRICING_EFFECTIVE_DATE = '2026-08-17';
 
 export function getOpenAIModelPricing(model?: string | null): ModelPricing | undefined {
   const candidate = model?.trim();
@@ -96,6 +101,10 @@ export function getOpenAIModelPricing(model?: string | null): ModelPricing | und
 
   const direct = OPENAI_MODEL_PRICING[candidate as OpenAIModelId];
   if (direct) return direct;
+
+  if (/^gpt-4\.1-mini(?:-|$)/i.test(candidate)) {
+    return OPENAI_MODEL_PRICING['gpt-4.1-mini'];
+  }
 
   if (/^(gpt-realtime|gpt-4o(?:-mini)?-realtime(?:-preview.*)?)$/i.test(candidate)) {
     return OPENAI_MODEL_PRICING[OPENAI_MODELS.realtime.legacyFallback];

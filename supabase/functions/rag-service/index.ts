@@ -1,4 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
+import { OPENAI_TOOL_PRICING } from '../../../shared/openai-models.ts';
+import { estimateTextCost } from '../../../shared/model-routing.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -103,6 +105,7 @@ async function createVectorStore(name: string, tenantId: string) {
   if (!response.ok) {
     throw new Error(json?.error?.message || 'Failed to create vector store');
   }
+
   return json;
 }
 
@@ -234,6 +237,16 @@ async function runRagQuery(params: {
     throw new Error(json?.error?.message || 'OpenAI response request failed');
   }
 
+  const inputTokens = Number(json?.usage?.input_tokens) || 0;
+  const cachedInputTokens = Number(json?.usage?.input_tokens_details?.cached_tokens) || 0;
+  const outputTokens = Number(json?.usage?.output_tokens) || 0;
+  const fileSearchCalls = Array.isArray(json?.output)
+    ? json.output.filter((item: any) => item?.type === 'file_search_call').length
+    : 0;
+  const resolvedModel = json.model || params.model || 'gpt-4.1-mini';
+  const modelCostUsd = estimateTextCost(resolvedModel, inputTokens, outputTokens, cachedInputTokens);
+  const toolCostUsd = fileSearchCalls * OPENAI_TOOL_PRICING.fileSearchPerCall;
+
   let rawText = '';
   if (Array.isArray(json.output)) {
     for (const item of json.output) {
@@ -265,12 +278,15 @@ async function runRagQuery(params: {
     (!citations.length || answerFromModel?.toUpperCase?.() === 'INSUFFICIENT');
 
   return {
-    model: json.model || params.model || 'gpt-4.1-mini',
+    model: resolvedModel,
     answer: guardrailViolated
       ? 'I do not have enough approved knowledge to answer that at the moment.'
       : (answerFromModel || '').trim(),
     citations,
     tokenUsage: json.usage || null,
+    modelCostUsd,
+    toolCostUsd,
+    estimatedCostUsd: modelCostUsd + toolCostUsd,
     raw: json,
     guardrailViolated
   };
@@ -598,7 +614,11 @@ Deno.serve(async (req: Request) => {
           citations: ragResponse.citations,
           guardrail_triggered: ragResponse.guardrailViolated,
           vector_store_ids: vectorStoreIds,
-          model: ragResponse.model
+          model: ragResponse.model,
+          token_usage: ragResponse.tokenUsage,
+          model_cost_usd: ragResponse.modelCostUsd,
+          tool_cost_usd: ragResponse.toolCostUsd,
+          estimated_cost_usd: ragResponse.estimatedCostUsd
         }),
         { status: 200, headers: { ...baseHeaders, 'Content-Type': 'application/json' } }
       );

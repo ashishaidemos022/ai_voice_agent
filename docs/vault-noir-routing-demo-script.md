@@ -121,6 +121,8 @@ Compare the fixed and Auto receipts on:
 - tool-call success;
 - total model cost.
 
+The receipt uses standard OpenAI API rates, prices cached input separately, includes reasoning tokens in billed output, and includes the internal RAG model plus Responses API file-search call when retrieval runs. Vector-store storage is excluded because it is shared infrastructure rather than a per-conversation charge.
+
 ## Closing narration
 
 > Fixed mode used the frontier model for every task. Auto mode used Luna for conversation, Nano for formatting, Mini for Supabase calls, Terra for the comparison, and Sol only for the consequential purchase review. Structured data, retrieved expertise, and the final recommendation stayed consistent while model cost was matched to the work.

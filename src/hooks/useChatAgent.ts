@@ -463,7 +463,13 @@ export function useChatAgent() {
 
     responseStartMsRef.current = Date.now();
     firstTokenRecordedRef.current = false;
-    realtimeRef.current.sendUserMessage(trimmed);
+    realtimeRef.current.sendUserMessage(trimmed, ragContext?.estimatedCostUsd
+      ? {
+          total: ragContext.estimatedCostUsd,
+          model: ragContext.modelCostUsd || 0,
+          tool: ragContext.toolCostUsd || 0
+        }
+      : undefined);
   }, [activePresetId, presets]);
 
   const loadHistoricalSession = useCallback(async (sessionId: string) => {

@@ -233,6 +233,11 @@ export async function runRagAugmentation(input: {
     citations: data?.citations || [],
     vectorStoreIds: data?.vector_store_ids || [],
     ragMode: input.ragMode,
+    model: data?.model,
+    tokenUsage: data?.token_usage || null,
+    modelCostUsd: Number(data?.model_cost_usd) || 0,
+    toolCostUsd: Number(data?.tool_cost_usd) || 0,
+    estimatedCostUsd: Number(data?.estimated_cost_usd) || 0,
     guardrailTriggered: Boolean(data?.guardrail_triggered),
     createdAt: new Date().toISOString()
   };

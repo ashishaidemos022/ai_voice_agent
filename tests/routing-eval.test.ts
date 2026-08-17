@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { OPENAI_MODELS } from '../shared/openai-models.ts';
-import { reconcileRouteSignals, resolveRouteFromSignals } from '../shared/model-routing.ts';
+import { getOpenAIModelPricing, OPENAI_MODELS, OPENAI_TOOL_PRICING } from '../shared/openai-models.ts';
+import { estimateTextCost, reconcileRouteSignals, resolveRouteFromSignals } from '../shared/model-routing.ts';
 import { assertWorkflowSplitIntegrity, ROUTING_EVAL_CASES } from '../scripts/routing-eval/benchmark.ts';
 import { calculateEvalSummary } from '../scripts/routing-eval/metrics.ts';
 import { runCandidate } from '../scripts/routing-eval/openai-runner.ts';
@@ -14,6 +14,21 @@ test('benchmark keeps every workflow in exactly one split', () => {
     ROUTING_EVAL_CASES[0],
     { ...ROUTING_EVAL_CASES[0], id: 'leaked', split: 'calibration' }
   ]), /Workflow leakage/);
+});
+
+test('pricing matches the published standard rates and handles model snapshots', () => {
+  assert.deepEqual(getOpenAIModelPricing('gpt-5.6-sol'), {
+    textInputPer1M: 5,
+    cachedTextInputPer1M: 0.5,
+    textOutputPer1M: 30
+  });
+  assert.deepEqual(getOpenAIModelPricing('gpt-4.1-mini-2025-04-14'), {
+    textInputPer1M: 0.4,
+    cachedTextInputPer1M: 0.1,
+    textOutputPer1M: 1.6
+  });
+  assert.equal(OPENAI_TOOL_PRICING.fileSearchPerCall, 0.0025);
+  assert.equal(estimateTextCost('gpt-5.6-sol', 12_249, 514, 5_938), 0.049944);
 });
 
 test('routing policy follows task type and reserves Sol for consequential or deep reasoning', () => {

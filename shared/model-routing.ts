@@ -62,6 +62,9 @@ export type ChatRouteDecision = RouteSignals & {
   routerModel?: string;
   routerLatencyMs?: number;
   routerCostUsd?: number;
+  ragCostUsd?: number;
+  ragModelCostUsd?: number;
+  ragToolCostUsd?: number;
   answerLatencyMs?: number;
   answerCostUsd?: number;
   inputTokens?: number;
