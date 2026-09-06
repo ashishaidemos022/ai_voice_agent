@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AgentConfigPreset, getAllConfigPresets } from '../lib/config-service';
 import {
   ChatMessage,
+  AnswerSources,
   ChatSession,
   ChatToolEvent
 } from '../types/chat';
@@ -66,6 +67,16 @@ export function useChatAgent() {
   const [memorySubjectId, setMemorySubjectId] = useState<string | null>(null);
   const [memoryReceipt, setMemoryReceipt] = useState<MemoryReceipt | undefined>();
   const sendingRef = useRef(false);
+  const sourcesRef = useRef<AnswerSources | undefined>();
+  const [answerSources, setAnswerSources] = useState<AnswerSources>();
+  const updateSources = useCallback((patch: Partial<AnswerSources>) => {
+    if (!sourcesRef.current) return;
+    sourcesRef.current = { ...sourcesRef.current, ...patch };
+    setAnswerSources(sourcesRef.current);
+  }, []);
+  const recordSourceTool = useCallback((tool: ChatToolEvent) => {
+    updateSources({ tools: [...(sourcesRef.current?.tools || []).filter(item => item.id !== tool.id), tool] });
+  }, [updateSources]);
 
   const realtimeRef = useRef<ChatRealtimeClient | null>(null);
   const sessionRef = useRef<ChatSession | null>(null);
@@ -155,6 +166,8 @@ export function useChatAgent() {
     setLiveAssistantText('');
     setCurrentRoute(null);
     setMemoryReceipt(undefined);
+    sourcesRef.current = undefined;
+    setAnswerSources(undefined);
     sendingRef.current = false;
     responseStartMsRef.current = null;
     firstTokenRecordedRef.current = false;
@@ -220,7 +233,7 @@ export function useChatAgent() {
       sender: 'assistant',
       content: finalText,
       createdAt: new Date().toISOString(),
-      raw: { routing: route, memory }
+      raw: { routing: route, memory, sources: sourcesRef.current }
     };
     setMessages((prev) => [...prev, message].slice(-MAX_CONTEXT_MESSAGES));
     try {
@@ -228,7 +241,7 @@ export function useChatAgent() {
         sessionId: sessionRef.current.id,
         sender: 'assistant',
         message: finalText,
-        raw: { routing: route, memory },
+        raw: message.raw,
         streamed: true
       });
     } catch (err) {
@@ -271,6 +284,7 @@ export function useChatAgent() {
         request: parsedArgs
       });
       setToolEvents((prev) => [...prev, pendingEvent]);
+      recordSourceTool(pendingEvent);
 
       try {
         await updateChatToolEvent(pendingEvent.id, { status: 'running' });
@@ -284,6 +298,7 @@ export function useChatAgent() {
             tool.id === pendingEvent.id ? { ...tool, status: 'succeeded', response: result } : tool
           )
         );
+        recordSourceTool({ ...pendingEvent, status: 'succeeded', response: result });
         client.sendToolOutput(event.call.id, result);
       } catch (toolErr: any) {
         const message = toolErr?.message ?? 'Tool execution failed';
@@ -293,10 +308,11 @@ export function useChatAgent() {
             tool.id === pendingEvent.id ? { ...tool, status: 'failed', error: message } : tool
           )
         );
+        recordSourceTool({ ...pendingEvent, status: 'failed', error: message });
         client.sendToolOutput(event.call.id, { error: message });
       }
     });
-  }, [handleAssistantCompleted, handleAssistantDelta]);
+  }, [handleAssistantCompleted, handleAssistantDelta, recordSourceTool]);
 
   const startSession = useCallback(async () => {
     if (!vaUser) {
@@ -403,6 +419,11 @@ export function useChatAgent() {
 
     const preset = presets.find((p) => p.id === activePresetId);
     const hasKnowledgeSpaces = (preset?.knowledge_spaces?.length || 0) > 0;
+    sourcesRef.current = {
+      question: trimmed, instructions: preset?.instructions || '', rag: null, ragStatus: 'skipped', tools: [],
+      carriedTools: [...(sourcesRef.current?.carriedTools || []), ...(sourcesRef.current?.tools || [])].filter(tool => tool.status === 'succeeded')
+    };
+    setAnswerSources(sourcesRef.current);
     const knowledgeNeeded = shouldRunRagForTurn(trimmed);
     const canRunRag = preset?.rag_enabled && hasKnowledgeSpaces && knowledgeNeeded && Boolean(realtimeRef.current);
     if (!preset?.rag_enabled) {
@@ -415,9 +436,11 @@ export function useChatAgent() {
       setRagInvoked(false);
       setRagError(null);
     }
+    realtimeRef.current?.clearTurnContext();
     let ragContext: RagAugmentationResult | null = null;
 
     if (canRunRag) {
+      updateSources({ ragStatus: 'searching' });
       setIsRagLoading(true);
       try {
         const spaceIds = (preset!.knowledge_spaces || []).map((binding) => binding.space_id);
@@ -441,10 +464,11 @@ export function useChatAgent() {
           citations: ragContext.citations.length
         });
         setRagResult(ragContext);
+        updateSources({ rag: ragContext, ragStatus: 'retrieved' });
         setRagInvoked(true);
         setRagError(null);
         const knowledgeLines = ragContext.citations.map((citation, index) => {
-          const label = `[${index + 1}]`;
+          const label = `[K${index + 1}]`;
           const title = citation.title ? ` • ${citation.title}` : '';
           return `${label} ${citation.snippet}${title}`;
         });
@@ -455,6 +479,7 @@ export function useChatAgent() {
       } catch (err: any) {
         console.error('[RAG] Augmentation failed', err);
         setRagError(err.message || 'Knowledge search failed');
+        updateSources({ ragStatus: 'failed' });
         setRagResult(null);
         setRagInvoked(true);
       } finally {
@@ -478,6 +503,7 @@ export function useChatAgent() {
         setError('Could not save your message. Memory requires a saved source; please try again.');
         sendingRef.current = false;
         setIsStreaming(false);
+        realtimeRef.current?.clearTurnContext();
         return;
       }
     }
@@ -491,7 +517,7 @@ export function useChatAgent() {
           tool: ragContext.toolCostUsd || 0
         }
       : undefined);
-  }, [activePresetId, presets, memorySubjectId]);
+  }, [activePresetId, presets, memorySubjectId, updateSources]);
 
   const loadHistoricalSession = useCallback(async (sessionId: string) => {
     setIsHistoryLoading(true);
@@ -549,6 +575,6 @@ export function useChatAgent() {
     fixedModel,
     setFixedModel,
     currentRoute,
-    memorySubjectId, setMemorySubjectId, memoryReceipt
+    memorySubjectId, setMemorySubjectId, memoryReceipt, answerSources
   };
 }

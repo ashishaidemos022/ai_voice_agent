@@ -130,6 +130,8 @@ export class ChatRealtimeClient {
     if (text.trim()) this.instructionsSuffix.push(text.trim());
   }
 
+  clearTurnContext() { this.instructionsSuffix = []; }
+
   on<T extends ChatRealtimeEvent['type']>(eventType: T, handler: (event: Extract<ChatRealtimeEvent, { type: T }>) => void) {
     if (!this.eventHandlers.has(eventType)) this.eventHandlers.set(eventType, new Set());
     this.eventHandlers.get(eventType)!.add(handler as any);
@@ -167,7 +169,6 @@ export class ChatRealtimeClient {
           tools: getToolSchemas()
         })
       });
-      this.instructionsSuffix = [];
       const json = await response.json();
       if (!response.ok) throw new Error(json?.error?.message || json?.error || 'Responses request failed');
       if (!this.connected) return;
@@ -210,6 +211,7 @@ export class ChatRealtimeClient {
           } else this.emit({ type: 'function_call', call: { id: item.call_id, name: item.name, arguments: item.arguments || '{}' } });
         });
       } else {
+        this.instructionsSuffix = [];
         this.input.push(...outputItems);
         const text = (json.output_text || outputItems
           .flatMap((item: any) => item?.content || [])
@@ -221,6 +223,7 @@ export class ChatRealtimeClient {
       }
       if (json.usage) this.emit({ type: 'usage.reported', usage: json.usage, model: json.model, route: this.activeRoute || undefined });
     } catch (error) {
+      this.instructionsSuffix = [];
       this.emit({ type: 'error', error: error instanceof Error ? error.message : 'Responses request failed' });
       this.emit({ type: 'response.completed', text: '', route: this.activeRoute || undefined, memory: this.activeMemory });
     }

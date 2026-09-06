@@ -1,6 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
 import { OPENAI_TOOL_PRICING } from '../../../shared/openai-models.ts';
 import { estimateTextCost } from '../../../shared/model-routing.ts';
+import { retrievedCitations } from '../../../shared/rag-evidence.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -130,7 +131,7 @@ async function uploadFileToOpenAI(params: {
   const formData = new FormData();
   formData.append('purpose', 'assistants');
 
-  const file = new Blob([params.bytes.buffer], {
+  const file = new Blob([new Uint8Array(params.bytes)], {
     type: params.mimeType || 'application/octet-stream'
   });
   formData.append('file', file, params.filename);
@@ -204,6 +205,7 @@ async function runRagQuery(params: {
       : 'Prefer retrieved knowledge when answering questions. Cite only files actually returned by file search, using their real filename or document title. The vector store is not a source of customer history or conversation state. Never invent a citation, source title, customer event, purchase, return, or preference. Omit unsupported claims.';
 
   const body = {
+    include: ['file_search_call.results'],
     model: params.model || 'gpt-4.1-mini',
     temperature: params.ragMode === 'guardrail' ? 0 : 0.2,
     max_output_tokens: 900,
@@ -272,7 +274,7 @@ async function runRagQuery(params: {
   }
 
   const answerFromModel = typeof parsed?.answer === 'string' ? parsed.answer : rawText;
-  const citations = Array.isArray(parsed?.citations) ? parsed.citations : [];
+  const citations = retrievedCitations(json.output);
   const guardrailViolated =
     params.ragMode === 'guardrail' &&
     (!citations.length || answerFromModel?.toUpperCase?.() === 'INSUFFICIENT');

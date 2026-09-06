@@ -27,19 +27,33 @@ export function WorkspaceSidePanels({
 }: WorkspaceSidePanelsProps) {
   const [isToolsOpen, setIsToolsOpen] = useState(defaultToolsOpen);
   const [isHistoryOpen, setIsHistoryOpen] = useState(defaultHistoryOpen);
+  const [compact, setCompact] = useState(() => {
+    try { const saved = localStorage.getItem('workspace-side-panels-compact'); return saved === null ? window.innerWidth < 1024 : saved === 'true'; } catch { return false; }
+  });
+  const toggleCompact = () => {
+    setCompact(!compact);
+    try { localStorage.setItem('workspace-side-panels-compact', String(!compact)); } catch { /* Storage is optional. */ }
+  };
 
   return (
     <aside
       className={cn(
-        'w-80 border-l border-white/10 bg-slate-950/60 backdrop-blur flex flex-col overflow-hidden',
+        'shrink-0 border-l border-white/10 bg-slate-950/60 backdrop-blur flex flex-col overflow-hidden',
+        compact ? 'w-14' : 'w-80',
         className
       )}
     >
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <button type="button" onClick={toggleCompact} aria-expanded={!compact} aria-label={compact ? 'Expand Tools and history' : 'Compact Tools and history'} title={compact ? 'Expand Tools and history' : 'Compact Tools and history'} className="flex items-center justify-center gap-2 border-b border-white/10 p-4 text-xs text-white/70 hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-cyan-300">
+        <ChevronRight className={cn('h-4 w-4', compact && 'rotate-180')} />
+        {!compact && 'Compact Tools & history'}
+      </button>
+      {compact && <div className="flex flex-col items-center gap-5 py-5 text-white/60"><Wrench aria-label="Tools" className="w-4 h-4" />{showHistory && <History aria-label="History" className="w-4 h-4" />}</div>}
+      <div hidden={compact} className="flex-1 overflow-y-auto p-4 space-y-4">
         <Card className="bg-slate-900/40 border-white/10">
           <button
             type="button"
             onClick={() => setIsToolsOpen((prev) => !prev)}
+            aria-expanded={isToolsOpen}
             className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors"
           >
             <div className="flex items-center gap-2">
@@ -72,6 +86,7 @@ export function WorkspaceSidePanels({
             <button
               type="button"
               onClick={() => setIsHistoryOpen((prev) => !prev)}
+              aria-expanded={isHistoryOpen}
               className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors"
             >
               <div className="flex items-center gap-2">

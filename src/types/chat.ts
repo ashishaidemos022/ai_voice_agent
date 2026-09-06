@@ -1,5 +1,15 @@
 import type { ChatRouteDecision } from '../../shared/model-routing';
 import type { MemoryReceipt } from '../../shared/agent-memory';
+import type { RagAugmentationResult } from './rag';
+
+export type AnswerSources = {
+  question: string;
+  instructions: string;
+  rag: RagAugmentationResult | null;
+  ragStatus: 'skipped' | 'searching' | 'retrieved' | 'failed';
+  tools: ChatToolEvent[];
+  carriedTools: ChatToolEvent[];
+};
 
 export type AgentTag = {
   id: string;
@@ -59,6 +69,7 @@ export type ChatMessage = {
   raw?: (Record<string, unknown> & {
     routing?: ChatRouteDecision;
     memory?: MemoryReceipt;
+    sources?: AnswerSources;
     content?: RichMessageContent;
   }) | null;
   isStreaming?: boolean;

@@ -41,6 +41,7 @@ import { CHAT_ROUTING_MODELS, type ChatRouteDecision, type ChatRoutingStrategy }
 import { OPENAI_MODELS, OPENAI_PRICING_EFFECTIVE_DATE } from '../../../shared/openai-models';
 import { MemoryPanel, MemorySource } from './MemoryPanel';
 import { memoryReferences } from '../../../shared/agent-memory';
+import { AnswerSourcesPanel } from './AnswerSourcesPanel';
 
 const MODEL_LABELS: Record<string, string> = {
   [OPENAI_MODELS.chat.nano]: 'GPT-5.4 Nano',
@@ -141,7 +142,7 @@ export function ChatAgent({
     fixedModel,
     setFixedModel,
     currentRoute,
-    memorySubjectId, setMemorySubjectId, memoryReceipt
+    memorySubjectId, setMemorySubjectId, memoryReceipt, answerSources
   } = useChatAgent();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMCPPanelOpen, setIsMCPPanelOpen] = useState(false);
@@ -151,6 +152,8 @@ export function ChatAgent({
   const [viewMode, setViewMode] = useState<'current' | 'history'>('current');
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [inspector, setInspector] = useState<'memory' | 'activity'>('memory');
+  const [sourceMessageId, setSourceMessageId] = useState('latest');
+  useEffect(() => { setSourceMessageId('latest'); }, [session?.id, selectedHistorySessionId, viewMode]);
   const [savedRuns, setSavedRuns] = useState<SavedRoutingRun[]>(() => {
     try {
       return JSON.parse(window.localStorage.getItem('chat-routing-comparison-runs') || '[]');
@@ -460,6 +463,7 @@ export function ChatAgent({
               {visibleMessages.map((message) => (
                 <ChatBubble
                   key={message.id}
+                  onInspectSources={() => { setSourceMessageId(message.id); setInspector('memory'); }}
                   message={message}
                   a2uiEnabled={a2uiEnabled}
                   onA2UIEvent={handleA2UIEvent}
@@ -538,9 +542,23 @@ export function ChatAgent({
 
         <div className="flex flex-col gap-6 min-h-0 overflow-y-auto pr-1">
           <div className="flex gap-2" aria-label="Workspace inspector">
-            {(['memory', 'activity'] as const).map(item => <button key={item} type="button" onClick={() => setInspector(item)} aria-pressed={inspector === item} className={cn('rounded-xl border px-4 py-2 text-sm', inspector === item ? 'border-cyan-300/40 bg-cyan-400/10 text-cyan-100' : 'border-white/10 text-white/60')}>{item === 'memory' ? 'Memory' : 'Tools & routing'}</button>)}
+            {(['memory', 'activity'] as const).map(item => <button key={item} type="button" onClick={() => setInspector(item)} aria-pressed={inspector === item} className={cn('rounded-xl border px-4 py-2 text-sm', inspector === item ? 'border-cyan-300/40 bg-cyan-400/10 text-cyan-100' : 'border-white/10 text-white/60')}>{item === 'memory' ? 'Answer sources' : 'Tools & routing'}</button>)}
           </div>
-          {inspector === 'memory' ? <MemoryPanel
+          {inspector === 'memory' ? <>
+          <label className="text-xs text-white/60">Inspect answer
+            <select value={sourceMessageId} onChange={event => setSourceMessageId(event.target.value)} className="mt-2 w-full rounded-xl border border-white/10 bg-slate-900 p-2 text-sm text-white">
+              <option value="latest">Latest turn</option>
+              {visibleMessages.filter(message => message.sender === 'assistant').map((message, index) => <option key={message.id} value={message.id}>Answer {index + 1}: {message.content.slice(0, 65)}</option>)}
+            </select>
+          </label>
+          {(() => {
+            const selected = sourceMessageId === 'latest' ? [...visibleMessages].reverse().find(message => message.sender === 'assistant') : visibleMessages.find(message => message.id === sourceMessageId);
+            const live = !showHistoryDetail && sourceMessageId === 'latest';
+            return <AnswerSourcesPanel sources={live ? answerSources : selected?.raw?.sources} memory={live ? memoryReceipt : selected?.raw?.memory} />;
+          })()}
+          <details className="rounded-2xl border border-white/10 bg-slate-900/40 p-4" open={!memorySubjectId && !showHistoryDetail}>
+          <summary className="cursor-pointer font-medium text-white">Manage memories · customer profile and saved notes</summary>
+          <div className="mt-4"><MemoryPanel
             agentId={showHistoryDetail ? historySession?.agentPresetId || activePresetId : activePresetId}
             subjectId={showHistoryDetail ? historySession?.memorySubjectId || null : memorySubjectId}
             onSubjectChange={setMemorySubjectId}
@@ -549,7 +567,8 @@ export function ChatAgent({
             busy={isStreaming && !showHistoryDetail}
             receipt={showHistoryDetail ? [...historicalMessages].reverse().find(message => message.raw?.memory)?.raw?.memory : memoryReceipt}
             onOpenSource={id => { setViewMode('history'); void loadHistoricalSession(id); }}
-          /> : <>
+          /></div></details>
+          </> : <>
           <Card className="p-5 bg-slate-900/40 border-white/5">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -885,10 +904,11 @@ export function ChatAgent({
   );
 }
 
-function ChatBubble({ message, a2uiEnabled, onA2UIEvent }: {
+function ChatBubble({ message, a2uiEnabled, onA2UIEvent, onInspectSources }: {
   message: ChatMessage;
   a2uiEnabled: boolean;
   onA2UIEvent: (event: A2UIEvent) => void;
+  onInspectSources?: () => void;
 }) {
   const isUser = message.sender === 'user';
   const isRich = !isUser && containsRichContent(message.content);
@@ -929,6 +949,10 @@ function ChatBubble({ message, a2uiEnabled, onA2UIEvent }: {
         {references.length > 0 && <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
           <p className="text-xs text-cyan-200">Memory references</p>
           {references.map((record, index) => <details key={record.id} className="text-xs"><summary className="cursor-pointer text-cyan-100">[M{index + 1}] {record.title}</summary><p className="my-2 whitespace-pre-wrap text-white/80">{record.content}</p><MemorySource record={record} /></details>)}
+        </div>}
+        {!isUser && message.raw?.sources && <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
+          {message.raw.sources.rag?.citations.map((citation, index) => message.content.includes(`[K${index + 1}]`) && <details key={`${citation.file_id}-${index}`} className="text-xs"><summary className="cursor-pointer text-emerald-200">[K{index + 1}] {citation.title || citation.file_id}</summary><p className="my-2 max-h-60 overflow-auto whitespace-pre-wrap text-white/80">{citation.snippet}</p></details>)}
+          <button type="button" onClick={onInspectSources} className="text-xs text-cyan-200 underline underline-offset-4">Inspect sources for this answer</button>
         </div>}
         {message.toolName && (
           <p className="text-[11px] text-white/50 mt-2 flex items-center gap-1">
