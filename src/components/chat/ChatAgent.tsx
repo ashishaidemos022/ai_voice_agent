@@ -554,7 +554,7 @@ export function ChatAgent({
           {(() => {
             const selected = sourceMessageId === 'latest' ? [...visibleMessages].reverse().find(message => message.sender === 'assistant') : visibleMessages.find(message => message.id === sourceMessageId);
             const live = !showHistoryDetail && sourceMessageId === 'latest';
-            return <AnswerSourcesPanel sources={live ? answerSources : selected?.raw?.sources} memory={live ? memoryReceipt : selected?.raw?.memory} />;
+            return <AnswerSourcesPanel sources={live ? answerSources : selected?.raw?.sources} memory={live ? memoryReceipt : selected?.raw?.memory} busy={live && isStreaming} />;
           })()}
           <details className="rounded-2xl border border-white/10 bg-slate-900/40 p-4" open={!memorySubjectId && !showHistoryDetail}>
           <summary className="cursor-pointer font-medium text-white">Manage memories · customer profile and saved notes</summary>

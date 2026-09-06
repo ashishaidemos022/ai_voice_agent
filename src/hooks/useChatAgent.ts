@@ -29,6 +29,7 @@ import type {
 } from '../../shared/model-routing';
 import { shouldRunRagForTurn } from '../../shared/rag-routing';
 import type { MemoryReceipt } from '../../shared/agent-memory';
+import { memoryRequest } from '../lib/agent-memory-service';
 
 const MAX_CONTEXT_MESSAGES = 40;
 const DEFAULT_CHAT_MODEL = OPENAI_MODELS.chat.default;
@@ -82,6 +83,29 @@ export function useChatAgent() {
   const sessionRef = useRef<ChatSession | null>(null);
   const responseStartMsRef = useRef<number | null>(null);
   const firstTokenRecordedRef = useRef(false);
+
+  const refreshSourceEvents = useCallback(async () => {
+    const current = sourcesRef.current;
+    const activeSession = sessionRef.current;
+    if (!current?.turnId || !activeSession?.memorySubjectId) return;
+    try {
+      const result = await memoryRequest(activeSession.agentPresetId, activeSession.memorySubjectId, 'events', { session_id: activeSession.id }, AbortSignal.timeout(2000));
+      if (sessionRef.current?.id !== activeSession.id || sourcesRef.current?.turnId !== current.turnId) return;
+      const events = [...(sourcesRef.current.memoryEvents || []), ...(result.events || [])].filter(event => event.turn_id === current.turnId);
+      updateSources({ memoryEvents: [...new Map(events.map(event => [event.id, event])).values()].sort((a, b) => a.created_at.localeCompare(b.created_at)) });
+    } catch { /* An unavailable activity feed must not interrupt the answer. */ }
+  }, [updateSources]);
+
+  useEffect(() => {
+    if (!isStreaming || !answerSources?.turnId) return;
+    let inFlight = false;
+    const timer = window.setInterval(async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try { await refreshSourceEvents(); } finally { inFlight = false; }
+    }, 700);
+    return () => window.clearInterval(timer);
+  }, [isStreaming, answerSources?.turnId, refreshSourceEvents]);
 
   const refreshPresets = useCallback(async () => {
     try {
@@ -219,6 +243,9 @@ export function useChatAgent() {
   }, []);
 
   const handleAssistantCompleted = useCallback(async (text: string, route?: ChatRouteDecision, memory?: MemoryReceipt) => {
+    const completingSessionId = sessionRef.current?.id;
+    await refreshSourceEvents();
+    if (sessionRef.current?.id !== completingSessionId) return;
     sendingRef.current = false;
     const finalText = (text || liveAssistantText).trim();
     setLiveAssistantText('');
@@ -247,7 +274,7 @@ export function useChatAgent() {
     } catch (err) {
       console.error('Failed to persist assistant message', err);
     }
-  }, [liveAssistantText]);
+  }, [liveAssistantText, refreshSourceEvents]);
 
   const attachRealtimeHandlers = useCallback((client: ChatRealtimeClient) => {
     client.on('connected', () => setIsConnected(true));
@@ -264,7 +291,8 @@ export function useChatAgent() {
       handleAssistantCompleted(evt.text, evt.route, evt.memory);
     });
     client.on('memory.updated', evt => setMemoryReceipt(evt.memory));
-    client.on('response.started', () => {
+    client.on('response.started', (event) => {
+      updateSources({ turnId: event.turnId || undefined });
       setIsStreaming(true);
     });
     client.on('routing.selected', (evt) => {
@@ -312,7 +340,7 @@ export function useChatAgent() {
         client.sendToolOutput(event.call.id, { error: message });
       }
     });
-  }, [handleAssistantCompleted, handleAssistantDelta, recordSourceTool]);
+  }, [handleAssistantCompleted, handleAssistantDelta, recordSourceTool, updateSources]);
 
   const startSession = useCallback(async () => {
     if (!vaUser) {

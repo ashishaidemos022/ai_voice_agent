@@ -6,6 +6,14 @@ Use the answer selector or “Inspect sources for this answer” beneath a respo
 
 The far-right Tools and history rail has a Compact button. It shrinks from 320px to 56px and remembers the layout preference in browser storage. Memory records and source receipts remain in Supabase; only this layout preference is stored locally.
 
+## Source spotlight
+
+Enable **Demo focus** in Answer sources to open accessed blocks automatically. The preference is saved locally. With this off, manual disclosure choices remain in place. No automatic scrolling is performed.
+
+Actual memory-search events, RAG requests, and pending SQL calls produce a gentle cyan spotlight with a pulsing accent. Completed access keeps a steady outline through the turn. Earlier context receives a subdued “Available from earlier in this conversation” label; system instructions have an “Always included” label without a search animation. Reduced-motion preferences disable pulsing.
+
+Semantic and episodic subsections highlight only once their records have been returned. An updated record receives a green highlight and shows the previous content when the same turn's search captured it. Current-turn memory events are polled while an answer is running and saved with the answer receipt. Very short searches may finish between polls and appear directly in the completed state. Historical receipts without these events still show their recorded retrieval status, but cannot reconstruct write activity.
+
 ## Recording setup
 
 Select Shopify Agent, expand Manage memories, create a dedicated “Alex · conference demo” profile, and save separate notes:

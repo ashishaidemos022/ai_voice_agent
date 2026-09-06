@@ -15,7 +15,7 @@ export type ChatRealtimeEvent =
   | { type: 'response.delta'; delta: string }
   | { type: 'response.completed'; text: string; route?: ChatRouteDecision; memory?: MemoryReceipt }
   | { type: 'memory.updated'; memory: MemoryReceipt }
-  | { type: 'response.started' }
+  | { type: 'response.started'; turnId: string | null }
   | { type: 'routing.selected'; route: ChatRouteDecision }
   | { type: 'function_call'; call: { id: string; name: string; arguments: string } }
   | { type: 'usage.reported'; usage: unknown; model?: string; route?: ChatRouteDecision };
@@ -144,7 +144,7 @@ export class ChatRealtimeClient {
   private async createResponse(): Promise<void> {
     try {
       if (++this.responseCount > 12) throw new Error('This turn reached its tool-call limit. Please start a new chat to continue.');
-      this.emit({ type: 'response.started' });
+      this.emit({ type: 'response.started', turnId: this.activeTurnId });
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
       const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
       const { data: { session } } = await supabase.auth.getSession();

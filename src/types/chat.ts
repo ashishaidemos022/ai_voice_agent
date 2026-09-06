@@ -1,8 +1,10 @@
 import type { ChatRouteDecision } from '../../shared/model-routing';
-import type { MemoryReceipt } from '../../shared/agent-memory';
+import type { MemoryReceipt, MemoryEvent } from '../../shared/agent-memory';
 import type { RagAugmentationResult } from './rag';
 
 export type AnswerSources = {
+  turnId?: string;
+  memoryEvents?: MemoryEvent[];
   question: string;
   instructions: string;
   rag: RagAugmentationResult | null;
