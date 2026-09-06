@@ -1,7 +1,12 @@
 import { BookOpen, Database, Brain, ListChecks } from 'lucide-react';
 import type { AnswerSources } from '../../types/chat';
 import type { MemoryReceipt } from '../../../shared/agent-memory';
-import { MEMORY_LABELS } from '../../../shared/agent-memory';
+
+const MEMORY_SECTIONS = [
+  { kind: 'semantic', title: 'Semantic Memory', description: 'What I know about you · facts and preferences', empty: 'No personal facts supplied for this answer.' },
+  { kind: 'episodic', title: 'Episodic Memory', description: 'What happened before · past experiences', empty: 'No past experiences supplied for this answer.' },
+  { kind: 'procedural', title: 'Procedural Memory', description: 'Saved agent playbooks · how to handle a task', empty: '' }
+] as const;
 
 export function AnswerSourcesPanel({ sources, memory }: { sources?: AnswerSources; memory?: MemoryReceipt }) {
   const memories = [
@@ -13,7 +18,32 @@ export function AnswerSourcesPanel({ sources, memory }: { sources?: AnswerSource
   const sql = tools.filter(({ tool }) => /execute_sql/i.test(tool.toolName));
   const cards = [
     { title: 'My instructions', subtitle: 'Procedural memory · configured behavior', icon: ListChecks, status: sources ? 'Supplied throughout this turn' : 'No recorded turn', content: <p className="whitespace-pre-wrap">{sources?.instructions || 'Start a conversation to capture its instructions.'}</p> },
-    { title: 'Personal memories', subtitle: 'Facts, past experiences and saved playbooks', icon: Brain, status: memories.length ? `${memories.length} records supplied` : memory?.lookup === 'requested' ? 'No matching memories' : 'No memory retrieval recorded', content: <div className="space-y-3">{memories.map(({ record, status }) => <article key={`${record.id}-${status}`} className="rounded-lg border border-white/10 p-3"><p className="text-cyan-200">{record.title}</p><p className="text-[11px] text-white/50">{MEMORY_LABELS[record.kind].description} · {status}</p><p className="mt-2 whitespace-pre-wrap">{record.content}</p><p className="mt-2 text-xs text-white/50">Source: {record.source_quote || 'Owner-authored note'} · Version {record.version}</p></article>)}{!memories.length && <p>Select a customer in Manage memories to enable recall. A search may also return no matches.</p>}</div> },
+    {
+      title: 'Personal memories', subtitle: 'Semantic facts and episodic experiences', icon: Brain,
+      status: memories.length ? `${memories.length} records supplied` : memory?.lookup === 'requested' ? 'No matching memories' : 'No memory retrieval recorded',
+      content: <div className="space-y-5">
+        {MEMORY_SECTIONS.map(section => {
+          const entries = memories.filter(({ record }) => record.kind === section.kind);
+          if (section.kind === 'procedural' && !entries.length) return null;
+          return <section key={section.kind} aria-label={section.title} className="space-y-2">
+            <div>
+              <h3 className="flex items-center justify-between gap-2 font-semibold text-white">
+                {section.title}<span className="rounded-full bg-white/10 px-2 py-0.5 text-xs font-normal text-white/60">{entries.length}</span>
+              </h3>
+              <p className="mt-1 text-xs text-white/50">{section.description}</p>
+            </div>
+            {entries.map(({ record, status }) => <article key={`${record.id}-${status}`} className="rounded-lg border border-white/10 p-3">
+              <p className="text-cyan-200">{record.title}</p>
+              <p className="text-[11px] text-white/50">{status}</p>
+              <p className="mt-2 whitespace-pre-wrap">{record.content}</p>
+              <p className="mt-2 text-xs text-white/50">Source: {record.source_quote || 'Owner-authored note'} · Version {record.version}</p>
+            </article>)}
+            {!entries.length && <p className="text-xs text-white/45">{section.empty}</p>}
+          </section>;
+        })}
+        {!memories.length && <p className="text-xs text-white/50">Select a customer in Manage memories to enable recall. A search may also return no matches.</p>}
+      </div>
+    },
     { title: 'Product guide', subtitle: 'Document knowledge · retrieved through RAG', icon: BookOpen, status: sources?.ragStatus === 'searching' ? 'Searching…' : sources?.ragStatus === 'failed' ? 'Retrieval failed' : sources?.ragStatus === 'retrieved' ? `${sources.rag?.citations.length || 0} passages retrieved this turn` : 'Not retrieved this turn', content: <div className="space-y-3">{sources?.rag?.citations.map((citation, index) => <article key={`${citation.file_id}-${index}`} className="rounded-lg border border-white/10 p-3"><p className="text-emerald-200">[K{index + 1}] {citation.title || citation.file_id}</p><p className="mt-2 whitespace-pre-wrap">{citation.snippet}</p></article>)}{!sources?.rag?.citations.length && <p>No document passages supplied this turn. Earlier answers may remain in the conversation.</p>}</div> },
     { title: 'Business data', subtitle: 'Catalog and other structured records · SQL', icon: Database, status: sql.length ? `${sql.filter(item => item.status === 'This turn').length} calls this turn` : 'No SQL lookup recorded', content: <div className="space-y-3">{sql.map(({ tool, status }, index) => <article key={tool.id} className="rounded-lg border border-white/10 p-3"><p className="text-amber-200">Result {index + 1} · {status} · {tool.status}</p><p className="text-xs text-white/40">{new Date(tool.createdAt).toLocaleString()}</p><pre className="mt-2 whitespace-pre-wrap break-words text-xs">{JSON.stringify(tool.response || tool.error || 'Waiting for result', null, 2)}</pre><details className="mt-2"><summary className="cursor-pointer">View query</summary><pre className="whitespace-pre-wrap break-words">{JSON.stringify(tool.request, null, 2)}</pre></details></article>)}{!sql.length && <p>No structured database results in this receipt. Stored inventory is not a guarantee of live storefront availability.</p>}</div> }
   ];
