@@ -39,6 +39,8 @@ import { formatA2UIEventMessage, type A2UIEvent } from '../../lib/a2ui';
 import { Badge } from '../ui/Badge';
 import { CHAT_ROUTING_MODELS, type ChatRouteDecision, type ChatRoutingStrategy } from '../../../shared/model-routing';
 import { OPENAI_MODELS, OPENAI_PRICING_EFFECTIVE_DATE } from '../../../shared/openai-models';
+import { MemoryPanel, MemorySource } from './MemoryPanel';
+import { memoryReferences } from '../../../shared/agent-memory';
 
 const MODEL_LABELS: Record<string, string> = {
   [OPENAI_MODELS.chat.nano]: 'GPT-5.4 Nano',
@@ -138,7 +140,8 @@ export function ChatAgent({
     setRoutingStrategy,
     fixedModel,
     setFixedModel,
-    currentRoute
+    currentRoute,
+    memorySubjectId, setMemorySubjectId, memoryReceipt
   } = useChatAgent();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMCPPanelOpen, setIsMCPPanelOpen] = useState(false);
@@ -147,6 +150,7 @@ export function ChatAgent({
   const [composerValue, setComposerValue] = useState('');
   const [viewMode, setViewMode] = useState<'current' | 'history'>('current');
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  const [inspector, setInspector] = useState<'memory' | 'activity'>('memory');
   const [savedRuns, setSavedRuns] = useState<SavedRoutingRun[]>(() => {
     try {
       return JSON.parse(window.localStorage.getItem('chat-routing-comparison-runs') || '[]');
@@ -228,6 +232,7 @@ export function ChatAgent({
   };
 
   const showHistoryDetail = viewMode === 'history';
+  const historySession = historySessions.find(item => item.id === selectedHistorySessionId);
   const conversationRef = useRef<HTMLDivElement | null>(null);
   const shouldFollowConversationRef = useRef(true);
 
@@ -313,7 +318,7 @@ export function ChatAgent({
         </div>
       </div>
 
-      <div className="flex-1 grid grid-cols-1 2xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] gap-6 p-4 lg:p-8 min-h-0 overflow-y-auto 2xl:overflow-hidden">
+      <div className="flex-1 grid grid-cols-1 xl:grid-cols-[minmax(0,1.4fr)_minmax(360px,1fr)] gap-6 p-4 lg:p-8 min-h-0 overflow-y-auto 2xl:overflow-hidden">
         <div className="flex flex-col gap-6 min-h-[720px] 2xl:min-h-0 2xl:overflow-hidden">
           <Card className="p-5 bg-slate-900/40 border-white/5">
             <div className="flex items-center justify-between">
@@ -330,6 +335,7 @@ export function ChatAgent({
             <div className="mt-4 space-y-2">
               <select
                 value={activePresetId || ''}
+                disabled={Boolean(session)}
                 onChange={(event) => setActivePresetId(event.target.value)}
                 className="w-full rounded-xl bg-slate-950 border border-white/10 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300"
               >
@@ -507,7 +513,7 @@ export function ChatAgent({
                         handleSend();
                       }
                     }}
-                    disabled={!session || isConnecting}
+                    disabled={!session || isConnecting || isStreaming}
                     placeholder={session ? 'Type your prompt…' : 'Start a chat session to begin'}
                     className="w-full bg-transparent text-sm text-white outline-none resize-none placeholder:text-white/40"
                   />
@@ -531,6 +537,19 @@ export function ChatAgent({
         </div>
 
         <div className="flex flex-col gap-6 min-h-0 overflow-y-auto pr-1">
+          <div className="flex gap-2" aria-label="Workspace inspector">
+            {(['memory', 'activity'] as const).map(item => <button key={item} type="button" onClick={() => setInspector(item)} aria-pressed={inspector === item} className={cn('rounded-xl border px-4 py-2 text-sm', inspector === item ? 'border-cyan-300/40 bg-cyan-400/10 text-cyan-100' : 'border-white/10 text-white/60')}>{item === 'memory' ? 'Memory' : 'Tools & routing'}</button>)}
+          </div>
+          {inspector === 'memory' ? <MemoryPanel
+            agentId={showHistoryDetail ? historySession?.agentPresetId || activePresetId : activePresetId}
+            subjectId={showHistoryDetail ? historySession?.memorySubjectId || null : memorySubjectId}
+            onSubjectChange={setMemorySubjectId}
+            sessionId={showHistoryDetail ? selectedHistorySessionId || undefined : session?.id}
+            sessionActive={Boolean(session) || showHistoryDetail}
+            busy={isStreaming && !showHistoryDetail}
+            receipt={showHistoryDetail ? [...historicalMessages].reverse().find(message => message.raw?.memory)?.raw?.memory : memoryReceipt}
+            onOpenSource={id => { setViewMode('history'); void loadHistoricalSession(id); }}
+          /> : <>
           <Card className="p-5 bg-slate-900/40 border-white/5">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -726,6 +745,7 @@ export function ChatAgent({
             agentConfigId={activePresetId}
             agentName={activePreset?.name}
           />
+          </>}
         </div>
       </div>
     </div>
@@ -873,6 +893,11 @@ function ChatBubble({ message, a2uiEnabled, onA2UIEvent }: {
   const isUser = message.sender === 'user';
   const isRich = !isUser && containsRichContent(message.content);
   const route = message.raw?.routing;
+  const references = memoryReferences(message.content, message.raw?.memory);
+  const displayContent = isUser ? message.content : message.content.replace(/\[memory:([a-f0-9-]{36})\]/gi, (_match, id: string) => {
+    const index = references.findIndex(record => record.id.toLowerCase() === id.toLowerCase());
+    return index >= 0 ? `[M${index + 1}]` : '[unverified memory reference]';
+  });
   return (
     <div className={cn('flex min-w-0', isUser ? 'justify-end' : 'justify-start')}>
       <div
@@ -895,12 +920,16 @@ function ChatBubble({ message, a2uiEnabled, onA2UIEvent }: {
           )}
         </div>
         <MessageContent
-          content={message.content}
+          content={displayContent}
           role={message.sender}
           a2uiEnabled={a2uiEnabled}
           onA2UIEvent={onA2UIEvent}
           richContent={message.raw?.content}
         />
+        {references.length > 0 && <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
+          <p className="text-xs text-cyan-200">Memory references</p>
+          {references.map((record, index) => <details key={record.id} className="text-xs"><summary className="cursor-pointer text-cyan-100">[M{index + 1}] {record.title}</summary><p className="my-2 whitespace-pre-wrap text-white/80">{record.content}</p><MemorySource record={record} /></details>)}
+        </div>}
         {message.toolName && (
           <p className="text-[11px] text-white/50 mt-2 flex items-center gap-1">
             <Sparkles className="w-3 h-3" />

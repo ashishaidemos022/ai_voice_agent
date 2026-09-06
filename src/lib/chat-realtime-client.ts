@@ -1,5 +1,6 @@
 import { getToolSchemas } from './tools-registry';
 import { supabase } from './supabase';
+import { MEMORY_TOOL_NAMES, type MemoryReceipt } from '../../shared/agent-memory';
 import type { RagMode } from '../types/rag';
 import type {
   ChatRouteDecision,
@@ -12,7 +13,8 @@ export type ChatRealtimeEvent =
   | { type: 'disconnected'; reason?: string }
   | { type: 'error'; error: string }
   | { type: 'response.delta'; delta: string }
-  | { type: 'response.completed'; text: string; route?: ChatRouteDecision }
+  | { type: 'response.completed'; text: string; route?: ChatRouteDecision; memory?: MemoryReceipt }
+  | { type: 'memory.updated'; memory: MemoryReceipt }
   | { type: 'response.started' }
   | { type: 'routing.selected'; route: ChatRouteDecision }
   | { type: 'function_call'; call: { id: string; name: string; arguments: string } }
@@ -44,6 +46,8 @@ export class ChatRealtimeClient {
   private pendingToolOutputs: any[] = [];
   private activeTurnId: string | null = null;
   private activeRoute: ChatRouteDecision | null = null;
+  private activeMemory: MemoryReceipt | undefined;
+  private responseCount = 0;
 
   constructor(config: ChatRealtimeConfig) {
     this.config = config;
@@ -80,6 +84,8 @@ export class ChatRealtimeClient {
   sendUserMessage(text: string, ragCost?: { total: number; model: number; tool: number }) {
     if (!this.connected || !text.trim()) return;
     this.activeTurnId = crypto.randomUUID();
+    this.activeMemory = undefined;
+    this.responseCount = 0;
     this.activeRoute = null;
     if (ragCost && ragCost.total > 0) {
       this.activeRoute = {
@@ -135,6 +141,7 @@ export class ChatRealtimeClient {
 
   private async createResponse(): Promise<void> {
     try {
+      if (++this.responseCount > 12) throw new Error('This turn reached its tool-call limit. Please start a new chat to continue.');
       this.emit({ type: 'response.started' });
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
       const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
@@ -163,6 +170,11 @@ export class ChatRealtimeClient {
       this.instructionsSuffix = [];
       const json = await response.json();
       if (!response.ok) throw new Error(json?.error?.message || json?.error || 'Responses request failed');
+      if (!this.connected) return;
+      if (json._memory) {
+        this.activeMemory = json._memory;
+        this.emit({ type: 'memory.updated', memory: json._memory });
+      }
 
       const responseRoute = json._routing as ChatRouteDecision | undefined;
       if (responseRoute) {
@@ -191,10 +203,12 @@ export class ChatRealtimeClient {
       if (functionCalls.length) {
         this.pendingOutputItems = outputItems;
         this.pendingCallIds = new Set(functionCalls.map((item: any) => item.call_id));
-        functionCalls.forEach((item: any) => this.emit({
-          type: 'function_call',
-          call: { id: item.call_id, name: item.name, arguments: item.arguments || '{}' }
-        }));
+        functionCalls.forEach((item: any) => {
+          if (MEMORY_TOOL_NAMES.has(item.name)) {
+            const result = (json._memory_tool_outputs || []).find((output: any) => output.call_id === item.call_id);
+            this.sendToolOutput(item.call_id, result?.output || { error: 'Server memory result unavailable' });
+          } else this.emit({ type: 'function_call', call: { id: item.call_id, name: item.name, arguments: item.arguments || '{}' } });
+        });
       } else {
         this.input.push(...outputItems);
         const text = (json.output_text || outputItems
@@ -203,12 +217,12 @@ export class ChatRealtimeClient {
           .map((content: any) => content.text || '')
           .join('')).trim();
         if (text) this.emit({ type: 'response.delta', delta: text });
-        this.emit({ type: 'response.completed', text, route: this.activeRoute || undefined });
+        this.emit({ type: 'response.completed', text, route: this.activeRoute || undefined, memory: this.activeMemory });
       }
       if (json.usage) this.emit({ type: 'usage.reported', usage: json.usage, model: json.model, route: this.activeRoute || undefined });
     } catch (error) {
       this.emit({ type: 'error', error: error instanceof Error ? error.message : 'Responses request failed' });
-      this.emit({ type: 'response.completed', text: '', route: this.activeRoute || undefined });
+      this.emit({ type: 'response.completed', text: '', route: this.activeRoute || undefined, memory: this.activeMemory });
     }
   }
 

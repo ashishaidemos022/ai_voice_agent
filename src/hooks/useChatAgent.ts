@@ -27,6 +27,7 @@ import type {
   ChatRoutingStrategy
 } from '../../shared/model-routing';
 import { shouldRunRagForTurn } from '../../shared/rag-routing';
+import type { MemoryReceipt } from '../../shared/agent-memory';
 
 const MAX_CONTEXT_MESSAGES = 40;
 const DEFAULT_CHAT_MODEL = OPENAI_MODELS.chat.default;
@@ -62,6 +63,9 @@ export function useChatAgent() {
   const [routingStrategy, setRoutingStrategy] = useState<ChatRoutingStrategy>('auto');
   const [fixedModel, setFixedModel] = useState<ChatRoutingModel>(OPENAI_MODELS.chat.frontier);
   const [currentRoute, setCurrentRoute] = useState<ChatRouteDecision | null>(null);
+  const [memorySubjectId, setMemorySubjectId] = useState<string | null>(null);
+  const [memoryReceipt, setMemoryReceipt] = useState<MemoryReceipt | undefined>();
+  const sendingRef = useRef(false);
 
   const realtimeRef = useRef<ChatRealtimeClient | null>(null);
   const sessionRef = useRef<ChatSession | null>(null);
@@ -150,6 +154,8 @@ export function useChatAgent() {
     setIsStreaming(false);
     setLiveAssistantText('');
     setCurrentRoute(null);
+    setMemoryReceipt(undefined);
+    sendingRef.current = false;
     responseStartMsRef.current = null;
     firstTokenRecordedRef.current = false;
   }, [activePresetId, presets]);
@@ -199,7 +205,8 @@ export function useChatAgent() {
     setLiveAssistantText((prev) => `${prev}${delta}`);
   }, []);
 
-  const handleAssistantCompleted = useCallback(async (text: string, route?: ChatRouteDecision) => {
+  const handleAssistantCompleted = useCallback(async (text: string, route?: ChatRouteDecision, memory?: MemoryReceipt) => {
+    sendingRef.current = false;
     const finalText = (text || liveAssistantText).trim();
     setLiveAssistantText('');
     setIsStreaming(false);
@@ -213,7 +220,7 @@ export function useChatAgent() {
       sender: 'assistant',
       content: finalText,
       createdAt: new Date().toISOString(),
-      raw: route ? { routing: route } : null
+      raw: { routing: route, memory }
     };
     setMessages((prev) => [...prev, message].slice(-MAX_CONTEXT_MESSAGES));
     try {
@@ -221,7 +228,7 @@ export function useChatAgent() {
         sessionId: sessionRef.current.id,
         sender: 'assistant',
         message: finalText,
-        raw: route ? { routing: route } : null,
+        raw: { routing: route, memory },
         streamed: true
       });
     } catch (err) {
@@ -241,8 +248,9 @@ export function useChatAgent() {
       handleAssistantDelta(evt.delta);
     });
     client.on('response.completed', (evt) => {
-      handleAssistantCompleted(evt.text, evt.route);
+      handleAssistantCompleted(evt.text, evt.route, evt.memory);
     });
+    client.on('memory.updated', evt => setMemoryReceipt(evt.memory));
     client.on('response.started', () => {
       setIsStreaming(true);
     });
@@ -269,6 +277,7 @@ export function useChatAgent() {
         const result = await executeTool(event.call.name, parsedArgs, {
           chatSessionId: sessionRef.current.id
         });
+        if (result && typeof result === 'object' && 'error' in result && result.error) throw new Error(String(result.error));
         await updateChatToolEvent(pendingEvent.id, { status: 'succeeded', response: result });
         setToolEvents((prev) =>
           prev.map((tool) =>
@@ -313,6 +322,7 @@ export function useChatAgent() {
     setMessages([]);
     setToolEvents([]);
     setLiveAssistantText('');
+    setMemoryReceipt(undefined);
 
     try {
       const tools = await loadToolsForPreset(preset.id);
@@ -324,7 +334,8 @@ export function useChatAgent() {
         metadata: {
           routing_strategy: routingStrategy,
           fixed_model: routingStrategy === 'fixed' ? fixedModel : null,
-          routing_policy_version: 'chat-router-v1'
+          routing_policy_version: 'chat-router-v1',
+          memory_subject_id: memorySubjectId
         }
       });
       sessionRef.current = newSession;
@@ -365,7 +376,7 @@ export function useChatAgent() {
       setIsConnecting(false);
       refreshHistorySessions();
     }
-  }, [activePresetId, attachRealtimeHandlers, cleanupRealtime, endSession, fixedModel, loadToolsForPreset, presets, refreshHistorySessions, routingStrategy, vaUser]);
+  }, [activePresetId, attachRealtimeHandlers, cleanupRealtime, endSession, fixedModel, loadToolsForPreset, presets, refreshHistorySessions, routingStrategy, vaUser, memorySubjectId]);
 
   const sendMessage = useCallback(async (text: string) => {
     const trimmed = text.trim();
@@ -374,6 +385,10 @@ export function useChatAgent() {
       setError('Start a chat session first');
       return;
     }
+    if (sendingRef.current) return;
+    sendingRef.current = true;
+    setIsStreaming(true);
+    setMemoryReceipt(undefined);
     setCurrentRoute(null);
 
     const outgoing: ChatMessage = {
@@ -459,6 +474,12 @@ export function useChatAgent() {
       });
     } catch (err) {
       console.error('Failed to persist user message', err);
+      if (memorySubjectId) {
+        setError('Could not save your message. Memory requires a saved source; please try again.');
+        sendingRef.current = false;
+        setIsStreaming(false);
+        return;
+      }
     }
 
     responseStartMsRef.current = Date.now();
@@ -470,7 +491,7 @@ export function useChatAgent() {
           tool: ragContext.toolCostUsd || 0
         }
       : undefined);
-  }, [activePresetId, presets]);
+  }, [activePresetId, presets, memorySubjectId]);
 
   const loadHistoricalSession = useCallback(async (sessionId: string) => {
     setIsHistoryLoading(true);
@@ -527,6 +548,7 @@ export function useChatAgent() {
     setRoutingStrategy,
     fixedModel,
     setFixedModel,
-    currentRoute
+    currentRoute,
+    memorySubjectId, setMemorySubjectId, memoryReceipt
   };
 }

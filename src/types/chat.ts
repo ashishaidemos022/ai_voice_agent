@@ -1,4 +1,5 @@
 import type { ChatRouteDecision } from '../../shared/model-routing';
+import type { MemoryReceipt } from '../../shared/agent-memory';
 
 export type AgentTag = {
   id: string;
@@ -28,6 +29,7 @@ export type ChatSession = {
   createdAt: string;
   updatedAt: string;
   lastMessageAt?: string | null;
+  memorySubjectId?: string | null;
 };
 
 export type RichMessageContentPart =
@@ -56,6 +58,7 @@ export type ChatMessage = {
   toolName?: string | null;
   raw?: (Record<string, unknown> & {
     routing?: ChatRouteDecision;
+    memory?: MemoryReceipt;
     content?: RichMessageContent;
   }) | null;
   isStreaming?: boolean;

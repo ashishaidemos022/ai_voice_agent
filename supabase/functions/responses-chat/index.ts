@@ -1,5 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
 import { normalizeChatModel, OPENAI_MODELS } from '../../../shared/openai-models.ts';
+import { MEMORY_INSTRUCTIONS, MEMORY_TOOLS, MEMORY_TOOL_NAMES } from '../../../shared/agent-memory.ts';
+import { memoryScope, prepareMemoryContext, recordEvent, runMemoryTool } from '../_shared/agent-memory.ts';
 import {
   createFixedRoute,
   estimateTextCost,
@@ -87,7 +89,7 @@ function normalizeSignals(rawValue: unknown, fallback: RouteSignals): RouteSigna
   const raw = asRecord(rawValue);
   const taskTypes: ChatTaskType[] = ['classification', 'transformation', 'grounded_answer', 'tool_use', 'analysis', 'high_stakes'];
   return {
-    taskType: taskTypes.includes(raw?.task_type) ? raw.task_type : fallback.taskType,
+    taskType: taskTypes.includes(raw.task_type as ChatTaskType) ? raw.task_type as ChatTaskType : fallback.taskType,
     complexity: Math.min(1, Math.max(0, Number(raw?.complexity) || fallback.complexity)),
     confidence: Math.min(1, Math.max(0, Number(raw?.confidence) || fallback.confidence)),
     requiresTools: typeof raw?.requires_tools === 'boolean' ? raw.requires_tools : fallback.requiresTools,
@@ -286,6 +288,11 @@ Deno.serve(async (req: Request) => {
 
     const turnId = typeof body.turn_id === 'string' ? body.turn_id : crypto.randomUUID();
     const sessionId = typeof body.session_id === 'string' ? body.session_id : null;
+    const scope = await memoryScope(adminClient, vaUser.id, agent.id, sessionId, turnId);
+    if (scope) await recordEvent(adminClient, scope, 'turn_started', { question: latestUserText(body.input) }, `start:${turnId}`);
+    const memory = scope ? await prepareMemoryContext(adminClient, scope, body.input) : null;
+    const tools = (Array.isArray(body.tools) ? body.tools : []).filter((tool: JsonRecord) => !MEMORY_TOOL_NAMES.has(String(tool.name)));
+    if (scope) tools.push(...MEMORY_TOOLS);
     const strategy = body.routing_strategy === 'auto' ? 'auto' : 'fixed';
     const configuredModel = normalizeChatModel(agent.chat_model || agent.model || OPENAI_MODELS.chat.default);
     const fixedModel: ChatRoutingModel = isChatRoutingModel(body.fixed_model)
@@ -299,7 +306,7 @@ Deno.serve(async (req: Request) => {
         const classified = await classifyTurn({
           text: latestUserText(body.input),
           taskContext: typeof agent.instructions === 'string' ? agent.instructions : '',
-          tools: Array.isArray(body.tools) ? body.tools : [],
+          tools,
           safetyIdentifier
         });
         route = {
@@ -321,13 +328,15 @@ Deno.serve(async (req: Request) => {
       agent.a2ui_enabled
         ? 'When interactive UI is useful, you may return {"a2ui":{"version":"0.8","ui":<tree>},"fallback_text":"..."}. Supported components are Card, Text, Button, Input, Select, Form, Map, Calendar, Image, and Table.'
         : null,
-      body.instructions_suffix
+      body.instructions_suffix,
+      scope ? MEMORY_INSTRUCTIONS : null,
+      memory?.playbookInstructions
     ].filter(Boolean).join('\n\n');
     const payload: Record<string, unknown> = {
       model: route.model,
       instructions,
-      input: body.input,
-      tools: Array.isArray(body.tools) && body.tools.length ? body.tools : undefined,
+      input: memory?.input || body.input,
+      tools: tools.length ? tools : undefined,
       max_output_tokens: Math.min(Math.max(agent.max_response_output_tokens || 1024, 1), 8000),
       reasoning: { effort: route.reasoningEffort },
       text: { verbosity: 'low' },
@@ -335,6 +344,7 @@ Deno.serve(async (req: Request) => {
       store: false
     };
     const answerStartedAt = Date.now();
+    if (scope && memory) await recordEvent(adminClient, scope, 'context_supplied', { receipt: memory.receipt });
     const response = await fetch(`${OPENAI_BASE_URL}/responses`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
@@ -342,6 +352,7 @@ Deno.serve(async (req: Request) => {
     });
     const json = await response.json();
     if (!response.ok) {
+      if (scope) await recordEvent(adminClient, scope, 'failed', { error: json?.error?.message || 'Answer generation failed' });
       return new Response(JSON.stringify(json), {
         status: response.status,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -369,7 +380,20 @@ Deno.serve(async (req: Request) => {
       routerUsage
     });
 
-    return new Response(JSON.stringify({ ...json, _routing: route }), {
+    const memoryOutputs: Array<{ call_id: string; output: unknown }> = [];
+    if (scope) {
+      for (const call of (Array.isArray(json.output) ? json.output : [])) {
+        if (call.type === 'function_call' && MEMORY_TOOL_NAMES.has(call.name)) {
+          memoryOutputs.push({ call_id: call.call_id, output: await runMemoryTool(adminClient, scope, call, latestUserText(body.input)) });
+        }
+      }
+      if (!(json.output || []).some((item: JsonRecord) => item.type === 'function_call')) {
+        await recordEvent(adminClient, scope, 'answer_completed', { receipt: memory?.receipt });
+        if (memory?.receipt.lookup === 'skipped') await recordEvent(adminClient, scope, 'lookup_skipped', { reason: 'The agent completed this turn without a personal-memory search.' });
+      }
+    }
+
+    return new Response(JSON.stringify({ ...json, _routing: route, _memory: memory?.receipt, _memory_tool_outputs: memoryOutputs }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });

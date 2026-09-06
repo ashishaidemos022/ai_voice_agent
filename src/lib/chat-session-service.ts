@@ -158,7 +158,8 @@ function mapSession(row: any): ChatSession {
     toolCallCount: row.tool_call_count,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    lastMessageAt: row.last_message_at
+    lastMessageAt: row.last_message_at,
+    memorySubjectId: row.metadata?.memory_subject_id || null
   };
 }
 
