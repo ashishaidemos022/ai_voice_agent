@@ -1,20 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RealtimeAPIClient } from '../../lib/realtime-client';
+import { createRoutedVoiceAdapter, type RoutedVoiceAdapter } from '../../lib/voice-adapters/routed-adapter';
 import { LiveVoiceCoordinator } from '../../lib/live-voice-coordinator';
-import { supabase } from '../../lib/supabase';
-import { liveVoiceSession } from '../../../shared/live-voice';
 import { speechSegments } from '../../../shared/voice-speech';
 import type { ChatMessage } from '../../types/chat';
 
 type Props = { agentId: string | null; sessionId?: string; busy: boolean; messages: ChatMessage[]; onSubmit: (text: string) => void };
 
 export function LiveVoiceControls({ agentId, sessionId, busy, messages, onSubmit }: Props) {
+  const [providerLabel, setProviderLabel] = useState('Saved voice provider');
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState('');
   const [transcript, setTranscript] = useState('');
   const [queued, setQueued] = useState('');
   const [attempt, setAttempt] = useState(0);
-  const client = useRef<RealtimeAPIClient | null>(null);
+  const client = useRef<RoutedVoiceAdapter | null>(null);
   const coordinator = useRef<LiveVoiceCoordinator | null>(null);
   const generation = useRef(0);
   const segments = useRef<string[]>([]);
@@ -38,16 +37,9 @@ export function LiveVoiceControls({ agentId, sessionId, busy, messages, onSubmit
     const current = () => generation.current === token;
     void (async () => {
       try {
-        const { data } = await supabase.auth.getSession();
-        if (!current()) return;
-        if (!data.session) throw new Error('Sign in to start live voice.');
-        const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/realtime-session`);
-        url.searchParams.set('agent_id', agentId); url.searchParams.set('routed_session_id', sessionId);
-        const session = liveVoiceSession();
-        const transport = new RealtimeAPIClient({ model: session.model, voice: 'coral', instructions: session.instructions, temperature: 0.7, max_response_output_tokens: 4096 }, {
-          routedVoice: true, tools: [], allowInterruptions: true,
-          webrtc: { sessionUrl: url.toString(), headers: { Authorization: `Bearer ${data.session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_ANON_KEY } }
-        });
+        const { adapter: transport, label, pcmOutput } = await createRoutedVoiceAdapter(agentId, sessionId);
+        if (!current()) { transport.disconnect(); return; }
+        setProviderLabel(label);
         client.current = transport;
         const nextSegment = () => { const next = segments.current.shift(); if (next && current()) transport.speakAnswer(next); };
         const flow = new LiveVoiceCoordinator({
@@ -64,6 +56,8 @@ export function LiveVoiceControls({ agentId, sessionId, busy, messages, onSubmit
         transport.on('transcript.done', event => {
           if (current() && event.role === 'user') flow.transcript(event.transcript, event.itemId || crypto.randomUUID());
         });
+        transport.on('audio.delta', () => { if (current()) setStatus('speaking'); });
+        transport.on('audio.done', () => { if (current() && pcmOutput && segments.current.length) nextSegment(); });
         transport.on('provider.metrics', event => {
           if (!current()) return;
           if ('outputAudioBufferStarted' in event.metrics) setStatus('speaking');
@@ -97,6 +91,7 @@ export function LiveVoiceControls({ agentId, sessionId, busy, messages, onSubmit
       <p role="status" className="text-sm text-cyan-100">{!sessionId ? 'Start a voice session, then speak naturally.' : status === 'connecting' ? 'Connecting microphone…' : status === 'idle' ? 'Microphone off' : status === 'speaking' ? 'Speaking · you can interrupt' : busy || status === 'thinking' ? 'Agent is working · microphone is live' : 'Listening · speak naturally'}</p>
       {sessionId && <button type="button" className="ml-auto rounded-lg border border-white/20 px-3 py-2 text-xs" onClick={() => status === 'idle' ? setAttempt(value => value + 1) : stop()}>{status === 'idle' ? 'Reconnect microphone' : 'Stop microphone'}</button>}
     </div>
+    <p className="text-xs text-cyan-200">{providerLabel}</p>
     {transcript && <p className="text-sm text-white/70">{transcript}</p>}
     {queued && <p className="text-xs text-cyan-100">Next question: {queued}</p>}
     <p className="text-[11px] text-white/45">Live AI-generated voice. Speak to interrupt. Memory, routing, and tools use the selected agent and customer. Audio usage is additional to the routing receipt.</p>

@@ -386,7 +386,7 @@ export class RealtimeAPIClient {
       return;
     }
     if (this.routedVoice) {
-      this.send({ type: 'session.update', session: liveVoiceSession() });
+      this.send({ type: 'session.update', session: this.provider === 'xai' ? { voice: this.config.voice, instructions: LIVE_VOICE_INSTRUCTIONS, turn_detection: null, tools: [], audio: { output: { format: { type: 'audio/pcm', rate: 24000 } } } } : liveVoiceSession({ model: this.config.model, voice: this.config.voice, textOnly: this.textOnly, turn_detection: this.config.turn_detection }) });
       this.sessionUpdateSent = true;
       return;
     }
@@ -567,6 +567,7 @@ export class RealtimeAPIClient {
         break;
 
       case 'response.audio.delta':
+        if (this.routedVoice && this.suppressRoutedAudio) break;
         if (this.textOnly) break;
         emitBenchmarkMilestone('audio.first_chunk', { source: 'openai' });
         this.setAgentState('speaking');
@@ -599,6 +600,7 @@ export class RealtimeAPIClient {
 
       // Newer Realtime event names (output_*). Mirror the legacy audio.* behavior.
       case 'response.output_audio.delta':
+        if (this.routedVoice && this.suppressRoutedAudio) break;
         if (this.textOnly) break;
         emitBenchmarkMilestone('audio.first_chunk', { source: 'openai' });
         this.setAgentState('speaking');
@@ -895,6 +897,10 @@ export class RealtimeAPIClient {
     if (this.routedSpeechRequested || this.hasActiveResponse()) { this.pendingRoutedAnswer = text; return; }
     this.routedSpeechRequested = true; this.suppressRoutedAudio = false;
     if (this.remoteAudio) this.remoteAudio.muted = false;
+    if (this.provider === 'xai') {
+      this.send({ type: 'conversation.item.create', item: { type: 'force_message', role: 'assistant', interruptible: true, content: [{ type: 'output_text', text }] } });
+      return;
+    }
     this.send({ type: 'response.create', response: {
       conversation: 'none', output_modalities: ['audio'],
       instructions: LIVE_VOICE_INSTRUCTIONS,

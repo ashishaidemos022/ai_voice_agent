@@ -9,6 +9,7 @@ type WorkspaceTab = 'chat' | 'voice' | 'voice-lab' | 'routed-voice';
 
 export function AgentWorkspace() {
   const { vaUser } = useAuth();
+  const [routedAgentId, setRoutedAgentId] = useState<string | null>(null);
   const [tab, setTab] = useState<WorkspaceTab>('voice');
   const [isKnowledgeDrawerOpen, setIsKnowledgeDrawerOpen] = useState(false);
   const [showCreateAgent, setShowCreateAgent] = useState(false);
@@ -88,6 +89,7 @@ export function AgentWorkspace() {
         <ChatAgent
           key={tab}
           voiceMode={tab === 'routed-voice'}
+          initialPresetId={tab === 'routed-voice' ? routedAgentId : undefined}
           onNavigateChat={handleNavigateChat}
           onNavigateVoice={handleNavigateVoice}
           onNavigateVoiceLab={handleNavigateVoiceLab}
@@ -109,7 +111,7 @@ export function AgentWorkspace() {
         />
       ) : (
         <VoiceAgent
-          onNavigateRoutedVoice={() => setTab('routed-voice')}
+          onNavigateRoutedVoice={agentId => { setRoutedAgentId(agentId); setTab('routed-voice'); }}
           onNavigateChat={handleNavigateChat}
           onNavigateVoiceLab={handleNavigateVoiceLab}
           onOpenKnowledgeBase={() => setIsKnowledgeDrawerOpen(true)}

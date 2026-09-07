@@ -10,11 +10,23 @@ Speaking during an active tool turn interrupts audio and queues the next questio
 
 **Use optional recording & transcript review** exposes the earlier recording controls for users who want to check text before sending. That mode continues to use `voice-audio`; it is not the default conversation experience.
 
-Live transport uses OpenAI Realtime with the shared configured default model and coral voice. Other native provider paths remain available in the existing Voice workspace. Realtime audio/transcription costs are additional to the routing receipt; the recording audio ledger described below applies to the optional file-based mode only.
+The existing Voice workspace is the entry point: **Live voice + memory** carries the currently selected agent into shared mode. **Native voice & provider settings** returns to the provider configuration. The shared adapter factory reads the saved preset, rather than hardcoding a provider or voice.
+
+| Selected provider | Shared memory/routing mode | Speech recognition | Voice settings |
+| --- | --- | --- | --- |
+| OpenAI Realtime | Supported over existing WebRTC adapter | OpenAI | Saved realtime model, voice, VAD thresholds/timing |
+| ElevenLabs TTS | Supported over existing ElevenLabs gateway adapter | OpenAI WebRTC | Saved voice ID, model, key, voice settings and PCM sample rate |
+| xAI Realtime | Supported through xAI forced-message speech output | OpenAI WebRTC | Saved xAI voice/model/key |
+| ElevenLabs Agent | Native mode only; hosted reasoning is not wired to shared routing | Provider-managed | Existing hosted configuration |
+| PersonaPlex | Native mode only; duplex model has no shared-answer injection contract | Provider-managed | Existing native configuration |
+
+For xAI and ElevenLabs TTS, the UI explicitly labels OpenAI speech recognition. No provider is silently replaced. Unsupported hosted providers show an explanation and a Native voice/settings link before opening microphone or provider connections. Shared mode requires automatic turn detection even if native manual capture is configured. ElevenLabs requires PCM output; incompatible formats produce a settings error. The optional recording workflow remains explicitly OpenAI-based.
+
+ElevenLabs Agent shared-memory support would require configuring hosted client/server tools and a conversation-context contract; its internal model router cannot be replaced by a client adapter. PersonaPlex needs a gateway/model capability change to accept external grounded answers. Neither is claimed as integrated. Realtime audio/transcription costs are additional to the routing receipt; the recording audio ledger described below applies to the optional file-based mode only.
 
 ## Live deployment and verification
 
-Deploy the updated `realtime-session` function and frontend together. No additional migration is required for live audio. The function validates `routed_session_id` against the signed-in user, agent, active status, and routed channel. Native calls without this parameter keep their existing configuration. Routed calls cannot request benchmark overrides or WebSocket secrets.
+Deploy the updated `realtime-session` and `elevenlabs-gateway-token` functions and frontend together. No additional migration is required for live audio. The function validates `routed_session_id` against the signed-in user, agent, active status, and routed channel. Native calls without this parameter keep their existing configuration. Routed calls cannot request benchmark overrides. xAI output requests a scoped ephemeral WebSocket secret; microphone input still uses WebRTC.
 
 Run `npm run test:voice`. Added tests cover continuous microphone capture during reasoning/playback, natural interruption events, queued questions, duplicate/late transcripts, stale answer suppression, buffered playback cancellation, response-creation races, and endpoint isolation. These use mocked transport/provider boundaries; a real microphone and speaker rehearsal is still required to measure latency and echo behavior.
 

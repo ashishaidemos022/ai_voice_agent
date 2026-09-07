@@ -88,7 +88,7 @@ Deno.serve(async (req: Request) => {
     }
     const routedSessionId = new URL(req.url).searchParams.get('routed_session_id');
     if (routedSessionId) {
-      if (!isWebRTCRequest || new URL(req.url).searchParams.has('benchmark_run_id')) {
+      if (new URL(req.url).searchParams.has('benchmark_run_id')) {
         return new Response('Routed voice requires a workspace WebRTC call', { status: 400, headers: corsHeaders });
       }
       const { data: routedSession } = await adminClient.from('va_chat_sessions')
@@ -97,10 +97,13 @@ Deno.serve(async (req: Request) => {
         return new Response('Active owned routed voice session required', { status: 403, headers: corsHeaders });
       }
     }
+    if (routedSessionId && !['openai_realtime', 'xai_realtime', 'elevenlabs_tts'].includes(storedAgent.voice_provider || 'openai_realtime')) {
+      return new Response('This provider manages its own conversation. Use native voice.', { status: 409, headers: corsHeaders });
+    }
     let agent = storedAgent;
     const voiceProvider = storedAgent.voice_provider || 'openai_realtime';
 
-    if (voiceProvider === 'xai_realtime' && !routedSessionId) {
+    if (voiceProvider === 'xai_realtime' && (!routedSessionId || isClientSecretRequest)) {
       if (!isClientSecretRequest) {
         return new Response('xAI Realtime currently uses the WebSocket transport', {
           status: 400,
@@ -194,7 +197,7 @@ Deno.serve(async (req: Request) => {
           prefix_padding_ms: 150,
           silence_duration_ms: 700
         };
-    const session = routedSessionId ? liveVoiceSession() : {
+    const session = routedSessionId ? liveVoiceSession({ model: voiceProvider === 'xai_realtime' ? undefined : agent.model, voice: agent.voice, textOnly: voiceProvider !== 'openai_realtime', turn_detection: agent.turn_detection_config }) : {
       type: 'realtime',
       model: normalizeRealtimeModel(agent.model || OPENAI_MODELS.realtime.default),
       output_modalities: isClientSecretRequest ? ['text'] : ['audio'],

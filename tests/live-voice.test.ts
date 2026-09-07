@@ -76,7 +76,7 @@ test('realtime endpoint isolates routed sessions without changing native session
     assert.equal((await request('&routed_session_id=owned&benchmark_run_id=run')).status, 400);
     assert.equal(requests.length, 0);
     assert.equal((await request('&routed_session_id=owned')).status, 200);
-    assert.deepEqual(requests[0], liveVoiceSession());
+    assert.deepEqual(requests[0], liveVoiceSession({voice:'marin'}));
     assert.equal((await request()).status, 200);
     assert.equal(requests[1].instructions, 'Original native instructions');
     assert.equal(requests[1].audio.output.voice, 'marin');
@@ -95,7 +95,7 @@ test('WebRTC speech clears buffered audio and suppresses responses interrupted b
   client.dataChannel = { readyState: 'open', send: (text: string) => sent.push(JSON.parse(text)) };
   client.remoteAudio = { muted: false };
   client.sendSessionUpdate();
-  assert.deepEqual(sent[0].session, liveVoiceSession());
+  assert.deepEqual(sent[0].session, liveVoiceSession({voice:'marin'}));
   client.interruptSpeech();
   assert.equal(sent.length, 1, 'no clear/cancel is sent for an empty output buffer');
   client.speakAnswer('First answer');
@@ -117,4 +117,13 @@ test('WebRTC speech clears buffered audio and suppresses responses interrupted b
   client.interruptSpeech();
   assert.equal(sent[before].type, 'output_audio_buffer.clear');
   assert.equal(client.remoteAudio.muted, true);
+  const xaiSent: any[] = [];
+  const xai = new RealtimeAPIClient({ model: 'grok-voice-latest', voice: 'Rex' }, { routedVoice: true, provider: 'xai' });
+  xai.dataChannel = { readyState: 'open', send: (text: string) => xaiSent.push(JSON.parse(text)) };
+  xai.sendSessionUpdate(); xai.speakAnswer('Saved size is US 10 wide.');
+  assert.equal(xaiSent[0].session.voice, 'Rex');
+  assert.equal(xaiSent[0].session.turn_detection, null);
+  assert.equal(xaiSent[1].item.type, 'force_message');
+  assert.equal(xaiSent[1].item.interruptible, true);
+  assert.ok(!xaiSent.some(event => event.type === 'response.create'));
 });

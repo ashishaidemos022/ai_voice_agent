@@ -91,6 +91,7 @@ const formatRelative = (dateString?: string | null) => {
 
 type ChatAgentProps = {
   voiceMode?: boolean;
+  initialPresetId?: string | null;
   onNavigateChat?: () => void;
   embedded?: boolean;
   onNavigateVoice?: () => void;
@@ -104,6 +105,7 @@ type ChatAgentProps = {
 
 export function ChatAgent({
   voiceMode = false,
+  initialPresetId,
   onNavigateChat,
   embedded = false,
   onNavigateVoice,
@@ -150,7 +152,7 @@ export function ChatAgent({
     setFixedModel,
     currentRoute,
     memorySubjectId, setMemorySubjectId, memoryReceipt, answerSources
-  } = useChatAgent(voiceMode ? 'routed_voice' : undefined);
+  } = useChatAgent(voiceMode ? 'routed_voice' : undefined, initialPresetId);
   const [recordingMode, setRecordingMode] = useState(false);
   const [voiceCaptureBusy, setVoiceCaptureBusy] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -517,10 +519,11 @@ export function ChatAgent({
             {!showHistoryDetail && (
               <div className="border-t border-white/5 p-5">
                 {voiceMode && <>
+                  <button type="button" onClick={onNavigateVoice} className="mb-3 text-xs text-cyan-200 underline">Native voice & provider settings</button>
                   {recordingMode
                     ? <RoutedVoiceControls agentId={activePresetId} sessionId={session?.id} busy={isStreaming || isConnecting} messages={messages} onTranscript={setComposerValue} onSubmit={sendMessage} onCaptureState={setVoiceCaptureBusy} />
                     : <LiveVoiceControls agentId={activePresetId} sessionId={session?.id} busy={isStreaming || isConnecting} messages={messages} onSubmit={sendMessage} />}
-                  <button type="button" disabled={isStreaming || voiceCaptureBusy} onClick={() => setRecordingMode(value => !value)} className="mb-3 text-xs text-white/50 underline disabled:opacity-40">{recordingMode ? 'Switch to live conversation' : 'Use optional recording & transcript review'}</button>
+                  <button type="button" disabled={isStreaming || voiceCaptureBusy} onClick={() => setRecordingMode(value => !value)} className="mb-3 text-xs text-white/50 underline disabled:opacity-40">{recordingMode ? 'Switch to live conversation' : 'Optional OpenAI recording & transcript review'}</button>
                 </>}
                 <div className="rounded-2xl bg-white/5 border border-white/10 p-4">
                   <textarea

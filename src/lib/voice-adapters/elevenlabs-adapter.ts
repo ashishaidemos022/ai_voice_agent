@@ -40,12 +40,14 @@ export class ElevenLabsVoiceAdapter implements VoiceAdapter {
   private readonly supportsStreamingInput: boolean;
   private sawTextDelta = false;
 
-  constructor(config: RealtimeConfig, session: ElevenLabsGatewaySession, options?: { apiKey?: string }) {
+  constructor(config: RealtimeConfig, session: ElevenLabsGatewaySession, options?: { apiKey?: string; routedVoice?: boolean; webrtc?: { sessionUrl: string; headers?: Record<string,string> } }) {
     this.session = session;
     const providerConfig = config.voice_provider_config || {};
     this.supportsStreamingInput = providerConfig.model_id !== 'eleven_v3' && !providerConfig.expressive_mode;
     this.realtime = new RealtimeAPIClient(config, {
       apiKey: options?.apiKey,
+      routedVoice: options?.routedVoice,
+      webrtc: options?.webrtc,
       allowInterruptions: true,
       textOnly: true
     });
@@ -133,6 +135,13 @@ export class ElevenLabsVoiceAdapter implements VoiceAdapter {
     this.sawTextDelta = false;
     this.sendGatewayMessage({ type: 'cancel' });
   }
+
+  speakAnswer(text: string): void { this.sendGatewayMessage({ type: 'speak', text, flush: true }); }
+
+  interruptSpeech(): void { this.cancelResponse({ suppressState: true }); }
+
+  startCapture(): Promise<void> { return this.realtime.startCapture(); }
+  stopCapture(): void { this.realtime.stopCapture(); }
 
   requestResponse(): void {
     this.realtime.requestResponse();

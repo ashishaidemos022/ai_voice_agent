@@ -7,7 +7,8 @@ export type RealtimeClientSecret = {
 
 export async function requestRealtimeWebSocketSecret(
   agentId: string,
-  benchmarkRunId?: string
+  benchmarkRunId?: string,
+  routedSessionId?: string
 ): Promise<RealtimeClientSecret> {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
@@ -20,6 +21,7 @@ export async function requestRealtimeWebSocketSecret(
 
   const url = new URL(`${supabaseUrl.replace(/\/$/, '')}/functions/v1/realtime-session`);
   url.searchParams.set('agent_id', agentId);
+  if (routedSessionId) url.searchParams.set('routed_session_id', routedSessionId);
   if (benchmarkRunId) url.searchParams.set('benchmark_run_id', benchmarkRunId);
   const response = await fetch(url, {
     method: 'POST',

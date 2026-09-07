@@ -40,10 +40,10 @@ function resolveChatRealtimeModel(preset: AgentConfigPreset): string {
 
 export type ChatViewMode = 'current' | 'history';
 
-export function useChatAgent(channel?: 'routed_voice') {
+export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string | null) {
   const { vaUser } = useAuth();
   const [presets, setPresets] = useState<AgentConfigPreset[]>([]);
-  const [activePresetId, setActivePresetId] = useState<string | null>(null);
+  const [activePresetId, setActivePresetId] = useState<string | null>(initialPresetId || null);
   const [session, setSession] = useState<ChatSession | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [historySessions, setHistorySessions] = useState<ChatSession[]>([]);

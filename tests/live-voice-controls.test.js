@@ -8,8 +8,8 @@ import { build } from 'esbuild';
 const require = createRequire(import.meta.url);
 const built = await build({ entryPoints: ['src/components/voice/LiveVoiceControls.tsx'], bundle: true, write: false, format: 'esm', platform: 'node', jsx: 'automatic', define: { 'import.meta.env.VITE_SUPABASE_URL': '"https://test.invalid"', 'import.meta.env.VITE_SUPABASE_ANON_KEY': '"test"' }, plugins: [{ name: 'live-boundaries', setup(builder) {
   builder.onResolve({ filter: /^react(?:\/.*)?$/ }, args => ({ path: pathToFileURL(require.resolve(args.path)).href, external: true }));
-  builder.onResolve({ filter: /(?:realtime-client|\/supabase)$/ }, args => ({ path: args.path, namespace: 'mock' }));
-  builder.onLoad({ filter: /.*/, namespace: 'mock' }, args => ({ contents: args.path.endsWith('realtime-client') ? 'export const RealtimeAPIClient = globalThis.LiveTestTransport;' : 'export const supabase={auth:{getSession:async()=>({data:{session:{access_token:"test"}}})}};' }));
+  builder.onResolve({ filter: /routed-adapter$/ }, args => ({ path: args.path, namespace: 'mock' }));
+  builder.onLoad({ filter: /.*/, namespace: 'mock' }, () => ({ contents: 'export const createRoutedVoiceAdapter = async () => ({adapter:new globalThis.LiveTestTransport({}, {routedVoice:true}),label:"Selected provider",pcmOutput:false});' }));
 } }] });
 
 test('live controls keep capture active through reasoning and speech and stop on unmount', async () => {

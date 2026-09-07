@@ -24,6 +24,7 @@ const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 type GatewayTokenRequest = {
   agent_id?: string;
   benchmark_run_id?: string;
+  routed_voice?: boolean;
   agent_public_id?: string;
   session_id?: string;
   origin?: string;
@@ -228,6 +229,14 @@ Deno.serve(async (req: Request) => {
           status: 403,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
+      }
+      if (payload.routed_voice) {
+        if (payload.benchmark_run_id) throw new Error('Routed voice cannot use benchmark overrides');
+        const { data: session } = await adminClient.from('va_chat_sessions').select('status,metadata')
+          .eq('id', payload.session_id).eq('user_id', vaUser.id).eq('agent_preset_id', config.id).maybeSingle();
+        if (!session || session.status !== 'active' || session.metadata?.channel !== 'routed_voice') {
+          return new Response(JSON.stringify({ error: 'Active owned routed voice session required' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
       }
       allowedOrigins = [origin];
       agentConfig = config;
