@@ -1009,7 +1009,7 @@ export function VoiceAgent({
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
-                              {onNavigateRoutedVoice && <button type="button" disabled={isConnected || isInitializing} onClick={onNavigateRoutedVoice} className="rounded-lg border border-cyan-300/40 bg-cyan-400/10 px-3 py-2 text-xs text-cyan-100 disabled:opacity-40">Routed voice + memory</button>}
+                              {onNavigateRoutedVoice && <button type="button" disabled={isConnected || isInitializing} onClick={onNavigateRoutedVoice} className="rounded-lg border border-cyan-300/40 bg-cyan-400/10 px-3 py-2 text-xs text-cyan-100 disabled:opacity-40">Live voice + memory</button>}
                               <span className="text-[11px] uppercase tracking-[0.2em] text-cyan-200 border border-cyan-400/30 bg-cyan-500/10 px-2 py-1 rounded-full">
                                 Voice
                               </span>

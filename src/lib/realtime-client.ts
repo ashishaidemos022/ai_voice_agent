@@ -1,3 +1,4 @@
+import { liveVoiceSession, LIVE_VOICE_INSTRUCTIONS } from '../../shared/live-voice';
 import { RealtimeConfig } from '../types/voice-agent';
 import { OPENAI_MODELS } from '../../shared/openai-models';
 import {
@@ -54,6 +55,7 @@ export type RealtimeEvent =
   | { type: 'speech.stopped' };
 
 type RealtimeClientOptions = {
+  routedVoice?: boolean;
   apiKey?: string;
   provider?: 'openai' | 'xai';
   tools?: ReturnType<typeof getToolSchemas>;
@@ -98,10 +100,15 @@ export class RealtimeAPIClient {
   private remoteWaveformTimer: number | null = null;
   private remoteAnalyser: AnalyserNode | null = null;
   private remoteSamples: Uint8Array | null = null;
+  private routedVoice = false;
+  private routedSpeechRequested = false;
+  private suppressRoutedAudio = false;
+  private pendingRoutedAnswer: string | null = null;
   private outputAudioBufferStartedAt: number | null = null;
 
   constructor(config: RealtimeConfig, options?: RealtimeClientOptions) {
     this.config = config;
+    this.routedVoice = options?.routedVoice ?? false;
     this.overrideApiKey = options?.apiKey;
     this.provider = options?.provider ?? 'openai';
     this.overrideTools = options?.tools;
@@ -230,7 +237,11 @@ export class RealtimeAPIClient {
 
     const pc = new RTCPeerConnection();
     this.peerConnection = pc;
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: this.routedVoice ? { echoCancellation: true, noiseSuppression: true } : true });
+    if (this.intentionalClose || this.peerConnection !== pc) {
+      stream.getTracks().forEach(track => track.stop());
+      throw new Error('Voice connection canceled');
+    }
     this.mediaStream = stream;
     stream.getAudioTracks().forEach((track) => {
       track.enabled = false;
@@ -272,7 +283,10 @@ export class RealtimeAPIClient {
           console.warn('[VoiceBenchmark] native output recording unavailable', error);
         }
       }
-      void audio.play().catch((error) => console.warn('Remote audio autoplay was blocked', error));
+      void audio.play().catch((error) => {
+        console.warn('Remote audio autoplay was blocked', error);
+        if (this.routedVoice) this.emit({ type: 'error', error: 'Browser blocked audio playback. Reconnect the microphone to allow live audio.' });
+      });
     };
 
     const channel = pc.createDataChannel('oai-events');
@@ -310,6 +324,7 @@ export class RealtimeAPIClient {
       this.disconnect();
       throw new Error(detail || `Failed to create WebRTC session (${response.status})`);
     }
+    if (this.intentionalClose || this.peerConnection !== pc) throw new Error('Voice connection canceled');
     await pc.setRemoteDescription({
       type: 'answer',
       sdp: await response.text()
@@ -368,6 +383,11 @@ export class RealtimeAPIClient {
   sendSessionUpdate(): void {
     if (this.sessionUpdateSent) {
       console.log('Session update already sent, skipping duplicate');
+      return;
+    }
+    if (this.routedVoice) {
+      this.send({ type: 'session.update', session: liveVoiceSession() });
+      this.sessionUpdateSent = true;
       return;
     }
     const tools = this.overrideTools ?? getToolSchemas();
@@ -541,6 +561,7 @@ export class RealtimeAPIClient {
           response_id: message.response?.id
         });
         this.markResponseCreated();
+        if (this.routedVoice && this.suppressRoutedAudio) this.cancelResponse({ suppressState: true });
         this.setAgentState('thinking');
         this.emit({ type: 'response.created', id: message.response?.id });
         break;
@@ -673,6 +694,11 @@ export class RealtimeAPIClient {
         this.setAgentState('idle');
         const response = message.response ?? message;
         this.emit({ type: 'response.done', response });
+        if (this.routedVoice) {
+          this.routedSpeechRequested = false;
+          const pending = this.pendingRoutedAnswer; this.pendingRoutedAnswer = null;
+          if (pending) this.speakAnswer(pending);
+        }
         if (response?.usage) {
           this.emit({
             type: 'usage.reported',
@@ -722,6 +748,11 @@ export class RealtimeAPIClient {
         break;
 
       case 'error':
+        // Server VAD may win the race with the client's cancellation.
+        if (this.routedVoice && this.suppressRoutedAudio && message.error?.code === 'response_cancel_not_active') {
+          this.cancelPending = false;
+          break;
+        }
         console.error('Server error:', message.error);
         this.emit({
           type: 'error',
@@ -856,6 +887,28 @@ export class RealtimeAPIClient {
     if (!options?.suppressState) {
       this.setAgentState('interrupted');
     }
+  }
+
+  /** Independent speech response: microphone context never competes with the routed answer. */
+  speakAnswer(text: string): void {
+    if (!this.routedVoice || !text.trim()) return;
+    if (this.routedSpeechRequested || this.hasActiveResponse()) { this.pendingRoutedAnswer = text; return; }
+    this.routedSpeechRequested = true; this.suppressRoutedAudio = false;
+    if (this.remoteAudio) this.remoteAudio.muted = false;
+    this.send({ type: 'response.create', response: {
+      conversation: 'none', output_modalities: ['audio'],
+      instructions: LIVE_VOICE_INSTRUCTIONS,
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: `Read this answer aloud exactly:\n${text}` }] }],
+      tools: [], tool_choice: 'none'
+    } });
+  }
+
+  interruptSpeech(): void {
+    this.pendingRoutedAnswer = null;
+    this.suppressRoutedAudio = true;
+    if (this.remoteAudio) this.remoteAudio.muted = true;
+    if (this.hasActiveResponse()) this.cancelResponse({ suppressState: true });
+    else if (this.webrtc && this.outputAudioBufferStartedAt !== null) this.send({ type: 'output_audio_buffer.clear' });
   }
 
   requestResponse(): void {
@@ -1014,6 +1067,7 @@ export class RealtimeAPIClient {
   }
 
   disconnect(): void {
+    this.routedSpeechRequested = false; this.pendingRoutedAnswer = null;
     this.intentionalClose = true;
     this.sessionUpdateSent = false;
     this.hasReceivedAudio = false;

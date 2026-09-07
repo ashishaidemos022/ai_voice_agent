@@ -1,3 +1,4 @@
+import { liveVoiceSession } from '../../../shared/live-voice.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
 import { OPENAI_MODELS, normalizeRealtimeModel } from '../../../shared/openai-models.ts';
 
@@ -85,10 +86,21 @@ Deno.serve(async (req: Request) => {
     if (!storedAgent) {
       return new Response('Agent configuration not found', { status: 404, headers: corsHeaders });
     }
+    const routedSessionId = new URL(req.url).searchParams.get('routed_session_id');
+    if (routedSessionId) {
+      if (!isWebRTCRequest || new URL(req.url).searchParams.has('benchmark_run_id')) {
+        return new Response('Routed voice requires a workspace WebRTC call', { status: 400, headers: corsHeaders });
+      }
+      const { data: routedSession } = await adminClient.from('va_chat_sessions')
+        .select('id,status,metadata').eq('id', routedSessionId).eq('user_id', vaUser.id).eq('agent_preset_id', agentId).maybeSingle();
+      if (!routedSession || routedSession.status !== 'active' || routedSession.metadata?.channel !== 'routed_voice') {
+        return new Response('Active owned routed voice session required', { status: 403, headers: corsHeaders });
+      }
+    }
     let agent = storedAgent;
     const voiceProvider = storedAgent.voice_provider || 'openai_realtime';
 
-    if (voiceProvider === 'xai_realtime') {
+    if (voiceProvider === 'xai_realtime' && !routedSessionId) {
       if (!isClientSecretRequest) {
         return new Response('xAI Realtime currently uses the WebSocket transport', {
           status: 400,
@@ -182,7 +194,7 @@ Deno.serve(async (req: Request) => {
           prefix_padding_ms: 150,
           silence_duration_ms: 700
         };
-    const session = {
+    const session = routedSessionId ? liveVoiceSession() : {
       type: 'realtime',
       model: normalizeRealtimeModel(agent.model || OPENAI_MODELS.realtime.default),
       output_modalities: isClientSecretRequest ? ['text'] : ['audio'],

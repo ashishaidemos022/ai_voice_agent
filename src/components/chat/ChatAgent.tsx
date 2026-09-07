@@ -43,6 +43,7 @@ import { MemoryPanel, MemorySource } from './MemoryPanel';
 import { memoryReferences } from '../../../shared/agent-memory';
 import { AnswerSourcesPanel } from './AnswerSourcesPanel';
 import { VoiceAudioUsage } from '../voice/VoiceAudioUsage';
+import { LiveVoiceControls } from '../voice/LiveVoiceControls';
 import { RoutedVoiceControls } from '../voice/RoutedVoiceControls';
 
 const MODEL_LABELS: Record<string, string> = {
@@ -150,6 +151,7 @@ export function ChatAgent({
     currentRoute,
     memorySubjectId, setMemorySubjectId, memoryReceipt, answerSources
   } = useChatAgent(voiceMode ? 'routed_voice' : undefined);
+  const [recordingMode, setRecordingMode] = useState(false);
   const [voiceCaptureBusy, setVoiceCaptureBusy] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMCPPanelOpen, setIsMCPPanelOpen] = useState(false);
@@ -514,7 +516,12 @@ export function ChatAgent({
             {showHistoryDetail && historySession?.channel === 'routed_voice' && <VoiceAudioUsage sessionId={historySession.id} />}
             {!showHistoryDetail && (
               <div className="border-t border-white/5 p-5">
-                {voiceMode && <RoutedVoiceControls agentId={activePresetId} sessionId={session?.id} busy={isStreaming || isConnecting} messages={messages} onTranscript={setComposerValue} onSubmit={sendMessage} onCaptureState={setVoiceCaptureBusy} />}
+                {voiceMode && <>
+                  {recordingMode
+                    ? <RoutedVoiceControls agentId={activePresetId} sessionId={session?.id} busy={isStreaming || isConnecting} messages={messages} onTranscript={setComposerValue} onSubmit={sendMessage} onCaptureState={setVoiceCaptureBusy} />
+                    : <LiveVoiceControls agentId={activePresetId} sessionId={session?.id} busy={isStreaming || isConnecting} messages={messages} onSubmit={sendMessage} />}
+                  <button type="button" disabled={isStreaming || voiceCaptureBusy} onClick={() => setRecordingMode(value => !value)} className="mb-3 text-xs text-white/50 underline disabled:opacity-40">{recordingMode ? 'Switch to live conversation' : 'Use optional recording & transcript review'}</button>
+                </>}
                 <div className="rounded-2xl bg-white/5 border border-white/10 p-4">
                   <textarea
                     rows={2}

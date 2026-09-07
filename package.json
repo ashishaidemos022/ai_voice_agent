@@ -17,7 +17,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "typecheck:routing-eval": "tsc -p tsconfig.routing-eval.json",
-    "test:voice": "node --experimental-strip-types --test tests/routed-voice.test.ts tests/routed-voice-controls.test.js"
+    "test:voice": "node --experimental-strip-types --test tests/routed-voice.test.ts tests/routed-voice-controls.test.js tests/live-voice.test.ts tests/live-voice-controls.test.js"
   },
   "dependencies": {
     "@elevenlabs/client": "^1.17.0",
