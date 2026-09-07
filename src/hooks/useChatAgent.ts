@@ -40,7 +40,7 @@ function resolveChatRealtimeModel(preset: AgentConfigPreset): string {
 
 export type ChatViewMode = 'current' | 'history';
 
-export function useChatAgent() {
+export function useChatAgent(channel?: 'routed_voice') {
   const { vaUser } = useAuth();
   const [presets, setPresets] = useState<AgentConfigPreset[]>([]);
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
@@ -376,6 +376,7 @@ export function useChatAgent() {
         agentPresetId: preset.id,
         source: 'app',
         metadata: {
+          ...(channel ? { channel } : {}),
           routing_strategy: routingStrategy,
           fixed_model: routingStrategy === 'fixed' ? fixedModel : null,
           routing_policy_version: 'chat-router-v1',
@@ -420,7 +421,7 @@ export function useChatAgent() {
       setIsConnecting(false);
       refreshHistorySessions();
     }
-  }, [activePresetId, attachRealtimeHandlers, cleanupRealtime, endSession, fixedModel, loadToolsForPreset, presets, refreshHistorySessions, routingStrategy, vaUser, memorySubjectId]);
+  }, [activePresetId, attachRealtimeHandlers, cleanupRealtime, endSession, fixedModel, loadToolsForPreset, presets, refreshHistorySessions, routingStrategy, vaUser, memorySubjectId, channel]);
 
   const sendMessage = useCallback(async (text: string) => {
     const trimmed = text.trim();

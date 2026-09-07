@@ -5,7 +5,7 @@ import { VoiceLab } from '../voice-lab/VoiceLab';
 import { KnowledgeBaseDrawer } from '../rag/KnowledgeBaseDrawer';
 import { useAuth } from '../../context/AuthContext';
 
-type WorkspaceTab = 'chat' | 'voice' | 'voice-lab';
+type WorkspaceTab = 'chat' | 'voice' | 'voice-lab' | 'routed-voice';
 
 export function AgentWorkspace() {
   const { vaUser } = useAuth();
@@ -84,8 +84,11 @@ export function AgentWorkspace() {
 
   return (
     <div className="h-screen overflow-hidden">
-      {tab === 'chat' ? (
+      {tab === 'chat' || tab === 'routed-voice' ? (
         <ChatAgent
+          key={tab}
+          voiceMode={tab === 'routed-voice'}
+          onNavigateChat={handleNavigateChat}
           onNavigateVoice={handleNavigateVoice}
           onNavigateVoiceLab={handleNavigateVoiceLab}
           onOpenCreateAgent={handleOpenCreateAgent}
@@ -106,6 +109,7 @@ export function AgentWorkspace() {
         />
       ) : (
         <VoiceAgent
+          onNavigateRoutedVoice={() => setTab('routed-voice')}
           onNavigateChat={handleNavigateChat}
           onNavigateVoiceLab={handleNavigateVoiceLab}
           onOpenKnowledgeBase={() => setIsKnowledgeDrawerOpen(true)}

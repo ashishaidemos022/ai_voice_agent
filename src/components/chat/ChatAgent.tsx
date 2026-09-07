@@ -42,6 +42,8 @@ import { OPENAI_MODELS, OPENAI_PRICING_EFFECTIVE_DATE } from '../../../shared/op
 import { MemoryPanel, MemorySource } from './MemoryPanel';
 import { memoryReferences } from '../../../shared/agent-memory';
 import { AnswerSourcesPanel } from './AnswerSourcesPanel';
+import { VoiceAudioUsage } from '../voice/VoiceAudioUsage';
+import { RoutedVoiceControls } from '../voice/RoutedVoiceControls';
 
 const MODEL_LABELS: Record<string, string> = {
   [OPENAI_MODELS.chat.nano]: 'GPT-5.4 Nano',
@@ -87,6 +89,8 @@ const formatRelative = (dateString?: string | null) => {
 };
 
 type ChatAgentProps = {
+  voiceMode?: boolean;
+  onNavigateChat?: () => void;
   embedded?: boolean;
   onNavigateVoice?: () => void;
   onNavigateVoiceLab?: () => void;
@@ -98,6 +102,8 @@ type ChatAgentProps = {
 };
 
 export function ChatAgent({
+  voiceMode = false,
+  onNavigateChat,
   embedded = false,
   onNavigateVoice,
   onNavigateVoiceLab,
@@ -143,7 +149,8 @@ export function ChatAgent({
     setFixedModel,
     currentRoute,
     memorySubjectId, setMemorySubjectId, memoryReceipt, answerSources
-  } = useChatAgent();
+  } = useChatAgent(voiceMode ? 'routed_voice' : undefined);
+  const [voiceCaptureBusy, setVoiceCaptureBusy] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMCPPanelOpen, setIsMCPPanelOpen] = useState(false);
   const [isN8NPanelOpen, setIsN8NPanelOpen] = useState(false);
@@ -278,7 +285,7 @@ export function ChatAgent({
         <div>
           <p className="text-xs uppercase tracking-[0.3em] text-white/40 mb-1">Workspace View</p>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold font-display">Agentic Chat Runtime</h1>
+            <h1 className="text-2xl font-semibold font-display">{voiceMode ? 'Routed Voice · Memory & sources' : 'Agentic Chat Runtime'}</h1>
             <span className={cn('text-xs px-2 py-0.5 rounded-full border', isConnected ? 'border-emerald-300 text-emerald-200 bg-emerald-500/10' : 'border-white/20 text-white/60')}>
               {isConnected ? 'Live' : 'Idle'}
             </span>
@@ -301,7 +308,7 @@ export function ChatAgent({
               disabled={isConnecting}
             >
               <Square className="w-4 h-4" />
-              End Chat
+              {voiceMode ? 'End voice session' : 'End Chat'}
             </Button>
           ) : (
             <Button
@@ -315,7 +322,7 @@ export function ChatAgent({
               loading={isConnecting}
             >
               <Play className="w-4 h-4" />
-              Start Chat
+              {voiceMode ? 'Start voice session' : 'Start Chat'}
             </Button>
           )}
         </div>
@@ -504,8 +511,10 @@ export function ChatAgent({
               </button>
             )}
 
+            {showHistoryDetail && historySession?.channel === 'routed_voice' && <VoiceAudioUsage sessionId={historySession.id} />}
             {!showHistoryDetail && (
               <div className="border-t border-white/5 p-5">
+                {voiceMode && <RoutedVoiceControls agentId={activePresetId} sessionId={session?.id} busy={isStreaming || isConnecting} messages={messages} onTranscript={setComposerValue} onSubmit={sendMessage} onCaptureState={setVoiceCaptureBusy} />}
                 <div className="rounded-2xl bg-white/5 border border-white/10 p-4">
                   <textarea
                     rows={2}
@@ -517,7 +526,7 @@ export function ChatAgent({
                         handleSend();
                       }
                     }}
-                    disabled={!session || isConnecting || isStreaming}
+                    disabled={!session || isConnecting || isStreaming || voiceCaptureBusy}
                     placeholder={session ? 'Type your prompt…' : 'Start a chat session to begin'}
                     className="w-full bg-transparent text-sm text-white outline-none resize-none placeholder:text-white/40"
                   />
@@ -529,7 +538,7 @@ export function ChatAgent({
                     <Button
                       size="sm"
                       onClick={handleSend}
-                      disabled={!session || !composerValue.trim()}
+                      disabled={!session || !composerValue.trim() || (voiceMode && (isStreaming || voiceCaptureBusy))}
                     >
                       Send
                     </Button>
@@ -803,7 +812,7 @@ export function ChatAgent({
             {formatRelative(item.createdAt)}
           </p>
           <p className="text-[11px] text-white/40 mt-1">
-            {item.messageCount} messages · {item.toolCallCount} tool calls
+            {item.channel === 'routed_voice' ? 'Voice · ' : ''}{item.messageCount} messages · {item.toolCallCount} tool calls
           </p>
         </button>
       ))}
@@ -825,9 +834,9 @@ export function ChatAgent({
   const sidebar = (
     <Sidebar
       isConnected={isConnected}
-      activeNav="chat"
+      activeNav={voiceMode ? 'voice' : 'chat'}
       onNavigateVoice={onNavigateVoice}
-      onNavigateChat={() => setViewMode('current')}
+      onNavigateChat={voiceMode ? onNavigateChat : () => setViewMode('current')}
       onNavigateVoiceLab={onNavigateVoiceLab}
       onNavigateSkills={onOpenSkills}
       onOpenKnowledgeBase={onOpenKnowledgeBase}

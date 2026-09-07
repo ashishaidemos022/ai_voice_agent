@@ -42,6 +42,7 @@ export type ChatSession = {
   updatedAt: string;
   lastMessageAt?: string | null;
   memorySubjectId?: string | null;
+  channel?: 'chat' | 'routed_voice';
 };
 
 export type RichMessageContentPart =

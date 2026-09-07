@@ -159,6 +159,7 @@ function mapSession(row: any): ChatSession {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastMessageAt: row.last_message_at,
+    channel: row.metadata?.channel === 'routed_voice' ? 'routed_voice' : 'chat',
     memorySubjectId: row.metadata?.memory_subject_id || null
   };
 }
