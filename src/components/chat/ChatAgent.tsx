@@ -155,6 +155,7 @@ export function ChatAgent({
   } = useChatAgent(voiceMode ? 'routed_voice' : undefined, initialPresetId);
   const [recordingMode, setRecordingMode] = useState(false);
   const [voiceCaptureBusy, setVoiceCaptureBusy] = useState(false);
+  const [liveVoiceTranscript, setLiveVoiceTranscript] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMCPPanelOpen, setIsMCPPanelOpen] = useState(false);
   const [isN8NPanelOpen, setIsN8NPanelOpen] = useState(false);
@@ -273,7 +274,7 @@ export function ChatAgent({
     if (!shouldFollowConversationRef.current) return;
     const frame = window.requestAnimationFrame(() => scrollToLatest('auto'));
     return () => window.cancelAnimationFrame(frame);
-  }, [visibleMessages, liveAssistantText, showHistoryDetail, scrollToLatest]);
+  }, [visibleMessages, liveAssistantText, liveVoiceTranscript, showHistoryDetail, scrollToLatest]);
 
   useEffect(() => {
     if (!activePreset) {
@@ -334,7 +335,7 @@ export function ChatAgent({
 
       <div className="flex-1 grid grid-cols-1 xl:grid-cols-[minmax(0,1.4fr)_minmax(360px,1fr)] gap-6 p-4 lg:p-8 min-h-0 overflow-y-auto 2xl:overflow-hidden">
         <div className="flex flex-col gap-6 min-h-[720px] 2xl:min-h-0 2xl:overflow-hidden">
-          <Card className="p-5 bg-slate-900/40 border-white/5">
+          <Card className={cn('p-5 bg-slate-900/40 border-white/5', voiceMode && session && 'hidden')}>
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs uppercase tracking-[0.3em] text-white/40">Agent preset</p>
@@ -418,17 +419,17 @@ export function ChatAgent({
             </div>
           </Card>
 
-          <Card className="relative flex-1 flex flex-col bg-slate-900/40 border-white/5 overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
+          <Card className="relative flex-1 flex flex-col bg-slate-950/70 border-white/10 overflow-hidden shadow-2xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-white/[0.035]">
               <div className="flex items-center gap-3">
                 <MessageSquare className="w-5 h-5 text-indigo-200" />
                 <div>
-                  <p className="text-lg font-semibold">{showHistoryDetail ? 'Historical Session' : 'Live Conversation'}</p>
+                  <p className="text-lg font-semibold">{showHistoryDetail ? 'Historical Session' : voiceMode ? 'Live Voice Transcript' : 'Live Conversation'}</p>
                   <p className="text-xs text-white/50">
                     {showHistoryDetail
                       ? 'Read-only transcript'
                       : session
-                        ? `Session started ${formatRelative(session.createdAt)}`
+                        ? voiceMode ? 'Your conversation appears here in real time' : `Session started ${formatRelative(session.createdAt)}`
                         : 'Start a session to chat with your agent'}
                   </p>
                 </div>
@@ -463,7 +464,7 @@ export function ChatAgent({
               aria-live={showHistoryDetail ? 'off' : 'polite'}
               aria-relevant="additions text"
               aria-busy={isStreaming}
-              className="flex-1 overflow-y-auto px-6 py-4 space-y-4"
+              className="flex-1 overflow-y-auto px-6 py-5 space-y-5"
             >
               {visibleMessages.length === 0 && !showHistoryDetail && (
                 <div className="text-center text-white/50 py-16">
@@ -478,8 +479,24 @@ export function ChatAgent({
                   message={message}
                   a2uiEnabled={a2uiEnabled}
                   onA2UIEvent={handleA2UIEvent}
+                  voicePresentation={voiceMode}
                 />
               ))}
+              {viewMode === 'current' && voiceMode && liveVoiceTranscript && (
+                <ChatBubble
+                  message={{
+                    id: 'live-user',
+                    content: liveVoiceTranscript,
+                    sender: 'user',
+                    sessionId: session?.id || '',
+                    createdAt: new Date().toISOString(),
+                    isStreaming: true
+                  }}
+                  a2uiEnabled={false}
+                  onA2UIEvent={handleA2UIEvent}
+                  voicePresentation
+                />
+              )}
               {viewMode === 'current' && liveAssistantText && (
                 <ChatBubble
                   message={{
@@ -492,6 +509,7 @@ export function ChatAgent({
                   }}
                   a2uiEnabled={a2uiEnabled}
                   onA2UIEvent={handleA2UIEvent}
+                  voicePresentation={voiceMode}
                 />
               )}
               {showHistoryDetail && isHistoryLoading && (
@@ -522,7 +540,7 @@ export function ChatAgent({
                   <button type="button" onClick={onNavigateVoice} className="mb-3 text-xs text-cyan-200 underline">Native voice & provider settings</button>
                   {recordingMode
                     ? <RoutedVoiceControls agentId={activePresetId} sessionId={session?.id} busy={isStreaming || isConnecting} messages={messages} onTranscript={setComposerValue} onSubmit={sendMessage} onCaptureState={setVoiceCaptureBusy} />
-                    : <LiveVoiceControls agentId={activePresetId} sessionId={session?.id} busy={isStreaming || isConnecting} messages={messages} onSubmit={sendMessage} />}
+                    : <LiveVoiceControls agentId={activePresetId} sessionId={session?.id} busy={isStreaming || isConnecting} messages={messages} onSubmit={sendMessage} onTranscript={setLiveVoiceTranscript} />}
                   <button type="button" disabled={isStreaming || voiceCaptureBusy} onClick={() => setRecordingMode(value => !value)} className="mb-3 text-xs text-white/50 underline disabled:opacity-40">{recordingMode ? 'Switch to live conversation' : 'Optional OpenAI recording & transcript review'}</button>
                 </>}
                 <div className="rounded-2xl bg-white/5 border border-white/10 p-4">
@@ -923,11 +941,12 @@ export function ChatAgent({
   );
 }
 
-function ChatBubble({ message, a2uiEnabled, onA2UIEvent, onInspectSources }: {
+function ChatBubble({ message, a2uiEnabled, onA2UIEvent, onInspectSources, voicePresentation = false }: {
   message: ChatMessage;
   a2uiEnabled: boolean;
   onA2UIEvent: (event: A2UIEvent) => void;
   onInspectSources?: () => void;
+  voicePresentation?: boolean;
 }) {
   const isUser = message.sender === 'user';
   const isRich = !isUser && containsRichContent(message.content);
@@ -941,16 +960,17 @@ function ChatBubble({ message, a2uiEnabled, onA2UIEvent, onInspectSources }: {
     <div className={cn('flex min-w-0', isUser ? 'justify-end' : 'justify-start')}>
       <div
         className={cn(
-          'min-w-0 rounded-2xl px-4 py-3 shadow',
-          isRich ? 'w-full max-w-[56rem]' : 'max-w-[80%]',
+          'min-w-0 rounded-2xl shadow',
+          voicePresentation ? 'px-5 py-4' : 'px-4 py-3',
+          isRich ? 'w-full max-w-[56rem]' : voicePresentation ? 'max-w-[88%]' : 'max-w-[80%]',
           isUser
-            ? 'bg-indigo-500 text-white rounded-br-sm'
-            : 'bg-white/5 text-white rounded-bl-sm border border-white/10'
+            ? voicePresentation ? 'bg-cyan-500 text-white rounded-br-sm shadow-cyan-950/30' : 'bg-indigo-500 text-white rounded-br-sm'
+            : voicePresentation ? 'bg-violet-950/90 text-white rounded-bl-sm border border-violet-300/25 shadow-violet-950/30' : 'bg-white/5 text-white rounded-bl-sm border border-white/10'
         )}
       >
         <div className="flex items-center gap-2 mb-1 text-xs text-white/60 uppercase tracking-[0.2em]">
           {isUser ? <UserRound className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
-          <span>{isUser ? 'You' : 'Assistant'}</span>
+          <span>{isUser ? 'You' : voicePresentation ? 'Viaana' : 'Assistant'}{message.isStreaming && voicePresentation ? ' · live' : ''}</span>
           {message.isStreaming && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
           {route && (
             <Badge variant={route.strategy === 'auto' ? 'success' : 'warning'} className="normal-case tracking-normal">
@@ -964,6 +984,7 @@ function ChatBubble({ message, a2uiEnabled, onA2UIEvent, onInspectSources }: {
           a2uiEnabled={a2uiEnabled}
           onA2UIEvent={onA2UIEvent}
           richContent={message.raw?.content}
+          className={voicePresentation ? 'text-base lg:text-lg leading-relaxed' : undefined}
         />
         {references.length > 0 && <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
           <p className="text-xs text-cyan-200">Memory references</p>

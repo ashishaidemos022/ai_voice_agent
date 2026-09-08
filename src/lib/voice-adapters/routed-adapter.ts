@@ -11,6 +11,7 @@ export interface RoutedVoiceAdapter {
   connect(): Promise<void>;
   disconnect(): void;
   startCapture(): Promise<void>;
+  stopCapture(): void;
   speakAnswer(text: string): void;
   interruptSpeech(): void;
   on(type: VoiceEventType, handler: (event: any) => void): void;
@@ -89,6 +90,7 @@ export async function createRoutedVoiceAdapter(agentId: string, sessionId: strin
     },
     disconnect() { closed = true; input.disconnect(); output?.disconnect(); playback.close(); },
     async startCapture() { if (!closed) await input.startCapture(); },
+    stopCapture() { if (!closed) input.stopCapture?.(); },
     speakAnswer(text) { if (!closed) { playback.enable(); speaker.speakAnswer(text); } },
     interruptSpeech() { playback.stop(); speaker.interruptSpeech(); },
     on(type, handler) {
