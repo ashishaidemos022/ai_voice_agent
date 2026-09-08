@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Loader2, MessageSquare } from "lucide-react";
+import { Captions, Loader2, MessageSquare, Radio } from "lucide-react";
 import { AgentState } from "../../lib/realtime-client";
 import { Message } from "../../types/voice-agent";
 import { MessageBubble } from "./MessageBubble";
@@ -35,7 +35,6 @@ export function ConversationThread({
   historyError = null,
   liveAssistantTranscript,
   liveUserTranscript,
-  agentState = "idle",
   a2uiEnabled = false,
   onA2UIEvent
 }: Props) {
@@ -72,13 +71,24 @@ export function ConversationThread({
 
   return (
     <Card className="h-full flex flex-col relative overflow-hidden bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 border border-white/10">
-      <div className="px-5 py-4 border-b border-white/5 bg-white/5 backdrop-blur flex items-center gap-2 flex-shrink-0">
-        <MessageSquare className="w-5 h-5 text-indigo-200" />
-        <h2 className="text-lg font-semibold text-white">
-          {isHistorical ? "Session History" : "Conversation"}
-        </h2>
-        {messages.length > 0 && (
-          <span className="text-sm text-white/60">{messages.length} messages</span>
+      <div className="px-5 py-4 border-b border-white/10 bg-white/5 backdrop-blur flex items-center justify-between gap-3 flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-xl border border-cyan-300/20 bg-cyan-400/10 flex items-center justify-center">
+            {isHistorical ? <MessageSquare className="w-5 h-5 text-cyan-200" /> : <Captions className="w-5 h-5 text-cyan-200" />}
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-white">
+              {isHistorical ? "Session History" : "Live conversation"}
+            </h2>
+            <p className="text-xs text-white/45">
+              {isHistorical ? `${messages.length} messages` : "Transcription appears here as each person speaks"}
+            </p>
+          </div>
+        </div>
+        {!isHistorical && (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300/20 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-emerald-200">
+            <Radio className="h-3 w-3" /> Live
+          </span>
         )}
       </div>
 
@@ -96,7 +106,7 @@ export function ConversationThread({
         aria-live={isHistorical ? "off" : "polite"}
         aria-relevant="additions text"
         aria-busy={isProcessing}
-        className="flex-1 overflow-y-auto px-5 py-4 space-y-3 min-h-0"
+        className="flex-1 overflow-y-auto px-5 py-5 space-y-4 min-h-0 scroll-smooth"
       >
         {isLoadingHistory && (
           <div className="flex flex-col items-center justify-center h-full py-10 text-white/80">
@@ -116,7 +126,7 @@ export function ConversationThread({
           </div>
         )}
 
-        {!isLoadingHistory && !historyError && messages.length === 0 && (
+        {!isLoadingHistory && !historyError && messages.length === 0 && !liveUserTranscript && !liveAssistantTranscript && !isProcessing && (
           <div className="flex flex-col items-center justify-center h-full py-10 text-white/70">
             <MessageSquare className="w-12 h-12 text-white/20 mb-3" />
             <p>{isHistorical ? "This session contains no messages." : "Start speaking to begin the conversation."}</p>
@@ -144,14 +154,14 @@ export function ConversationThread({
 
         {!isHistorical && (
           <AnimatePresence>
-            {agentState === "listening" && liveUserTranscript && (
+            {liveUserTranscript && (
               <motion.div
                 {...streamMotion}
-                className="inline-flex"
+                className="flex justify-end"
               >
-                <div className="rounded-2xl bg-white/10 backdrop-blur px-4 py-3 text-white shadow-lg border border-white/10">
-                  <p className="text-xs uppercase tracking-[0.15em] text-indigo-200 mb-1">You</p>
-                  <p className="leading-snug">{liveUserTranscript}</p>
+                <div className="max-w-[86%] rounded-2xl rounded-br-md bg-cyan-500 px-5 py-4 text-white shadow-lg shadow-cyan-950/25 border border-cyan-200/20">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-950/70 mb-1.5">You · speaking</p>
+                  <p className="text-base lg:text-lg font-medium leading-relaxed whitespace-pre-wrap">{liveUserTranscript}</p>
                 </div>
               </motion.div>
             )}
@@ -160,14 +170,14 @@ export function ConversationThread({
 
         {!isHistorical && (
           <AnimatePresence>
-            {(agentState === "speaking" || isProcessing) && (liveAssistantTranscript || isProcessing) && (
+            {(liveAssistantTranscript || isProcessing) && (
               <motion.div
                 {...streamMotion}
-                className="inline-flex"
+                className="flex justify-start"
               >
-                <div className="rounded-2xl bg-indigo-900/80 border border-indigo-300/30 px-4 py-3 text-white shadow-lg">
-                  <p className="text-xs uppercase tracking-[0.15em] text-indigo-200 mb-1">Assistant</p>
-                  <p className="leading-snug">
+                <div className="max-w-[86%] rounded-2xl rounded-bl-md bg-violet-950/90 border border-violet-300/30 px-5 py-4 text-white shadow-lg shadow-violet-950/25">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-violet-200 mb-1.5">Viaana · {liveAssistantTranscript ? "speaking" : "thinking"}</p>
+                  <p className="text-base lg:text-lg font-medium leading-relaxed whitespace-pre-wrap">
                     {liveAssistantTranscript || "Agent is thinking…"}
                   </p>
                 </div>
@@ -176,12 +186,6 @@ export function ConversationThread({
           </AnimatePresence>
         )}
 
-        {isProcessing && !isHistorical && !liveAssistantTranscript && (
-          <div className="flex items-center gap-2 text-white/60 pt-2">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-sm">Agent is thinking…</span>
-          </div>
-        )}
       </div>
       {showJumpToLatest && (
         <button

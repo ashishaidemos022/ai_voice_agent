@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   Activity,
   ArrowRight,
@@ -6,9 +6,9 @@ import {
   BrainCircuit,
   Clock3,
   Mic,
+  MicOff,
   PauseCircle,
   Radio,
-  Square,
   Wrench,
   Zap
 } from 'lucide-react';
@@ -24,8 +24,6 @@ interface VoiceInteractionAreaProps {
   agentState: AgentState;
   isRecording: boolean;
   isConnected: boolean;
-  liveUserTranscript?: string;
-  liveAssistantTranscript?: string;
   waveformData: Uint8Array | null;
   volume: number;
   config: RealtimeConfig;
@@ -337,8 +335,6 @@ export function VoiceInteractionArea({
   agentState,
   isRecording,
   isConnected,
-  liveUserTranscript,
-  liveAssistantTranscript,
   waveformData,
   volume,
   config,
@@ -528,21 +524,6 @@ export function VoiceInteractionArea({
             ))}
           </div>
 
-          <AnimatePresence>
-            {liveUserTranscript && agentState === 'listening' && (
-              <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="absolute inset-x-4 top-3 z-10 rounded-xl bg-cyan-950/85 backdrop-blur px-3 py-2 border border-cyan-300/20">
-                <p className="text-[9px] uppercase tracking-[0.18em] text-cyan-200">You</p>
-                <p className="text-sm font-medium text-white line-clamp-2">{liveUserTranscript}</p>
-              </motion.div>
-            )}
-            {liveAssistantTranscript && agentState === 'speaking' && (
-              <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="absolute inset-x-4 top-3 z-10 rounded-xl bg-violet-950/85 backdrop-blur px-3 py-2 border border-violet-300/20">
-                <p className="text-[9px] uppercase tracking-[0.18em] text-violet-200">Assistant</p>
-                <p className="text-sm font-medium text-white line-clamp-2">{liveAssistantTranscript}</p>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
           <div className="absolute inset-x-3 bottom-3 z-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl border border-white/10 bg-slate-950/80 backdrop-blur px-3 py-2">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-white/55">
               <span className="flex items-center gap-1.5"><Radio className="w-3 h-3 text-emerald-300" />{profile.transport}</span>
@@ -553,13 +534,19 @@ export function VoiceInteractionArea({
             </div>
             <div className="flex items-center gap-2 self-end sm:self-auto">
               <InputSparkline levels={voiceMetrics.inputLevels} micLive={isRecording} />
-              <span className="text-[10px] text-white/45">{isRecording ? 'Mic live' : 'Mic paused'}</span>
+              <span className={`text-[10px] font-medium ${isRecording ? 'text-emerald-200' : 'text-rose-200'}`}>
+                {isRecording ? 'Mic live' : 'Mic muted'}
+              </span>
               <button
+                type="button"
                 onClick={onToggle}
-                className={`h-9 w-9 rounded-xl flex items-center justify-center text-white shadow-lg transition hover:scale-[1.03] ${isRecording ? 'bg-rose-500 hover:bg-rose-400' : 'bg-white/10 hover:bg-white/20 border border-white/15'}`}
-                aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+                disabled={!isConnected}
+                className={`h-9 rounded-xl flex items-center justify-center gap-2 px-3 text-xs font-semibold text-white shadow-lg transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40 ${isRecording ? 'bg-white/10 hover:bg-white/20 border border-white/15' : 'bg-rose-500 hover:bg-rose-400'}`}
+                aria-label={isRecording ? 'Mute microphone' : 'Unmute microphone'}
+                aria-pressed={!isRecording}
               >
-                {isRecording ? <Square className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                {isRecording ? 'Mute' : 'Unmute'}
               </button>
             </div>
           </div>

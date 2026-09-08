@@ -35,14 +35,14 @@ export function MessageBubble({ message, a2uiEnabled = false, onA2UIEvent }: Mes
         </div>
       )}
 
-      <div className={`flex flex-col min-w-0 ${isRich ? 'w-full max-w-[90%]' : 'max-w-[65%]'} ${isUser ? 'items-end' : 'items-start'}`}>
+      <div className={`flex flex-col min-w-0 ${isRich ? 'w-full max-w-[92%]' : 'max-w-[82%]'} ${isUser ? 'items-end' : 'items-start'}`}>
         <div
           className={`min-w-0 px-4 py-3 rounded-2xl ${isRich ? 'w-full' : ''} ${
             isUser
-              ? 'bg-blue-500 text-white shadow-sm'
+              ? 'bg-cyan-500 text-white shadow-lg shadow-cyan-950/20 rounded-br-md'
               : isSystem
-              ? 'bg-gray-100 text-gray-700 border border-gray-200'
-              : 'bg-white text-gray-900 border border-gray-200 shadow-sm'
+              ? 'bg-amber-950/60 text-amber-50 border border-amber-300/20'
+              : 'bg-violet-950/80 text-white border border-violet-300/25 shadow-lg shadow-violet-950/20 rounded-bl-md'
           }`}
         >
           <MessageContent
@@ -50,6 +50,7 @@ export function MessageBubble({ message, a2uiEnabled = false, onA2UIEvent }: Mes
             role={message.role}
             a2uiEnabled={a2uiEnabled}
             onA2UIEvent={onA2UIEvent}
+            className="text-base lg:text-lg leading-relaxed"
           />
         </div>
 
@@ -61,7 +62,7 @@ export function MessageBubble({ message, a2uiEnabled = false, onA2UIEvent }: Mes
           </div>
         )}
 
-        <span className="text-xs text-gray-400 mt-1.5">{time}</span>
+        <span className="text-xs text-white/40 mt-1.5">{isUser ? 'You' : isSystem ? 'System' : 'Viaana'} · {time}</span>
       </div>
 
       {isUser && (

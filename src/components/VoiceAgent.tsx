@@ -6,7 +6,7 @@ import { configPresetToRealtimeConfig, getAllConfigPresets, AgentConfigPreset } 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useAgentState } from '../state/agentState';
-import { BookOpenCheck, Loader2, Sparkles } from 'lucide-react';
+import { BookOpenCheck, Loader2, Mic, MicOff, Sparkles } from 'lucide-react';
 
 import { MainLayout } from './layout/MainLayout';
 import { Sidebar } from './layout/Sidebar';
@@ -994,8 +994,8 @@ export function VoiceAgent({
                     </div>
                   ) : (
                     <div className="flex flex-col p-6 gap-6 h-full overflow-hidden">
-                      <div className="flex-1 grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-6 min-h-0 overflow-hidden">
-                        <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
+                      <div className="flex-1 grid grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] gap-6 min-h-0 overflow-hidden">
+                        <div className="flex flex-col gap-4 min-h-0 overflow-y-auto pr-1 pb-2">
                           <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3">
                             <div className="flex items-center gap-3">
                               <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-400/30 flex items-center justify-center">
@@ -1009,6 +1009,18 @@ export function VoiceAgent({
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
+                              {isConnected && viewMode === 'current' && (
+                                <button
+                                  type="button"
+                                  onClick={toggleRecording}
+                                  aria-label={isRecording ? 'Mute microphone' : 'Unmute microphone'}
+                                  aria-pressed={!isRecording}
+                                  className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition ${isRecording ? 'border-white/15 bg-white/5 text-white hover:bg-white/10' : 'border-rose-300/40 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25'}`}
+                                >
+                                  {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                                  {isRecording ? 'Mute' : 'Unmute'}
+                                </button>
+                              )}
                               {onNavigateRoutedVoice && <button type="button" disabled={isConnected || isInitializing} onClick={() => onNavigateRoutedVoice(selectedPresetId)} className="rounded-lg border border-cyan-300/40 bg-cyan-400/10 px-3 py-2 text-xs text-cyan-100 disabled:opacity-40">Live voice + memory</button>}
                               <span className="text-[11px] uppercase tracking-[0.2em] text-cyan-200 border border-cyan-400/30 bg-cyan-500/10 px-2 py-1 rounded-full">
                                 Voice
@@ -1075,23 +1087,7 @@ export function VoiceAgent({
                                 </Card>
                               ) : (
                                 <>
-                                  <VoiceInteractionArea
-                                    agentState={agentState}
-                                    isRecording={isRecording}
-                                    isConnected={isConnected}
-                                    liveUserTranscript={liveUserTranscript}
-                                    liveAssistantTranscript={liveAssistantTranscript}
-                                    onToggle={toggleRecording}
-                                    waveformData={waveformData}
-                                    volume={volume}
-                                    config={config ?? currentConfig}
-                                    sessionElapsedSeconds={sessionElapsedSeconds}
-                                    turnCount={messages.filter((message) => message.role === 'user').length}
-                                    voiceMetrics={voiceMetrics}
-                                    providerMetrics={providerMetrics}
-                                  />
-
-                                  <div className="flex-1 min-h-0 overflow-hidden">
+                                  <div className="h-[clamp(360px,48vh,560px)] min-h-[360px] flex-none overflow-hidden">
                                     <ConversationThread
                                       key="current"
                                       messages={messages}
@@ -1103,6 +1099,20 @@ export function VoiceAgent({
                                       onA2UIEvent={sendA2UIEvent}
                                     />
                                   </div>
+
+                                  <VoiceInteractionArea
+                                    agentState={agentState}
+                                    isRecording={isRecording}
+                                    isConnected={isConnected}
+                                    onToggle={toggleRecording}
+                                    waveformData={waveformData}
+                                    volume={volume}
+                                    config={config ?? currentConfig}
+                                    sessionElapsedSeconds={sessionElapsedSeconds}
+                                    turnCount={messages.filter((message) => message.role === 'user').length}
+                                    voiceMetrics={voiceMetrics}
+                                    providerMetrics={providerMetrics}
+                                  />
                                 </>
                               )}
                             </>
