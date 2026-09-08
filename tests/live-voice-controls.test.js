@@ -30,7 +30,9 @@ test('live controls keep capture active through reasoning and speech and stop on
     disconnect() { this.disconnected = true; }
   }
   globalThis.LiveTestTransport = Transport;
-  Object.defineProperty(globalThis, 'document', { configurable: true, value: new EventTarget() });
+  const document = new EventTarget();
+  Object.defineProperty(document, 'hidden', { configurable: true, writable: true, value: false });
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: document });
   let renderer;
   try {
     const { LiveVoiceControls } = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString('base64')}`);
@@ -39,6 +41,9 @@ test('live controls keep capture active through reasoning and speech and stop on
     await act(async () => { renderer = TestRenderer.create(React.createElement(LiveVoiceControls, props)); });
     const transport = transports[0];
     assert.equal(transport.options.routedVoice, true); assert.equal(transport.captured, 1);
+    await act(async () => { document.hidden = true; document.dispatchEvent(new Event('visibilitychange')); });
+    assert.equal(transport.disconnected, false); assert.equal(transport.captured, 1);
+    document.hidden = false;
     const buttonText = node => typeof node === 'string' ? node : (node.children || []).map(buttonText).join('');
     const click = async label => {
       const button = renderer.root.findAllByType('button').find(node => buttonText(node).includes(label));

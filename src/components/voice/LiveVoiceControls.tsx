@@ -122,11 +122,6 @@ export function LiveVoiceControls({ agentId, sessionId, busy, messages, onSubmit
   }, [agentId, sessionId, attempt, stop]);
 
   useEffect(() => { coordinator.current?.sync(busy, latest); }, [busy, latest?.id]);
-  useEffect(() => {
-    const hide = () => { if (document.hidden) stop(); };
-    document.addEventListener('visibilitychange', hide);
-    return () => document.removeEventListener('visibilitychange', hide);
-  }, [stop]);
 
   const toggleMute = useCallback(async () => {
     const transport = client.current;
