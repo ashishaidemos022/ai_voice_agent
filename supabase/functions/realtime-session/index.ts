@@ -194,10 +194,10 @@ Deno.serve(async (req: Request) => {
       : agent.turn_detection_config || {
           type: 'server_vad',
           threshold: 0.75,
-          prefix_padding_ms: 150,
+          prefix_padding_ms: 300,
           silence_duration_ms: 700
         };
-    const session = routedSessionId ? liveVoiceSession({ model: voiceProvider === 'xai_realtime' ? undefined : agent.model, voice: agent.voice, textOnly: voiceProvider !== 'openai_realtime', turn_detection: agent.turn_detection_config }) : {
+    const session = routedSessionId ? liveVoiceSession({ model: voiceProvider === 'xai_realtime' ? undefined : agent.model, voice: agent.voice, textOnly: voiceProvider !== 'openai_realtime', turn_detection: turnDetection }) : {
       type: 'realtime',
       model: normalizeRealtimeModel(agent.model || OPENAI_MODELS.realtime.default),
       output_modalities: isClientSecretRequest ? ['text'] : ['audio'],

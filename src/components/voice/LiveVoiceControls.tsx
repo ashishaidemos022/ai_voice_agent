@@ -7,6 +7,23 @@ import type { ChatMessage } from '../../types/chat';
 
 type Props = { agentId: string | null; sessionId?: string; busy: boolean; messages: ChatMessage[]; onSubmit: (text: string) => void; onTranscript?: (text: string) => void };
 
+type TranscriptionLogprob = { logprob?: number };
+
+export function voiceTranscriptConfidence(logprobs?: TranscriptionLogprob[]): number | null {
+  const values = (logprobs || [])
+    .map(item => item.logprob)
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  if (!values.length) return null;
+  return Math.exp(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+export function shouldAcceptVoiceTranscript(text: string, logprobs?: TranscriptionLogprob[]): boolean {
+  const words = text.trim().match(/[\p{L}\p{N}']+/gu) || [];
+  if (!words.length) return false;
+  const confidence = voiceTranscriptConfidence(logprobs);
+  return !(words.length <= 2 && confidence !== null && confidence < 0.45);
+}
+
 export function LiveVoiceControls({ agentId, sessionId, busy, messages, onSubmit, onTranscript }: Props) {
   const [providerLabel, setProviderLabel] = useState('Saved voice provider');
   const [status, setStatus] = useState('idle');
@@ -14,6 +31,7 @@ export function LiveVoiceControls({ agentId, sessionId, busy, messages, onSubmit
   const [, setTranscript] = useState('');
   const [queued, setQueued] = useState('');
   const [muted, setMuted] = useState(false);
+  const [transcriptionNotice, setTranscriptionNotice] = useState('');
   const [attempt, setAttempt] = useState(0);
   const client = useRef<RoutedVoiceAdapter | null>(null);
   const coordinator = useRef<LiveVoiceCoordinator | null>(null);
@@ -29,7 +47,7 @@ export function LiveVoiceControls({ agentId, sessionId, busy, messages, onSubmit
     segments.current = [];
     coordinator.current?.close(); coordinator.current = null;
     client.current?.disconnect(); client.current = null;
-    setStatus('idle'); setTranscript(''); setQueued(''); setMuted(false); publishTranscript.current?.('');
+    setStatus('idle'); setTranscript(''); setQueued(''); setMuted(false); setTranscriptionNotice(''); publishTranscript.current?.('');
   }, []);
 
   useEffect(() => {
@@ -53,8 +71,14 @@ export function LiveVoiceControls({ agentId, sessionId, busy, messages, onSubmit
         }, snapshot.current.latest?.id);
         coordinator.current = flow;
         flow.sync(snapshot.current.busy);
-        transport.on('speech.started', () => { if (current()) { flow.speechStarted(); setTranscript(''); publishTranscript.current?.(''); setStatus('listening'); } });
+        transport.on('speech.started', () => { if (current()) { flow.speechStarted(); setTranscript(''); setTranscriptionNotice(''); publishTranscript.current?.(''); setStatus('listening'); } });
         transport.on('speech.stopped', () => { if (current()) setStatus('thinking'); });
+        transport.on('transcript.reset', event => {
+          if (current() && event.role === 'user') {
+            setTranscript('');
+            publishTranscript.current?.('');
+          }
+        });
         transport.on('transcript.delta', event => {
           if (current() && event.role === 'user') setTranscript(value => {
             const next = value + event.delta;
@@ -63,7 +87,17 @@ export function LiveVoiceControls({ agentId, sessionId, busy, messages, onSubmit
           });
         });
         transport.on('transcript.done', event => {
-          if (current() && event.role === 'user') flow.transcript(event.transcript, event.itemId || crypto.randomUUID());
+          if (!current() || event.role !== 'user') return;
+          const finalTranscript = event.transcript?.trim() || '';
+          if (!shouldAcceptVoiceTranscript(finalTranscript, event.logprobs)) {
+            setTranscript('');
+            publishTranscript.current?.('');
+            setTranscriptionNotice("I couldn't hear that clearly. Please repeat it.");
+            setStatus('listening');
+            return;
+          }
+          setTranscriptionNotice('');
+          flow.transcript(finalTranscript, event.itemId || crypto.randomUUID());
         });
         transport.on('audio.delta', () => { if (current()) setStatus('speaking'); });
         transport.on('audio.done', () => { if (current() && pcmOutput && segments.current.length) nextSegment(); });
@@ -126,6 +160,7 @@ export function LiveVoiceControls({ agentId, sessionId, busy, messages, onSubmit
       {sessionId && status === 'idle' && <button type="button" className="rounded-lg border border-white/20 px-3 py-2 text-xs" onClick={() => setAttempt(value => value + 1)}>Reconnect microphone</button>}
     </div>
     {queued && <p className="text-xs text-cyan-100">Next question: {queued}</p>}
+    {transcriptionNotice && <p role="status" className="rounded-lg border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">{transcriptionNotice}</p>}
     <p className="text-[11px] text-white/45">Live AI-generated voice. Speak to interrupt. Memory, routing, and tools use the selected agent and customer. Audio usage is additional to the routing receipt.</p>
     {error && <p role="alert" className="text-xs text-rose-200">{error}</p>}
   </div>;

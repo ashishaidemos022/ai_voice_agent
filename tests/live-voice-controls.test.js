@@ -34,8 +34,8 @@ test('live controls keep capture active through reasoning and speech and stop on
   let renderer;
   try {
     const { LiveVoiceControls } = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString('base64')}`);
-    const sent = [];
-    const props = { agentId: 'agent', sessionId: 'session', busy: false, messages: [], onSubmit: text => sent.push(text) };
+    const sent = [], drafts = [];
+    const props = { agentId: 'agent', sessionId: 'session', busy: false, messages: [], onSubmit: text => sent.push(text), onTranscript: text => drafts.push(text) };
     await act(async () => { renderer = TestRenderer.create(React.createElement(LiveVoiceControls, props)); });
     const transport = transports[0];
     assert.equal(transport.options.routedVoice, true); assert.equal(transport.captured, 1);
@@ -49,7 +49,16 @@ test('live controls keep capture active through reasoning and speech and stop on
     assert.equal(transport.stopped, 1); assert.equal(transport.disconnected, false);
     await click('Unmute');
     assert.equal(transport.captured, 2); assert.equal(transport.disconnected, false);
-    await act(async () => { transport.emit('speech.started'); transport.emit('transcript.done', { role: 'user', transcript: 'My budget?', itemId: 'one' }); });
+    await act(async () => {
+      transport.emit('speech.started');
+      transport.emit('transcript.delta', { role: 'user', delta: 'My badge' });
+      transport.emit('transcript.reset', { role: 'user', itemId: 'one' });
+      transport.emit('transcript.delta', { role: 'user', delta: 'My budget?' });
+    });
+    assert.equal(drafts.at(-1), 'My budget?');
+    await act(async () => { transport.emit('transcript.done', { role: 'user', transcript: 'up', itemId: 'noise', logprobs: [{ logprob: -2.5 }] }); });
+    assert.deepEqual(sent, []);
+    await act(async () => { transport.emit('transcript.done', { role: 'user', transcript: 'My budget?', itemId: 'one', logprobs: [{ logprob: -0.05 }] }); });
     assert.deepEqual(sent, ['My budget?']);
     await act(async () => { renderer.update(React.createElement(LiveVoiceControls, { ...props, busy: true })); });
     const message = { id: 'answer', sender: 'assistant', content: '$600.' };

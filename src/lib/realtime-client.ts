@@ -36,6 +36,8 @@ export type RealtimeEvent =
       transcript: string;
       role: 'user' | 'assistant';
       itemId?: string;
+      logprobs?: Array<{ token?: string; logprob?: number; bytes?: number[] }>;
+      usage?: Record<string, unknown>;
     }
   | { type: 'transcript.reset'; role: 'user' | 'assistant'; itemId?: string }
   | { type: 'text.delta'; delta: string }
@@ -552,7 +554,9 @@ export class RealtimeAPIClient {
           type: 'transcript.done',
           transcript: message.transcript,
           role: 'user',
-          itemId: message.item_id
+          itemId: message.item_id,
+          logprobs: message.logprobs,
+          usage: message.usage
         });
         break;
 

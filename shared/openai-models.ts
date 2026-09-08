@@ -12,7 +12,7 @@ export const OPENAI_MODELS = {
     nano: 'gpt-5.4-nano'
   },
   transcription: {
-    accurate: 'gpt-4o-transcribe',
+    accurate: 'gpt-transcribe',
     streaming: 'gpt-realtime-whisper'
   }
 } as const;

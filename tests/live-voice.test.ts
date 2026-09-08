@@ -42,6 +42,11 @@ test('an answer cannot begin speaking during an unfinished utterance or after di
 
 test('live transport starts with VAD interruption enabled but autonomous answers disabled', () => {
   const session = liveVoiceSession();
+  assert.equal(session.audio.input.transcription.model, 'gpt-transcribe');
+  assert.equal(session.audio.input.transcription.language, 'en');
+  assert.equal(session.audio.input.turn_detection.threshold, 0.75);
+  assert.equal(session.audio.input.turn_detection.silence_duration_ms, 700);
+  assert.deepEqual(session.include, ['item.input_audio_transcription.logprobs']);
   assert.equal(session.audio.input.turn_detection.create_response, false);
   assert.equal(session.audio.input.turn_detection.interrupt_response, true);
   assert.deepEqual(session.tools, []); assert.equal(session.tool_choice, 'none');
