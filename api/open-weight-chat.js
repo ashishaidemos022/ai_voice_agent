@@ -22,6 +22,13 @@ export function parseBearer(value) {
   return match?.[1] || null;
 }
 
+export function getGatewayToken(req, env = process.env) {
+  if (typeof env.AI_GATEWAY_API_KEY === 'string' && env.AI_GATEWAY_API_KEY) return env.AI_GATEWAY_API_KEY;
+  if (typeof env.VERCEL_OIDC_TOKEN === 'string' && env.VERCEL_OIDC_TOKEN) return env.VERCEL_OIDC_TOKEN;
+  const header = req?.headers?.['x-vercel-oidc-token'];
+  return typeof header === 'string' && header ? header : null;
+}
+
 export function getAllowedModels(raw = process.env.OPEN_WEIGHT_MODELS_JSON) {
   if (!raw) return DEFAULT_MODELS;
   let value;
@@ -136,7 +143,7 @@ export default async function handler(req, res) {
     json(res, 400, { error: error instanceof Error ? error.message : 'Invalid request' });
     return;
   }
-  const gatewayKey = process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN;
+  const gatewayKey = getGatewayToken(req);
   if (!gatewayKey) {
     json(res, 503, { error: 'AI Gateway authentication is unavailable' });
     return;

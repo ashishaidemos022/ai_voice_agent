@@ -1,11 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getAllowedModels, parseBearer, validateLabRequest } from '../api/open-weight-chat.js';
+import { getAllowedModels, getGatewayToken, parseBearer, validateLabRequest } from '../api/open-weight-chat.js';
 
 test('API requires a strict bearer token shape', () => {
   assert.equal(parseBearer('Bearer header.payload.signature'), 'header.payload.signature');
   assert.equal(parseBearer('Basic abc'), null);
   assert.equal(parseBearer('Bearer token with spaces'), null);
+});
+
+test('API reads durable Gateway authentication from the Vercel runtime request', () => {
+  assert.equal(getGatewayToken({ headers: { 'x-vercel-oidc-token': 'runtime-token' } }, {}), 'runtime-token');
+  assert.equal(getGatewayToken({ headers: { 'x-vercel-oidc-token': 'runtime-token' } }, { AI_GATEWAY_API_KEY: 'api-key' }), 'api-key');
+  assert.equal(getGatewayToken({ headers: {} }, {}), null);
 });
 
 test('API model registry is an allowlist', () => {
