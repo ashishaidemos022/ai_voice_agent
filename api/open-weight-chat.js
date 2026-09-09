@@ -131,6 +131,7 @@ export function getUpstreamRequest(request, req, env = process.env) {
     }
     return {
       url: `${request.model.endpoint}/v1/chat/completions`,
+      transport: request.model.transport,
       headers: {
         Authorization: `Bearer ${env.HUGGING_FACE_TOKEN}`,
         'Content-Type': 'application/json',
@@ -149,6 +150,7 @@ export function getUpstreamRequest(request, req, env = process.env) {
   if (!gatewayKey) throw new Error('AI Gateway authentication is unavailable');
   return {
     url: 'https://ai-gateway.vercel.sh/v1/chat/completions',
+    transport: request.model.transport,
     headers: { Authorization: `Bearer ${gatewayKey}`, 'Content-Type': 'application/json' },
     body: {
       model: request.model.model,
@@ -163,6 +165,30 @@ export function getUpstreamRequest(request, req, env = process.env) {
       providerOptions: request.model.providerOnly ? { gateway: { only: request.model.providerOnly } } : undefined
     }
   };
+}
+
+export async function fetchWithRuntimeWarmup(config, fetchImpl = fetch, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))) {
+  const retryable = config.transport === 'openai-compatible';
+  const deadline = Date.now() + 180000;
+  let lastError;
+  do {
+    try {
+      const response = await fetchImpl(config.url, {
+        method: 'POST',
+        headers: config.headers,
+        signal: AbortSignal.timeout(retryable ? 30000 : 60000),
+        redirect: 'error',
+        body: JSON.stringify(config.body)
+      });
+      if (!retryable || ![502, 503, 504].includes(response.status) || Date.now() >= deadline) return response;
+      await response.arrayBuffer().catch(() => undefined);
+    } catch (error) {
+      lastError = error;
+      if (!retryable || Date.now() >= deadline) throw error;
+    }
+    await sleep(5000);
+  } while (Date.now() < deadline);
+  throw lastError || new Error('Open-weight runtime did not become ready');
 }
 
 async function authenticate(req) {
@@ -221,13 +247,7 @@ export default async function handler(req, res) {
   const startedAt = performance.now();
   let upstream;
   try {
-    upstream = await fetch(upstreamRequestConfig.url, {
-      method: 'POST',
-      headers: upstreamRequestConfig.headers,
-      signal: AbortSignal.timeout(240000),
-      redirect: 'error',
-      body: JSON.stringify(upstreamRequestConfig.body)
-    });
+    upstream = await fetchWithRuntimeWarmup(upstreamRequestConfig);
   } catch (error) {
     console.error('[open-weight-chat] Gateway request failed', error instanceof Error ? error.name : error);
     json(res, 502, { error: 'Model request failed' });

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getAllowedModels, getGatewayToken, getUpstreamRequest, parseBearer, validateLabRequest } from '../api/open-weight-chat.js';
+import { fetchWithRuntimeWarmup, getAllowedModels, getGatewayToken, getUpstreamRequest, parseBearer, validateLabRequest } from '../api/open-weight-chat.js';
 
 test('API requires a strict bearer token shape', () => {
   assert.equal(parseBearer('Bearer header.payload.signature'), 'header.payload.signature');
@@ -44,6 +44,21 @@ test('API sends runtime credentials only to an allowlisted model endpoint', () =
   assert.equal(upstream.headers.Authorization, 'Bearer hf-secret');
   assert.equal(upstream.headers['x-runtime-key'], 'runtime-secret');
   assert.equal(upstream.body.model, 'base');
+});
+
+test('API retries a warming private runtime and preserves the request', async () => {
+  const statuses = [503, 503, 200];
+  const bodies = [];
+  const response = await fetchWithRuntimeWarmup({
+    transport: 'openai-compatible', url: 'https://runtime.hf.space/v1/chat/completions',
+    headers: { Authorization: 'Bearer secret' }, body: { model: 'fused' }
+  }, async (_url, options) => {
+    bodies.push(JSON.parse(options.body));
+    return new Response('{}', { status: statuses.shift() });
+  }, async () => undefined);
+  assert.equal(response.status, 200);
+  assert.equal(bodies.length, 3);
+  assert.deepEqual(bodies[2], { model: 'fused' });
 });
 
 test('API accepts bounded prompts and rejects arbitrary model access', () => {
