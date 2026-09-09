@@ -7,8 +7,12 @@ const DEFAULT_MODELS = [{
   precision: 'provider-undisclosed',
   inputCostPerToken: 0.00000012,
   outputCostPerToken: 0.00000024,
-  providerOnly: ['deepinfra']
+  providerOnly: ['deepinfra'],
+  transport: 'gateway',
+  supportsTools: true
 }];
+
+export const config = { maxDuration: 300 };
 
 function json(res, status, body) {
   res.status(status).setHeader('Content-Type', 'application/json');
@@ -53,6 +57,24 @@ export function getAllowedModels(raw = process.env.OPEN_WEIGHT_MODELS_JSON) {
     for (const key of ['inputCostPerToken', 'outputCostPerToken']) {
       if (entry[key] !== undefined && (!Number.isFinite(entry[key]) || entry[key] < 0)) throw new Error(`Invalid ${key}`);
     }
+    const transport = entry.transport ?? 'gateway';
+    if (!['gateway', 'openai-compatible'].includes(transport)) throw new Error('Invalid model transport');
+    if (entry.supportsTools !== undefined && typeof entry.supportsTools !== 'boolean') throw new Error('Invalid supportsTools');
+    let endpoint = null;
+    let runtimeModel = null;
+    if (transport === 'openai-compatible') {
+      if (typeof entry.endpoint !== 'string' || typeof entry.runtimeModel !== 'string' || !entry.runtimeModel.trim()) {
+        throw new Error('OpenAI-compatible models require endpoint and runtimeModel');
+      }
+      let url;
+      try { url = new URL(entry.endpoint); } catch { throw new Error('Invalid model endpoint'); }
+      if (url.protocol !== 'https:' || url.username || url.password || url.port || url.pathname !== '/' || url.search || url.hash
+        || !(url.hostname.endsWith('.hf.space') || url.hostname.endsWith('.endpoints.huggingface.cloud'))) {
+        throw new Error('Model endpoint is not an approved Hugging Face host');
+      }
+      endpoint = url.origin;
+      runtimeModel = entry.runtimeModel.trim();
+    }
     return {
       id: entry.id,
       model: entry.model,
@@ -60,7 +82,11 @@ export function getAllowedModels(raw = process.env.OPEN_WEIGHT_MODELS_JSON) {
       precision: entry.precision,
       inputCostPerToken: entry.inputCostPerToken ?? null,
       outputCostPerToken: entry.outputCostPerToken ?? null,
-      providerOnly
+      providerOnly,
+      transport,
+      endpoint,
+      runtimeModel,
+      supportsTools: entry.supportsTools ?? transport === 'gateway'
     };
   });
 }
@@ -90,11 +116,53 @@ export function validateLabRequest(body, models) {
       throw new Error('Invalid tool definition');
     }
   }
+  if (tools.length && !model.supportsTools) throw new Error('Selected model does not support tools');
   const maxTokens = body.maxTokens ?? 512;
   if (!Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > 2048) throw new Error('maxTokens must be 1–2048');
   const temperature = body.temperature ?? 0;
   if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) throw new Error('temperature must be 0–2');
   return { model, messages, tools, maxTokens, temperature };
+}
+
+export function getUpstreamRequest(request, req, env = process.env) {
+  if (request.model.transport === 'openai-compatible') {
+    if (!env.HUGGING_FACE_TOKEN || !env.OPEN_WEIGHT_RUNTIME_KEY) {
+      throw new Error('Open-weight runtime authentication is unavailable');
+    }
+    return {
+      url: `${request.model.endpoint}/v1/chat/completions`,
+      headers: {
+        Authorization: `Bearer ${env.HUGGING_FACE_TOKEN}`,
+        'Content-Type': 'application/json',
+        'x-runtime-key': env.OPEN_WEIGHT_RUNTIME_KEY
+      },
+      body: {
+        model: request.model.runtimeModel,
+        messages: request.messages,
+        max_tokens: request.maxTokens,
+        temperature: request.temperature,
+        stream: false
+      }
+    };
+  }
+  const gatewayKey = getGatewayToken(req, env);
+  if (!gatewayKey) throw new Error('AI Gateway authentication is unavailable');
+  return {
+    url: 'https://ai-gateway.vercel.sh/v1/chat/completions',
+    headers: { Authorization: `Bearer ${gatewayKey}`, 'Content-Type': 'application/json' },
+    body: {
+      model: request.model.model,
+      messages: request.messages,
+      tools: request.tools.length ? request.tools : undefined,
+      tool_choice: request.tools.length ? 'auto' : undefined,
+      max_tokens: request.maxTokens,
+      temperature: request.temperature,
+      stream: false,
+      reasoning: { effort: 'none', enabled: false },
+      chat_template_kwargs: { enable_thinking: false },
+      providerOptions: request.model.providerOnly ? { gateway: { only: request.model.providerOnly } } : undefined
+    }
+  };
 }
 
 async function authenticate(req) {
@@ -143,31 +211,22 @@ export default async function handler(req, res) {
     json(res, 400, { error: error instanceof Error ? error.message : 'Invalid request' });
     return;
   }
-  const gatewayKey = getGatewayToken(req);
-  if (!gatewayKey) {
-    json(res, 503, { error: 'AI Gateway authentication is unavailable' });
+  let upstreamRequestConfig;
+  try {
+    upstreamRequestConfig = getUpstreamRequest(request, req);
+  } catch (error) {
+    json(res, 503, { error: error instanceof Error ? error.message : 'Model authentication is unavailable' });
     return;
   }
   const startedAt = performance.now();
   let upstream;
   try {
-    upstream = await fetch('https://ai-gateway.vercel.sh/v1/chat/completions', {
+    upstream = await fetch(upstreamRequestConfig.url, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${gatewayKey}`, 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(60000),
+      headers: upstreamRequestConfig.headers,
+      signal: AbortSignal.timeout(240000),
       redirect: 'error',
-      body: JSON.stringify({
-        model: request.model.model,
-        messages: request.messages,
-        tools: request.tools.length ? request.tools : undefined,
-        tool_choice: request.tools.length ? 'auto' : undefined,
-        max_tokens: request.maxTokens,
-        temperature: request.temperature,
-        stream: false,
-        reasoning: { effort: 'none', enabled: false },
-        chat_template_kwargs: { enable_thinking: false },
-        providerOptions: request.model.providerOnly ? { gateway: { only: request.model.providerOnly } } : undefined
-      })
+      body: JSON.stringify(upstreamRequestConfig.body)
     });
   } catch (error) {
     console.error('[open-weight-chat] Gateway request failed', error instanceof Error ? error.name : error);
@@ -207,7 +266,8 @@ export default async function handler(req, res) {
       requestedModel: request.model.model,
       revision: request.model.revision,
       precision: request.model.precision,
-      providerOnly: request.model.providerOnly
+      providerOnly: request.model.providerOnly,
+      transport: request.model.transport
     },
     responseModel: typeof payload.model === 'string' ? payload.model : null,
     message: choice.message,

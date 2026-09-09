@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getAllowedModels, getGatewayToken, parseBearer, validateLabRequest } from '../api/open-weight-chat.js';
+import { getAllowedModels, getGatewayToken, getUpstreamRequest, parseBearer, validateLabRequest } from '../api/open-weight-chat.js';
 
 test('API requires a strict bearer token shape', () => {
   assert.equal(parseBearer('Bearer header.payload.signature'), 'header.payload.signature');
@@ -20,6 +20,30 @@ test('API model registry is an allowlist', () => {
   assert.deepEqual(models[0].providerOnly, ['deepinfra']);
   assert.throws(() => getAllowedModels('[]'), /nonempty/);
   assert.throws(() => getAllowedModels('[{"id":"x"}]'), /Missing/);
+});
+
+test('API registry accepts approved private Hugging Face runtimes and rejects arbitrary hosts', () => {
+  const raw = JSON.stringify([{
+    id: 'fused', model: 'bhatsy/fused', revision: 'abc123', precision: 'bf16',
+    transport: 'openai-compatible', endpoint: 'https://bhatsy-runtime.hf.space', runtimeModel: 'fused'
+  }]);
+  const [model] = getAllowedModels(raw);
+  assert.equal(model.endpoint, 'https://bhatsy-runtime.hf.space');
+  assert.equal(model.supportsTools, false);
+  assert.throws(() => getAllowedModels(raw.replace('bhatsy-runtime.hf.space', 'example.com')), /approved Hugging Face host/);
+});
+
+test('API sends runtime credentials only to an allowlisted model endpoint', () => {
+  const [model] = getAllowedModels(JSON.stringify([{
+    id: 'base', model: 'bhatsy/base', revision: 'abc123', precision: 'bf16',
+    transport: 'openai-compatible', endpoint: 'https://bhatsy-runtime.hf.space', runtimeModel: 'base'
+  }]));
+  const request = validateLabRequest({ modelId: 'base', messages: [{ role: 'user', content: 'Hello' }] }, [model]);
+  const upstream = getUpstreamRequest(request, { headers: {} }, { HUGGING_FACE_TOKEN: 'hf-secret', OPEN_WEIGHT_RUNTIME_KEY: 'runtime-secret' });
+  assert.equal(upstream.url, 'https://bhatsy-runtime.hf.space/v1/chat/completions');
+  assert.equal(upstream.headers.Authorization, 'Bearer hf-secret');
+  assert.equal(upstream.headers['x-runtime-key'], 'runtime-secret');
+  assert.equal(upstream.body.model, 'base');
 });
 
 test('API accepts bounded prompts and rejects arbitrary model access', () => {
