@@ -1,0 +1,18 @@
+[
+  {
+    "id": "qwen3-14b-vercel-baseline",
+    "model": "alibaba/qwen-3-14b",
+    "baseUrl": "https://ai-gateway.vercel.sh/v1",
+    "apiKeyEnv": ["AI_GATEWAY_API_KEY", "VERCEL_OIDC_TOKEN"],
+    "revision": "provider-undisclosed",
+    "precision": "provider-undisclosed",
+    "maxTokens": 512,
+    "maxRetries": 3,
+    "temperature": 0,
+    "reasoningEffort": "none",
+    "chatTemplateKwargs": { "enable_thinking": false },
+    "providerOnly": ["deepinfra"],
+    "inputCostPerToken": 0.00000012,
+    "outputCostPerToken": 0.00000024
+  }
+]

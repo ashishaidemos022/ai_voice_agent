@@ -1,0 +1,12 @@
+[
+  {
+    "id": "qwen3-8b-original",
+    "model": "Qwen/Qwen3-8B",
+    "baseUrl": "http://localhost:8000/v1",
+    "revision": "UNVERIFIED-set-exact-checkpoint-revision",
+    "precision": "UNVERIFIED-set-server-precision",
+    "maxTokens": 512,
+    "temperature": 0,
+    "chatTemplateKwargs": { "enable_thinking": false }
+  }
+]

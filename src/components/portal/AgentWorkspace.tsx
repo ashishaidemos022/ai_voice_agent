@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { ChatAgent } from '../chat/ChatAgent';
 import { VoiceAgent } from '../VoiceAgent';
 import { VoiceLab } from '../voice-lab/VoiceLab';
+import { OpenWeightLab } from '../open-weight/OpenWeightLab';
 import { KnowledgeBaseDrawer } from '../rag/KnowledgeBaseDrawer';
 import { useAuth } from '../../context/AuthContext';
 
-type WorkspaceTab = 'chat' | 'voice' | 'voice-lab' | 'routed-voice';
+type WorkspaceTab = 'chat' | 'voice' | 'voice-lab' | 'routed-voice' | 'open-weight-lab';
 
 export function AgentWorkspace() {
   const { vaUser } = useAuth();
@@ -51,6 +52,14 @@ export function AgentWorkspace() {
     setTab('voice-lab');
   };
 
+  const handleNavigateOpenWeightLab = () => {
+    setShowCreateAgent(false);
+    setShowSkills(false);
+    setShowUsage(false);
+    setShowEmbedUsage(false);
+    setTab('open-weight-lab');
+  };
+
   const handleOpenCreateAgent = () => {
     setShowCreateAgent(true);
     setShowSkills(false);
@@ -93,6 +102,7 @@ export function AgentWorkspace() {
           onNavigateChat={handleNavigateChat}
           onNavigateVoice={handleNavigateVoice}
           onNavigateVoiceLab={handleNavigateVoiceLab}
+          onNavigateOpenWeightLab={handleNavigateOpenWeightLab}
           onOpenCreateAgent={handleOpenCreateAgent}
           onOpenSkills={handleOpenSkills}
           onOpenKnowledgeBase={() => setIsKnowledgeDrawerOpen(true)}
@@ -103,6 +113,18 @@ export function AgentWorkspace() {
         <VoiceLab
           onNavigateVoice={handleNavigateVoice}
           onNavigateChat={handleNavigateChat}
+          onNavigateOpenWeightLab={handleNavigateOpenWeightLab}
+          onOpenCreateAgent={handleOpenCreateAgent}
+          onOpenSkills={handleOpenSkills}
+          onOpenKnowledgeBase={() => setIsKnowledgeDrawerOpen(true)}
+          onOpenUsage={handleOpenUsage}
+          onOpenEmbedUsage={handleOpenEmbedUsage}
+        />
+      ) : tab === 'open-weight-lab' ? (
+        <OpenWeightLab
+          onNavigateVoice={handleNavigateVoice}
+          onNavigateChat={handleNavigateChat}
+          onNavigateVoiceLab={handleNavigateVoiceLab}
           onOpenCreateAgent={handleOpenCreateAgent}
           onOpenSkills={handleOpenSkills}
           onOpenKnowledgeBase={() => setIsKnowledgeDrawerOpen(true)}
@@ -114,6 +136,7 @@ export function AgentWorkspace() {
           onNavigateRoutedVoice={agentId => { setRoutedAgentId(agentId); setTab('routed-voice'); }}
           onNavigateChat={handleNavigateChat}
           onNavigateVoiceLab={handleNavigateVoiceLab}
+          onNavigateOpenWeightLab={handleNavigateOpenWeightLab}
           onOpenKnowledgeBase={() => setIsKnowledgeDrawerOpen(true)}
           showCreateAgent={showCreateAgent}
           onOpenCreateAgent={handleOpenCreateAgent}

@@ -1,0 +1,4 @@
+artifacts/
+.venv-mlx/
+**/__pycache__/
+*.pyc

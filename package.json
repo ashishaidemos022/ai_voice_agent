@@ -17,7 +17,10 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "typecheck:routing-eval": "tsc -p tsconfig.routing-eval.json",
-    "test:voice": "node --experimental-strip-types --test tests/routed-voice.test.ts tests/routed-voice-controls.test.js tests/live-voice.test.ts tests/live-voice-controls.test.js tests/voice-provider-routing.test.ts"
+    "test:voice": "node --experimental-strip-types --test tests/routed-voice.test.ts tests/routed-voice-controls.test.js tests/live-voice.test.ts tests/live-voice-controls.test.js tests/voice-provider-routing.test.ts",
+    "open-weight:eval": "node --experimental-strip-types scripts/open-weight-eval/cli.ts",
+    "test:open-weight-eval": "node --experimental-strip-types --test tests/open-weight-eval.test.ts tests/open-weight-api.test.js",
+    "typecheck:open-weight-eval": "tsc -p tsconfig.open-weight-eval.json"
   },
   "dependencies": {
     "@elevenlabs/client": "^1.17.0",

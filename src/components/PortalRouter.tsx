@@ -4,12 +4,17 @@ import { useAuth } from '../context/AuthContext';
 import { LoadingScreen } from './ui/LoadingScreen';
 import { AgentWorkspace } from './portal/AgentWorkspace';
 import { PublicBenchmarkReport } from './voice-lab/PublicBenchmarkReport';
+import { PublicOpenWeightReport } from './open-weight/PublicOpenWeightReport';
 
 export function PortalRouter() {
   const { session, vaUser } = useAuth();
   const [isRecoveryFlow, setIsRecoveryFlow] = useState(false);
   const publicReportSlug =
     typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('voice-report') : null;
+  const showOpenWeightReport =
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('open-weight-report');
+  const showPortal =
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('portal');
 
   useEffect(() => {
     const detectRecovery = () => {
@@ -38,6 +43,10 @@ export function PortalRouter() {
 
   if (publicReportSlug) {
     return <PublicBenchmarkReport slug={publicReportSlug} />;
+  }
+
+  if (showOpenWeightReport || !showPortal) {
+    return <PublicOpenWeightReport />;
   }
 
   if (!session) {

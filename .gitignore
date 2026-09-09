@@ -23,3 +23,10 @@ dist-ssr
 .env
 .vercel
 artifacts/routing-evals/
+
+artifacts/open-weight-evals/
+artifacts/open-weight-lora/
+.venv-mlx/
+.env*
+__pycache__/
+*.pyc

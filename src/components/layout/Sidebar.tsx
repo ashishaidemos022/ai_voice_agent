@@ -5,10 +5,11 @@ import { cn } from '../../lib/utils';
 interface SidebarProps {
   isConnected?: boolean;
   children?: ReactNode;
-  activeNav?: 'voice' | 'chat' | 'voice-lab' | 'create' | 'skills' | 'usage' | 'embed-usage';
+  activeNav?: 'voice' | 'chat' | 'voice-lab' | 'open-weight-lab' | 'create' | 'skills' | 'usage' | 'embed-usage';
   onNavigateVoice?: () => void;
   onNavigateChat?: () => void;
   onNavigateVoiceLab?: () => void;
+  onNavigateOpenWeightLab?: () => void;
   onNavigateSkills?: () => void;
   onOpenKnowledgeBase?: () => void;
   onOpenUsage?: () => void;
@@ -24,6 +25,7 @@ export function Sidebar({
   onNavigateVoice,
   onNavigateChat,
   onNavigateVoiceLab,
+  onNavigateOpenWeightLab,
   onNavigateSkills,
   onOpenKnowledgeBase,
   onOpenUsage,
@@ -36,6 +38,8 @@ export function Sidebar({
       ? 'Chat Agent'
       : activeNav === 'voice-lab'
         ? 'Voice Lab'
+      : activeNav === 'open-weight-lab'
+        ? 'Open Weight Lab'
       : activeNav === 'create'
         ? 'Create Agent'
         : activeNav === 'skills'
@@ -46,7 +50,7 @@ export function Sidebar({
               ? 'Embed Usage'
           : 'Voice Agent';
   const showConnectionStatus =
-    activeNav !== 'create' && activeNav !== 'skills' && activeNav !== 'usage' && activeNav !== 'embed-usage' && activeNav !== 'voice-lab';
+    activeNav !== 'create' && activeNav !== 'skills' && activeNav !== 'usage' && activeNav !== 'embed-usage' && activeNav !== 'voice-lab' && activeNav !== 'open-weight-lab';
 
   return (
     <aside className="w-72 bg-slate-950/70 border-r border-white/10 flex flex-col h-full">
@@ -151,6 +155,22 @@ export function Sidebar({
             >
               <FlaskConical className="w-4 h-4" />
               <span className="text-sm font-medium">Voice Lab</span>
+            </button>
+          )}
+          {onNavigateOpenWeightLab && (
+            <button
+              type="button"
+              onClick={activeNav === 'open-weight-lab' ? undefined : onNavigateOpenWeightLab}
+              className={cn(
+                'w-full flex items-center gap-3 px-3 py-2 rounded-xl border transition',
+                activeNav === 'open-weight-lab'
+                  ? 'border-amber-400/60 bg-amber-500/15 text-white'
+                  : 'border-white/5 text-white/70 hover:border-amber-300/40 hover:bg-amber-500/10'
+              )}
+              disabled={activeNav === 'open-weight-lab'}
+            >
+              <FlaskConical className="w-4 h-4" />
+              <span className="text-sm font-medium">Open Weight Lab</span>
             </button>
           )}
           {onOpenKnowledgeBase && (

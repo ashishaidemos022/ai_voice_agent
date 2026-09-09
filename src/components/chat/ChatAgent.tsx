@@ -96,6 +96,7 @@ type ChatAgentProps = {
   embedded?: boolean;
   onNavigateVoice?: () => void;
   onNavigateVoiceLab?: () => void;
+  onNavigateOpenWeightLab?: () => void;
   onOpenKnowledgeBase?: () => void;
   onOpenCreateAgent?: () => void;
   onOpenSkills?: () => void;
@@ -110,6 +111,7 @@ export function ChatAgent({
   embedded = false,
   onNavigateVoice,
   onNavigateVoiceLab,
+  onNavigateOpenWeightLab,
   onOpenKnowledgeBase,
   onOpenCreateAgent,
   onOpenSkills,
@@ -866,6 +868,7 @@ export function ChatAgent({
       onNavigateVoice={onNavigateVoice}
       onNavigateChat={voiceMode ? onNavigateChat : () => setViewMode('current')}
       onNavigateVoiceLab={onNavigateVoiceLab}
+      onNavigateOpenWeightLab={onNavigateOpenWeightLab}
       onNavigateSkills={onOpenSkills}
       onOpenKnowledgeBase={onOpenKnowledgeBase}
       onOpenUsage={onOpenUsage}

@@ -92,6 +92,7 @@ type VoiceAgentProps = {
   onNavigateRoutedVoice?: (agentId: string | null) => void;
   onNavigateChat?: () => void;
   onNavigateVoiceLab?: () => void;
+  onNavigateOpenWeightLab?: () => void;
   onOpenKnowledgeBase?: () => void;
   showCreateAgent?: boolean;
   onOpenCreateAgent?: () => void;
@@ -119,6 +120,7 @@ export function VoiceAgent({
   onNavigateRoutedVoice,
   onNavigateChat,
   onNavigateVoiceLab,
+  onNavigateOpenWeightLab,
   onOpenKnowledgeBase,
   showCreateAgent,
   onOpenCreateAgent,
@@ -785,6 +787,7 @@ export function VoiceAgent({
       }}
       onNavigateChat={onNavigateChat}
       onNavigateVoiceLab={onNavigateVoiceLab}
+      onNavigateOpenWeightLab={onNavigateOpenWeightLab}
       onNavigateSkills={() => {
         handleOpenSkills();
         handleCloseCreateAgent();

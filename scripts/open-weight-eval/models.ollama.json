@@ -1,0 +1,12 @@
+[
+  {
+    "id": "qwen3.5-4b-local-baseline",
+    "model": "qwen3.5:4b",
+    "baseUrl": "http://localhost:11434/v1",
+    "revision": "sha256:2a654d98e6fba55d452b7043684e9b57a947e393bbffa62485a7aac05ee4eefd",
+    "precision": "GGUF Q4_K_M",
+    "maxTokens": 512,
+    "temperature": 0,
+    "reasoningEffort": "none"
+  }
+]

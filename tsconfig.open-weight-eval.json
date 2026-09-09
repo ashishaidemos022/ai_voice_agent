@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.routing-eval.json",
+  "include": [
+    "scripts/open-weight-eval/**/*.ts",
+    "tests/open-weight-eval.test.ts"
+  ]
+}

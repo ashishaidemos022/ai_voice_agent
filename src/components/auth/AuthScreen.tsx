@@ -84,8 +84,8 @@ export function AuthScreen() {
           window.dispatchEvent(new HashChangeEvent('hashchange'));
         }
       }
-    } catch (err: any) {
-      setError(err.message || 'Authentication failed');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Authentication failed');
     } finally {
       setIsSubmitting(false);
     }
@@ -97,8 +97,8 @@ export function AuthScreen() {
     setInfoMessage(null);
     try {
       await signInWithGoogle();
-    } catch (err: any) {
-      setError(err.message || 'Google sign-in failed');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Google sign-in failed');
       setIsSubmitting(false);
     }
   };
@@ -143,6 +143,12 @@ export function AuthScreen() {
               <span className="h-[2px] w-12 bg-cyan-400 shadow-[0_0_18px_rgba(34,211,238,0.65)]" />
               <span>Secure access portal</span>
             </div>
+            <a
+              href="?open-weight-report=1"
+              className="mt-6 inline-flex rounded-full border border-amber-300/25 bg-amber-400/10 px-4 py-2 text-sm font-medium text-amber-100 transition hover:border-amber-300/50 hover:bg-amber-400/15"
+            >
+              View open-weight evaluation results →
+            </a>
           </section>
 
           <section className="w-full max-w-md justify-self-center">
