@@ -113,7 +113,8 @@ export function TrainingWorkspace({ accessToken, baseModelId }: Props) {
   const compare = async () => {
     if (!activeJob || activeJob.status !== 'completed' || !baseModelId) return;
     setBusy(true); setError('');
-    const messages = [{ role: 'system', content: SYSTEM }, { role: 'user', content: testPrompt }];
+    const datasetSystemPrompt = parsed.examples[0]?.messages.find((message) => message.role === 'system')?.content;
+    const messages = [{ role: 'system', content: datasetSystemPrompt || SYSTEM }, { role: 'user', content: testPrompt }];
     try {
       const [base, trained] = await Promise.all([
         readJson(await fetch('/api/open-weight-chat', { method: 'POST', headers, body: JSON.stringify({ modelId: baseModelId, messages, temperature: 0, maxTokens: 128 }) })),
