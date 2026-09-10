@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fetchWithRuntimeWarmup, getAllowedModels, getGatewayToken, getUpstreamRequest, parseBearer, validateLabRequest } from '../api/open-weight-chat.js';
+import { validateCompletionRequest, validateTrainingRequest } from '../api/open-weight-training.js';
 
 test('API requires a strict bearer token shape', () => {
   assert.equal(parseBearer('Bearer header.payload.signature'), 'header.payload.signature');
@@ -73,4 +74,26 @@ test('API accepts bounded prompts and rejects arbitrary model access', () => {
   assert.throws(() => validateLabRequest({ modelId: 'arbitrary', messages: [{ role: 'user', content: 'Hello' }] }, models), /Unknown modelId/);
   assert.throws(() => validateLabRequest({ modelId: models[0].id, messages: [{ role: 'user', content: 'x'.repeat(20001) }] }, models), /content/);
   assert.throws(() => validateLabRequest({ modelId: models[0].id, messages: [{ role: 'user', content: 'Hello' }], extra: true }, models), /Unknown request field/);
+});
+
+test('training API accepts bounded supervised JSONL records', () => {
+  const examples = Array.from({ length: 6 }, (_, index) => ({ messages: [
+    { role: 'user', content: `Track order ${index}` },
+    { role: 'assistant', content: `{"tool":"track","id":${index}}` }
+  ] }));
+  const result = validateTrainingRequest({
+    name: 'routing-v1', dataset_name: 'routing-data-v1', examples,
+    rank: 8, alpha: 16, learning_rate: 0.0002, max_steps: 20, seed: 42
+  });
+  assert.equal(result.examples.length, 6);
+  assert.throws(() => validateTrainingRequest({ ...result, max_steps: 201 }), /Steps/);
+  assert.throws(() => validateTrainingRequest({ ...result, examples: examples.slice(0, 5) }), /6–200/);
+  assert.throws(() => validateTrainingRequest({ ...result, examples: [{ messages: [{ role: 'assistant', content: 'bad' }] }, ...examples] }), /example/);
+});
+
+test('trained completion API restricts messages and decoding settings', () => {
+  const result = validateCompletionRequest({ messages: [{ role: 'user', content: 'Hello' }], temperature: 0, max_tokens: 128 });
+  assert.equal(result.max_tokens, 128);
+  assert.throws(() => validateCompletionRequest({ messages: [{ role: 'tool', content: 'no' }] }), /message/);
+  assert.throws(() => validateCompletionRequest({ messages: [{ role: 'user', content: 'Hello' }], max_tokens: 2048 }), /1–1024/);
 });
