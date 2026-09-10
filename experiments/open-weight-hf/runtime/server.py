@@ -200,6 +200,9 @@ def train_job(job_id: str) -> None:
                 model.peft_config["default"].base_model_name_or_path = REPOSITORIES["base"]
                 model.save_pretrained(directory, safe_serialization=True)
                 tokenizer.save_pretrained(directory)
+                Path(directory, "README.md").write_text(
+                    f"---\nbase_model: {REPOSITORIES['base']}\nlibrary_name: peft\n---\n\n# {job['name']}\n\nViaana LoRA training artifact `{job_id}`.\n"
+                )
                 artifact_hash = hashlib.sha256(Path(directory, "adapter_model.safetensors").read_bytes()).hexdigest()
                 job.update({"status": "completed", "completed_at": int(time.time()), "progress": 100, "initial_loss": round(losses[0], 5), "final_loss": round(losses[-1], 5), "artifact_sha256": artifact_hash, "repository": ADAPTER_REGISTRY, "repository_path": f"jobs/{job_id}", "base_repository": REPOSITORIES["base"]})
                 Path(directory, "training_manifest.json").write_text(json.dumps(public_job(job), indent=2, sort_keys=True))
