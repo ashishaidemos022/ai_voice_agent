@@ -197,6 +197,7 @@ def train_job(job_id: str) -> None:
                 job.update({"step": step + 1, "progress": round((step + 1) / job["max_steps"] * 100, 1), "loss": round(value, 5)})
             job["status"] = "saving"
             with tempfile.TemporaryDirectory(prefix=f"viaana-{job_id}-") as directory:
+                model.peft_config["default"].base_model_name_or_path = REPOSITORIES["base"]
                 model.save_pretrained(directory, safe_serialization=True)
                 tokenizer.save_pretrained(directory)
                 artifact_hash = hashlib.sha256(Path(directory, "adapter_model.safetensors").read_bytes()).hexdigest()
