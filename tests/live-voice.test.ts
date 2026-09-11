@@ -67,9 +67,12 @@ test('GPT-Live uses a dedicated conversation model with Responses delegation', (
       parameters: { type: 'object', properties: { order_id: { type: 'string' } }, required: ['order_id'] }
     }]
   });
+  assert.equal(session.type, 'live');
   assert.equal(session.model, 'gpt-live-1');
   assert.equal(session.audio.output.voice, 'meridian');
-  assert.equal(session.instructions, 'Sound calm and delegate account work.');
+  assert.match(session.instructions, /Sound calm and delegate account work\./);
+  assert.match(session.instructions, /Agent instructions \(authoritative\):\nUse the workspace policies\./);
+  assert.match(session.instructions, /lookup_order: Look up an order/);
   assert.equal(session.delegation.type, 'responses');
   assert.equal(session.delegation.responses.model, 'gpt-5.6-sol');
   assert.equal(session.delegation.responses.instructions, 'Use the workspace policies.');
@@ -136,6 +139,8 @@ test('realtime endpoint isolates routed sessions without changing native session
     assert.equal(requests[2].session.delegation.responses.model, 'gpt-5.6-sol');
     assert.equal(requests[2].session.delegation.responses.tools[0].name, 'web_search');
     assert.equal(requests[2].session.delegation.responses.tools[1].name, 'search_knowledge_base');
+    assert.match(requests[2].session.instructions, /Agent instructions \(authoritative\):\nOriginal native instructions/);
+    assert.match(requests[2].session.instructions, /get_current_time|web_search/);
     assert.match(requests[2].session.delegation.responses.instructions, /approved knowledge is insufficient/);
   } finally { runtime.Deno = previous.Deno; runtime.liveTestDb = previous.db; runtime.liveTestModel = previous.model; runtime.liveTestSelections = previous.selections; globalThis.fetch = previous.fetch; }
 });

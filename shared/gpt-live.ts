@@ -36,10 +36,18 @@ export function gptLiveSession(config: {
 } = {}) {
   const backendInstructions = config.instructions?.trim() ||
     'Help the user complete their request. Return concise, grounded results suitable for a spoken conversation.';
-  const conversationInstructions = config.conversationInstructions?.trim() ||
-    'Be concise, natural, and conversational. Delegate requests that require reasoning, application data, or actions to the backend.';
+  const personaInstructions = config.conversationInstructions?.trim();
+  const toolCapabilities = (config.tools || [])
+    .map((tool) => `- ${tool.name}: ${tool.description?.trim() || 'Use this backend capability when relevant.'}`)
+    .join('\n');
+  const conversationInstructions = [
+    personaInstructions && personaInstructions !== backendInstructions ? personaInstructions : null,
+    `Agent instructions (authoritative):\n${backendInstructions}`,
+    `Delegation policy:\nBackend tools:\n${toolCapabilities || '- Careful reasoning and tasks governed by the agent instructions.'}\n\nDelegate before answering when a request needs a backend tool, application data, an action, or careful reasoning. Do not guess while waiting for the backend. For simple conversation, answer directly while following the authoritative agent instructions.`
+  ].filter(Boolean).join('\n\n');
 
   return {
+    type: 'live',
     model: OPENAI_MODELS.live.default,
     instructions: conversationInstructions,
     audio: {
