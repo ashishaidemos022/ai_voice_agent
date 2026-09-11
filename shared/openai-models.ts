@@ -1,4 +1,7 @@
 export const OPENAI_MODELS = {
+  live: {
+    default: 'gpt-live-1'
+  },
   realtime: {
     default: 'gpt-realtime-2.1',
     economy: 'gpt-realtime-2.1-mini',
@@ -18,6 +21,7 @@ export const OPENAI_MODELS = {
 } as const;
 
 export type OpenAIModelId =
+  | typeof OPENAI_MODELS.live[keyof typeof OPENAI_MODELS.live]
   | typeof OPENAI_MODELS.realtime[keyof typeof OPENAI_MODELS.realtime]
   | typeof OPENAI_MODELS.chat[keyof typeof OPENAI_MODELS.chat]
   | typeof OPENAI_MODELS.transcription[keyof typeof OPENAI_MODELS.transcription]
@@ -117,6 +121,14 @@ const LEGACY_REALTIME_MODEL_PATTERN = /^(gpt-realtime(?:-1\.5|-2)?|gpt-4o(?:-min
 
 export function isRealtimeModel(model: string | null | undefined): boolean {
   return Boolean(model?.trim().toLowerCase().includes('realtime'));
+}
+
+export function isGPTLiveModel(model: string | null | undefined): boolean {
+  return model?.trim().toLowerCase() === OPENAI_MODELS.live.default;
+}
+
+export function normalizeOpenAIVoiceModel(model?: string | null): string {
+  return isGPTLiveModel(model) ? OPENAI_MODELS.live.default : normalizeRealtimeModel(model);
 }
 
 export function normalizeRealtimeModel(model?: string | null): string {

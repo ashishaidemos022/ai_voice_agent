@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { OPENAI_MODELS, normalizeRealtimeModel } from '../../shared/openai-models';
+import { OPENAI_MODELS, normalizeOpenAIVoiceModel } from '../../shared/openai-models';
 
 export type AgentPanel = 'session' | 'settings' | 'logs';
 
@@ -27,7 +27,7 @@ interface AgentUIState {
 const defaultModel = OPENAI_MODELS.realtime.default;
 
 const normalizePreferredModel = (model?: string | null) => {
-  return normalizeRealtimeModel(model);
+  return normalizeOpenAIVoiceModel(model);
 };
 const defaultVoice = 'alloy';
 

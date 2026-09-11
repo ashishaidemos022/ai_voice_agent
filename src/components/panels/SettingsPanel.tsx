@@ -32,7 +32,7 @@ import { Button } from '../ui/Button';
 import { Card, CardHeader } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { ToolSelectionPanel } from '../settings/ToolSelectionPanel';
-import { OPENAI_MODELS } from '../../../shared/openai-models';
+import { isGPTLiveModel, OPENAI_MODELS } from '../../../shared/openai-models';
 import {
   normalizeXAIVoiceLanguage,
   XAI_VOICE_LANGUAGES,
@@ -98,6 +98,21 @@ const VOICE_OPTIONS = [
   { value: 'sage', label: 'Sage (premium)', description: 'Premium: calm and measured' },
   { value: 'marin', label: 'Marin (premium)', description: 'Premium: smooth, contemporary' },
   { value: 'cedar', label: 'Cedar (premium)', description: 'Premium: warm and grounded' }
+];
+
+const GPT_LIVE_VOICE_OPTIONS = [
+  { value: 'quartz', label: 'Quartz', description: 'Australian English · feminine' },
+  { value: 'ripple', label: 'Ripple', description: 'Australian English · masculine' },
+  { value: 'vesper', label: 'Vesper', description: 'British English · masculine' },
+  { value: 'willow', label: 'Willow', description: 'Irish English · feminine' },
+  { value: 'stone', label: 'Stone', description: 'Irish English · masculine' },
+  { value: 'gleam', label: 'Gleam', description: 'North American English · feminine' },
+  { value: 'meridian', label: 'Meridian', description: 'North American English · masculine' },
+  { value: 'bossa', label: 'Bossa', description: 'Brazilian Portuguese · feminine' },
+  { value: 'tempo', label: 'Tempo', description: 'Brazilian Portuguese · masculine' },
+  { value: 'beacon', label: 'Beacon', description: 'Filipino English · masculine' },
+  { value: 'delta', label: 'Delta', description: 'Southern U.S. English · feminine' },
+  { value: 'cinder', label: 'Cinder', description: 'Southern U.S. English · masculine' }
 ];
 
 const VOICE_PROVIDERS = [
@@ -230,6 +245,7 @@ export function SettingsPanel({
   const isElevenLabsTts = resolvedProvider === 'elevenlabs_tts';
   const isElevenLabsAgent = resolvedProvider === 'elevenlabs_agent';
   const isXAI = resolvedProvider === 'xai_realtime';
+  const isGPTLive = resolvedProvider === 'openai_realtime' && isGPTLiveModel(config.model);
   const isAppManagedElevenLabs = isElevenLabsAgent
     && config.voice_provider_config?.configuration_authority === 'app_managed';
   const isElevenLabs = isElevenLabsTts || isElevenLabsAgent;
@@ -1013,7 +1029,16 @@ export function SettingsPanel({
                   </label>
                   <select
                     value={config.model}
-                    onChange={(e) => onConfigChange({ ...config, model: e.target.value })}
+                    onChange={(e) => {
+                      const model = e.target.value;
+                      onConfigChange({
+                        ...config,
+                        model,
+                        voice: isGPTLiveModel(model)
+                          ? (GPT_LIVE_VOICE_OPTIONS.some((option) => option.value === config.voice) ? config.voice : 'quartz')
+                          : (VOICE_OPTIONS.some((option) => option.value === config.voice) ? config.voice : 'alloy')
+                      });
+                    }}
                     className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
                   >
                     {isXAI ? (
@@ -1024,13 +1049,18 @@ export function SettingsPanel({
                       </>
                     ) : (
                       <>
+                        <option value={OPENAI_MODELS.live.default}>GPT-Live 1 · full duplex + delegated reasoning</option>
                         <option value={OPENAI_MODELS.realtime.default}>GPT Realtime 2.1 · best quality</option>
                         <option value={OPENAI_MODELS.realtime.economy}>GPT Realtime 2.1 mini · lower cost</option>
                       </>
                     )}
                   </select>
                   <p className="text-xs text-white/50 mt-1">
-                    {isXAI ? 'The latest alias follows xAI’s recommended production model.' : 'Realtime 2.1 is the recommended production default.'}
+                    {isXAI
+                      ? 'The latest alias follows xAI’s recommended production model.'
+                      : isGPTLive
+                        ? 'GPT-Live handles the conversation while a Responses model handles delegated work.'
+                        : 'Realtime 2.1 is the recommended production default.'}
                   </p>
                 </div>
                 {isXAI ? (
@@ -1051,6 +1081,26 @@ export function SettingsPanel({
                       <option value="none">None · lowest latency</option>
                     </select>
                     <p className="text-xs text-white/50 mt-1">Controls Grok reasoning for each voice turn.</p>
+                  </div>
+                ) : isGPTLive ? (
+                  <div>
+                    <label className="text-sm font-semibold text-white/80">Delegated backend</label>
+                    <select
+                      value={config.voice_provider_config?.backend_model || OPENAI_MODELS.chat.default}
+                      onChange={(e) => onConfigChange({
+                        ...config,
+                        voice_provider_config: {
+                          ...(config.voice_provider_config || {}),
+                          backend_model: e.target.value
+                        }
+                      })}
+                      className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
+                    >
+                      <option value={OPENAI_MODELS.chat.default}>GPT 5.6 Terra · balanced</option>
+                      <option value={OPENAI_MODELS.chat.frontier}>GPT 5.6 Sol · deeper reasoning</option>
+                      <option value={OPENAI_MODELS.chat.economy}>GPT 5.6 Luna · lower latency</option>
+                    </select>
+                    <p className="text-xs text-white/50 mt-1">Backend usage is billed separately from the live voice session.</p>
                   </div>
                 ) : (
                   <div>
@@ -1299,7 +1349,7 @@ export function SettingsPanel({
                         }}
                         className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
                       >
-                        {(isPersonaPlex ? PERSONAPLEX_VOICE_OPTIONS : isXAI ? XAI_VOICES : VOICE_OPTIONS).map((option) => (
+                        {(isPersonaPlex ? PERSONAPLEX_VOICE_OPTIONS : isXAI ? XAI_VOICES : isGPTLive ? GPT_LIVE_VOICE_OPTIONS : VOICE_OPTIONS).map((option) => (
                           <option key={option.value} value={option.value}>
                             {option.label} — {option.description}
                           </option>

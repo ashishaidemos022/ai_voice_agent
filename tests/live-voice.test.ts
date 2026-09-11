@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { LiveVoiceCoordinator } from '../src/lib/live-voice-coordinator.ts';
 import { liveVoiceSession } from '../shared/live-voice.ts';
+import { gptLiveSession } from '../shared/gpt-live.ts';
 
 function coordinator() {
   const sent: string[] = [], spoken: string[] = [], queued: string[] = []; let interrupted = 0;
@@ -53,22 +54,57 @@ test('live transport starts with VAD interruption enabled but autonomous answers
   assert.deepEqual(session.output_modalities, ['audio']);
 });
 
+test('GPT-Live uses a dedicated conversation model with Responses delegation', () => {
+  const session = gptLiveSession({
+    instructions: 'Use the workspace policies.',
+    conversationInstructions: 'Sound calm and delegate account work.',
+    voice: 'meridian',
+    backendModel: 'gpt-5.6-sol',
+    tools: [{
+      type: 'function',
+      name: 'lookup_order',
+      description: 'Look up an order',
+      parameters: { type: 'object', properties: { order_id: { type: 'string' } }, required: ['order_id'] }
+    }]
+  });
+  assert.equal(session.model, 'gpt-live-1');
+  assert.equal(session.audio.output.voice, 'meridian');
+  assert.equal(session.instructions, 'Sound calm and delegate account work.');
+  assert.equal(session.delegation.type, 'responses');
+  assert.equal(session.delegation.responses.model, 'gpt-5.6-sol');
+  assert.equal(session.delegation.responses.instructions, 'Use the workspace policies.');
+  assert.equal(session.delegation.responses.tools[0].name, 'lookup_order');
+  assert.equal(session.delegation.responses.parallel_tool_calls, true);
+  assert.equal(gptLiveSession({ voice: 'alloy' }).audio.output.voice, 'quartz');
+});
+
 test('realtime endpoint isolates routed sessions without changing native session defaults', async () => {
   const runtime = globalThis as any;
-  const previous = { Deno: runtime.Deno, db: runtime.liveTestDb, fetch: globalThis.fetch };
+  const previous = { Deno: runtime.Deno, db: runtime.liveTestDb, model: runtime.liveTestModel, selections: runtime.liveTestSelections, fetch: globalThis.fetch };
   let handler: (request: Request) => Promise<Response>;
   const requests: any[] = [];
   runtime.Deno = { env: { get: (key: string) => ['OPENAI_BASE_URL','XAI_BASE_URL'].includes(key) ? undefined : 'configured' }, serve: (fn: typeof handler) => { handler = fn; } };
   runtime.liveTestDb = { auth: { getUser: async (token: string) => ({ data: { user: token === 'valid' ? { id: 'auth' } : null } }) }, from(table: string) {
     const filters: Record<string,string> = {};
-    return { select() { return this; }, eq(key: string, value: string) { filters[key] = value; return this; }, async maybeSingle() {
+    return { select() { return this; }, eq(key: string, value: string) { filters[key] = value; return this; }, in() { return this; }, then(resolve: (value: any) => void) {
+      if (table === 'va_agent_config_tools') return resolve({ data: runtime.liveTestSelections || [], error: null });
+      return resolve({ data: [], error: null });
+    }, async maybeSingle() {
       if (table === 'va_users') return { data: { id: 'owner' } };
-      if (table === 'va_agent_configs') return { data: filters.id === 'agent' && filters.user_id === 'owner' ? { id: 'agent', instructions: 'Original native instructions', voice: 'marin', voice_provider: 'openai_realtime', turn_detection_enabled: true } : null };
+      if (table === 'va_agent_configs') return { data: filters.id === 'agent' && filters.user_id === 'owner' ? { id: 'agent', model: runtime.liveTestModel, chat_model: 'gpt-5.6-sol', instructions: 'Original native instructions', voice: runtime.liveTestModel === 'gpt-live-1' ? 'meridian' : 'marin', voice_provider: 'openai_realtime', voice_persona_prompt: 'Keep the conversation calm.', turn_detection_enabled: true, rag_enabled: runtime.liveTestModel === 'gpt-live-1', rag_mode: 'guardrail', knowledge_spaces: runtime.liveTestModel === 'gpt-live-1' ? [{ space_id: 'space_1' }] : [] } : null };
       if (table === 'va_chat_sessions') return { data: filters.id === 'owned' && filters.user_id === 'owner' && filters.agent_preset_id === 'agent' ? { id: 'owned', status: 'active', metadata: { channel: 'routed_voice' } } : null };
       throw new Error(`Unexpected table ${table}`);
     } };
   } };
-  globalThis.fetch = async (_url, init) => { requests.push(JSON.parse((init!.body as FormData).get('session') as string)); return new Response('answer-sdp'); };
+  globalThis.fetch = async (url, init) => {
+    if (`${url}`.endsWith('/live/sessions')) {
+      const payload = JSON.parse(init!.body as string);
+      requests.push(payload);
+      return new Response(JSON.stringify({ session: { id: 'live_123' }, transport: { type: 'webrtc', sdp: 'live-answer-sdp' } }), { status: 201 });
+    }
+    requests.push(JSON.parse((init!.body as FormData).get('session') as string));
+    return new Response('answer-sdp');
+  };
   try {
     const built = await build({ entryPoints: ['supabase/functions/realtime-session/index.ts'], bundle: true, write: false, platform: 'node', format: 'esm', plugins: [{ name: 'db', setup(builder) {
       builder.onResolve({ filter: /^npm:/ }, () => ({ path: 'db', namespace: 'mock' }));
@@ -86,7 +122,22 @@ test('realtime endpoint isolates routed sessions without changing native session
     assert.equal(requests[1].instructions, 'Original native instructions');
     assert.equal(requests[1].audio.output.voice, 'marin');
     assert.equal(requests[1].audio.input.turn_detection.create_response, undefined);
-  } finally { runtime.Deno = previous.Deno; runtime.liveTestDb = previous.db; globalThis.fetch = previous.fetch; }
+    runtime.liveTestModel = 'gpt-live-1';
+    runtime.liveTestSelections = [{ tool_name: 'web_search', tool_source: 'client', user_id: 'owner' }];
+    const liveResponse = await handler!(new Request('https://test.invalid?agent_id=agent', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer valid', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transport: 'webrtc', sdp: 'live-offer-sdp' })
+    }));
+    assert.equal(liveResponse.status, 201);
+    assert.equal(requests[2].transport.sdp, 'live-offer-sdp');
+    assert.equal(requests[2].session.model, 'gpt-live-1');
+    assert.equal(requests[2].session.audio.output.voice, 'meridian');
+    assert.equal(requests[2].session.delegation.responses.model, 'gpt-5.6-sol');
+    assert.equal(requests[2].session.delegation.responses.tools[0].name, 'web_search');
+    assert.equal(requests[2].session.delegation.responses.tools[1].name, 'search_knowledge_base');
+    assert.match(requests[2].session.delegation.responses.instructions, /approved knowledge is insufficient/);
+  } finally { runtime.Deno = previous.Deno; runtime.liveTestDb = previous.db; runtime.liveTestModel = previous.model; runtime.liveTestSelections = previous.selections; globalThis.fetch = previous.fetch; }
 });
 
 test('WebRTC speech clears buffered audio and suppresses responses interrupted before creation', async () => {
@@ -95,6 +146,11 @@ test('WebRTC speech clears buffered audio and suppresses responses interrupted b
     builder.onLoad({ filter: /.*/, namespace: 'mock' }, () => ({ contents: 'export const getToolSchemas=()=>[]; export const getAudioManager=()=>({}); export const beginBenchmarkTurn=()=>{}; export const emitBenchmarkEvent=()=>{}; export const emitBenchmarkMilestone=()=>{}; export const getBenchmarkTrace=()=>null; export const recordBenchmarkWaveform=()=>{}; export const saveBenchmarkOutputAudio=async()=>{};' }));
   } }] });
   const { RealtimeAPIClient } = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString('base64')}`);
+  const previousWindow = (globalThis as any).window;
+  (globalThis as any).window = {
+    setTimeout: globalThis.setTimeout.bind(globalThis),
+    clearTimeout: globalThis.clearTimeout.bind(globalThis)
+  };
   const sent: any[] = [];
   const client = new RealtimeAPIClient({ model: 'test', instructions: 'native', voice: 'marin' }, { routedVoice: true, webrtc: { sessionUrl: 'https://test.invalid' } });
   client.dataChannel = { readyState: 'open', send: (text: string) => sent.push(JSON.parse(text)) };
@@ -131,4 +187,36 @@ test('WebRTC speech clears buffered audio and suppresses responses interrupted b
   assert.equal(xaiSent[1].item.type, 'force_message');
   assert.equal(xaiSent[1].item.interruptible, true);
   assert.ok(!xaiSent.some(event => event.type === 'response.create'));
+  const liveEvents: any[] = [];
+  const liveCommands: any[] = [];
+  const live = new RealtimeAPIClient({ model: 'gpt-live-1', instructions: 'native', voice: 'quartz' }, { webrtc: { sessionUrl: 'https://test.invalid' } });
+  for (const eventType of ['connected', 'session.updated', 'transcript.delta', 'transcript.done', 'usage.reported', 'function_call'] as const) {
+    live.on(eventType, (event: any) => liveEvents.push(event));
+  }
+  live.dataChannel = { readyState: 'open', send: (text: string) => liveCommands.push(JSON.parse(text)), close: () => {} };
+  live.handleServerMessage({ type: 'session.started', session: { id: 'live_123' } });
+  assert.equal(live.isConnected(), true);
+  live.handleServerMessage({ type: 'session.input_transcript.delta', delta: 'Hello', start_ms: 0, end_ms: 200 });
+  live.handleServerMessage({ type: 'session.output_transcript.delta', delta: 'Hi there', start_ms: 150, end_ms: 400 });
+  live.flushLiveTranscript('user');
+  live.flushLiveTranscript('assistant');
+  live.handleServerMessage({ type: 'session.usage.updated', usage: { seconds: 12 } });
+  assert.ok(liveEvents.some((event) => event.type === 'session.updated'));
+  assert.ok(liveEvents.some((event) => event.type === 'transcript.done' && event.role === 'user' && event.transcript === 'Hello'));
+  assert.ok(liveEvents.some((event) => event.type === 'transcript.done' && event.role === 'assistant' && event.transcript === 'Hi there'));
+  assert.ok(liveEvents.some((event) => event.type === 'usage.reported' && event.usage.voice_duration_seconds === 12));
+  live.handleServerMessage({ type: 'response.event', delegation_id: 'delegation_1', event: { type: 'response.created', response: { id: 'response_1' } } });
+  live.handleServerMessage({ type: 'response.event', delegation_id: 'delegation_1', event: { type: 'response.output_item.done', item: { type: 'function_call', call_id: 'call_1', name: 'lookup_one', arguments: '{"id":1}' } } });
+  live.handleServerMessage({ type: 'response.event', delegation_id: 'delegation_1', event: { type: 'response.output_item.done', item: { type: 'function_call', call_id: 'call_2', name: 'lookup_two', arguments: '{"id":2}' } } });
+  live.handleServerMessage({ type: 'response.event', delegation_id: 'delegation_1', event: { type: 'response.completed', response: { id: 'response_1', output: [] } } });
+  assert.equal(liveEvents.filter((event) => event.type === 'function_call').length, 2);
+  live.sendFunctionCallOutput('call_1', { ok: 1 });
+  assert.equal(liveCommands.filter((event) => event.type === 'response.create').length, 0);
+  live.sendFunctionCallOutput('call_2', { ok: 2 });
+  assert.equal(liveCommands.filter((event) => event.type === 'response.item.create').length, 2);
+  assert.equal(liveCommands.filter((event) => event.type === 'response.create').length, 1);
+  live.disconnect();
+  assert.equal(liveCommands.at(-1).type, 'session.close');
+  live.forceDisconnect();
+  (globalThis as any).window = previousWindow;
 });

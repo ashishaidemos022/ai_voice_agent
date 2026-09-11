@@ -4,6 +4,8 @@ import { normalizeMCPArguments, JSONSchema, resolveSchemaDefinition } from './mc
 import { triggerN8NWebhook } from './n8n-service';
 import { buildN8NToolName, normalizeIdentifier } from './tool-utils';
 import { normalizeUsage, recordUsageEvent } from './usage-tracker';
+import { runRagAugmentation } from './rag-service';
+import type { RagMode } from '../types/rag';
 
 export interface Tool {
   name: string;
@@ -446,6 +448,44 @@ export async function loadMCPTools(configId?: string, userId?: string): Promise<
     selectedMcpToolNames = null;
     selectedWebhookToolNames = null;
     selectedClientToolNames = null;
+  }
+}
+
+export function registerRagKnowledgeTool(config: {
+  enabled: boolean;
+  agentConfigId: string;
+  ragMode: RagMode;
+  spaceIds: string[];
+  model?: string | null;
+}): void {
+  const toolName = 'search_knowledge_base';
+  mcpTools = mcpTools.filter((tool) => tool.name !== toolName);
+  if (!config.enabled || !config.spaceIds.length) return;
+  mcpTools.push({
+    name: toolName,
+    description: config.ragMode === 'guardrail'
+      ? 'Search the approved knowledge base. Use this before answering questions that depend on company knowledge, and do not invent an answer when evidence is unavailable.'
+      : 'Search the approved knowledge base for information relevant to the user request.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'The question or lookup query' }
+      },
+      required: ['query'],
+      additionalProperties: false
+    },
+    executionType: 'client',
+    source: 'client',
+    execute: async (params: any) => runRagAugmentation({
+      agentConfigId: config.agentConfigId,
+      query: `${params?.query || ''}`,
+      ragMode: config.ragMode,
+      spaceIds: config.spaceIds,
+      model: config.model || undefined
+    })
+  });
+  if (selectedClientToolNames !== null && !selectedClientToolNames.includes(toolName)) {
+    selectedClientToolNames = [...selectedClientToolNames, toolName];
   }
 }
 

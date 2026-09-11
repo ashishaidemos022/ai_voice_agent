@@ -6,7 +6,7 @@ import { ElevenLabsVoiceAdapter } from '../lib/voice-adapters/elevenlabs-adapter
 import { ElevenLabsAgentAdapter } from '../lib/voice-adapters/elevenlabs-agent-adapter';
 import type { VoiceAdapter } from '../lib/voice-adapters/types';
 import { supabase } from '../lib/supabase';
-import { executeTool, loadMCPTools } from '../lib/tools-registry';
+import { executeTool, loadMCPTools, registerRagKnowledgeTool } from '../lib/tools-registry';
 import { Message, RealtimeConfig, VoiceToolEvent } from '../types/voice-agent';
 import { runRagAugmentation } from '../lib/rag-service';
 import { shouldRunRagForTurn } from '../../shared/rag-routing';
@@ -21,6 +21,7 @@ import {
   requestElevenLabsAgentSignedUrl
 } from '../lib/elevenlabs-agent';
 import { requestRealtimeWebSocketSecret } from '../lib/realtime-session';
+import { isGPTLiveModel } from '../../shared/openai-models';
 import { formatA2UIEventMessage, type A2UIEvent } from '../lib/a2ui';
 import {
   emitBenchmarkEvent,
@@ -52,6 +53,7 @@ export type VoiceProviderMetrics = {
   outputAudioBufferDurationMs: number | null;
   inputAudioTokens: number | null;
   outputAudioTokens: number | null;
+  voiceDurationSeconds: number | null;
 };
 
 const EMPTY_PROVIDER_METRICS: VoiceProviderMetrics = {
@@ -62,7 +64,8 @@ const EMPTY_PROVIDER_METRICS: VoiceProviderMetrics = {
   creditsUsed: null,
   outputAudioBufferDurationMs: null,
   inputAudioTokens: null,
-  outputAudioTokens: null
+  outputAudioTokens: null,
+  voiceDurationSeconds: null
 };
 
 export function useVoiceAgent() {
@@ -580,7 +583,9 @@ export function useVoiceAgent() {
           transcript: transcriptText
         });
         await persistMessage('user', transcriptText);
-        await maybeRunRagAugmentation(transcriptText);
+        if (!isGPTLiveModel(configRef.current?.model)) {
+          await maybeRunRagAugmentation(transcriptText);
+        }
         delete transcriptsRef.current.user[itemId];
         if (transcriptsRef.current.activeUserId === itemId) {
           transcriptsRef.current.activeUserId = null;
@@ -878,6 +883,15 @@ export function useVoiceAgent() {
         setIsRagLoading(false);
 
         await loadMCPTools(configId, vaUser?.id);
+        if (isGPTLiveModel(hydratedConfig.model)) {
+          registerRagKnowledgeTool({
+            enabled: Boolean(hydratedConfig.rag_enabled),
+            agentConfigId: configId,
+            ragMode: hydratedConfig.rag_mode || 'assist',
+            spaceIds: hydratedConfig.knowledge_space_ids || [],
+            model: hydratedConfig.rag_default_model
+          });
+        }
 
         if (realtimeClientRef.current) {
           console.log('[useVoiceAgent] disposing previous realtime client instance');

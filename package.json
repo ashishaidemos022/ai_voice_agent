@@ -18,6 +18,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "typecheck:routing-eval": "tsc -p tsconfig.routing-eval.json",
     "test:voice": "node --experimental-strip-types --test tests/routed-voice.test.ts tests/routed-voice-controls.test.js tests/live-voice.test.ts tests/live-voice-controls.test.js tests/voice-provider-routing.test.ts",
+    "smoke:gpt-live": "node scripts/gpt-live-smoke.mjs",
     "open-weight:eval": "node --experimental-strip-types scripts/open-weight-eval/cli.ts",
     "test:open-weight-eval": "node --experimental-strip-types --test tests/open-weight-eval.test.ts tests/open-weight-api.test.js tests/open-weight-evidence.test.ts tests/open-weight-ui-evaluation.test.ts tests/open-weight-adapter-evaluation.test.ts",
     "typecheck:open-weight-eval": "tsc -p tsconfig.open-weight-eval.json"

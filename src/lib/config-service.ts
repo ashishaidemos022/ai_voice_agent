@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { RealtimeConfig } from '../types/voice-agent';
 import type { RagMode, RagSpace } from '../types/rag';
-import { normalizeRealtimeModel } from '../../shared/openai-models';
+import { normalizeOpenAIVoiceModel } from '../../shared/openai-models';
 import { normalizeXAIVoiceModel } from '../../shared/xai-voice-models';
 
 const RAG_RELATION_SELECT = `
@@ -105,7 +105,7 @@ export interface AgentTemplate {
 export function configPresetToRealtimeConfig(preset: AgentConfigPreset): RealtimeConfig {
   const normalizedModel = preset.voice_provider === 'xai_realtime'
     ? normalizeXAIVoiceModel(preset.model)
-    : normalizeRealtimeModel(preset.model);
+    : normalizeOpenAIVoiceModel(preset.model);
   const vectorStoreIds = (preset.knowledge_spaces || [])
     .map((binding) => binding.rag_space?.vector_store_id)
     .filter((id): id is string => Boolean(id));

@@ -1,5 +1,18 @@
 # AI Voice Agent
 
+## GPT-Live smoke test
+
+The workspace voice client supports `gpt-live-1` through the deployed `realtime-session` function. To verify a real authenticated WebRTC handshake, save a browser-generated audio SDP offer and run:
+
+```bash
+VOICE_AGENT_USER_JWT='…' \
+VOICE_AGENT_ID='…' \
+VOICE_AGENT_SDP_FILE='/absolute/path/to/offer.sdp' \
+npm run smoke:gpt-live
+```
+
+The script reads the Supabase URL and anon key from `.env`, submits the offer to the deployed function, and validates that OpenAI returned a WebRTC answer. It never reads or prints the user JWT.
+
 ## A2UI Testing Notes
 
 ### Workspace (Chat + Voice)

@@ -13,7 +13,7 @@ import {
   Zap
 } from 'lucide-react';
 import { AgentState } from '../../lib/realtime-client';
-import { OPENAI_MODELS } from '../../../shared/openai-models';
+import { isGPTLiveModel, OPENAI_MODELS } from '../../../shared/openai-models';
 import type { RealtimeConfig } from '../../types/voice-agent';
 import type { VoiceMetricsSnapshot, VoiceTurnMetric } from '../../lib/voice-metrics';
 import type { VoiceProviderMetrics } from '../../hooks/useVoiceAgent';
@@ -285,6 +285,41 @@ function runtimeProfile(config: RealtimeConfig): RuntimeProfile {
     };
   }
 
+  if (isGPTLiveModel(config.model)) {
+    const backendModel = `${providerConfig.backend_model || OPENAI_MODELS.chat.default}`;
+    return {
+      provider: 'OpenAI',
+      architecture: 'GPT-Live · full duplex + delegation',
+      summary: 'GPT-Live manages overlapping speech and delegates deeper reasoning to a separate Responses model.',
+      transport: 'WebRTC · authenticated server session',
+      audio: 'WebRTC negotiated audio',
+      turnTaking: 'Full duplex · native interruption handling',
+      stages: [
+        {
+          label: 'Live conversation',
+          model: OPENAI_MODELS.live.default,
+          detail: 'Simultaneous listening and speaking',
+          icon: Mic,
+          accent: 'text-cyan-200'
+        },
+        {
+          label: 'Delegated reasoning',
+          model: backendModel,
+          detail: 'Managed Responses delegation',
+          icon: BrainCircuit,
+          accent: 'text-violet-200'
+        },
+        {
+          label: 'Native speech output',
+          model: OPENAI_MODELS.live.default,
+          detail: `GPT-Live voice · ${config.voice}`,
+          icon: AudioWaveform,
+          accent: 'text-amber-200'
+        }
+      ]
+    };
+  }
+
   return {
     provider: 'OpenAI',
     architecture: 'Native Realtime · speech to speech',
@@ -406,7 +441,9 @@ export function VoiceInteractionArea({
         ['Scribe confidence', providerMetrics.scribeConfidence === null ? '—' : `${Math.round(providerMetrics.scribeConfidence * 100)}%`],
         ['Credits used', providerMetrics.creditsUsed === null ? '—' : providerMetrics.creditsUsed.toLocaleString()]
       ]
-    : [
+    : isGPTLiveModel(config.model)
+      ? [['Voice duration', providerMetrics.voiceDurationSeconds === null ? '—' : `${providerMetrics.voiceDurationSeconds.toFixed(0)} s`]]
+      : [
         ['output_audio_buffer', formatMetricMs(providerMetrics.outputAudioBufferDurationMs)],
         ['Audio tokens in', providerMetrics.inputAudioTokens === null ? '—' : providerMetrics.inputAudioTokens.toLocaleString()],
         ['Audio tokens out', providerMetrics.outputAudioTokens === null ? '—' : providerMetrics.outputAudioTokens.toLocaleString()]

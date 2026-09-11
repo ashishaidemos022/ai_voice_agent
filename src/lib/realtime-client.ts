@@ -1,6 +1,6 @@
 import { liveVoiceSession, LIVE_VOICE_INSTRUCTIONS } from '../../shared/live-voice';
 import { RealtimeConfig } from '../types/voice-agent';
-import { OPENAI_MODELS } from '../../shared/openai-models';
+import { isGPTLiveModel, OPENAI_MODELS } from '../../shared/openai-models';
 import {
   getXAIVoiceLanguageLabel,
   normalizeXAIVoiceLanguage
@@ -107,6 +107,29 @@ export class RealtimeAPIClient {
   private suppressRoutedAudio = false;
   private pendingRoutedAnswer: string | null = null;
   private outputAudioBufferStartedAt: number | null = null;
+  private readonly usesGPTLive: boolean;
+  private liveSessionStarted = false;
+  private liveSessionReadyResolve: (() => void) | null = null;
+  private liveSessionReadyReject: ((error: Error) => void) | null = null;
+  private liveCloseTimer: number | null = null;
+  private liveTranscriptSequence = { user: 0, assistant: 0 };
+  private liveTranscriptBuffers = { user: '', assistant: '' };
+  private liveTranscriptIds: { user: string | null; assistant: string | null } = {
+    user: null,
+    assistant: null
+  };
+  private liveTranscriptTimers: { user: number | null; assistant: number | null } = {
+    user: null,
+    assistant: null
+  };
+  private liveDelegationResponses = new Map<string, {
+    pendingCalls: Set<string>;
+    returnedCalls: Set<string>;
+    completed: boolean;
+    continued: boolean;
+  }>();
+  private liveDelegationResponseIds = new Map<string, string>();
+  private liveCallResponseIds = new Map<string, string>();
 
   constructor(config: RealtimeConfig, options?: RealtimeClientOptions) {
     this.config = config;
@@ -117,6 +140,7 @@ export class RealtimeAPIClient {
     this.allowInterruptions = options?.allowInterruptions ?? true;
     this.textOnly = options?.textOnly ?? false;
     this.webrtc = options?.webrtc;
+    this.usesGPTLive = this.provider === 'openai' && isGPTLiveModel(config.model);
   }
 
   updateSessionConfig(newConfig: RealtimeConfig): void {
@@ -138,6 +162,7 @@ export class RealtimeAPIClient {
     this.bufferedSamples = 0;
     this.activeResponseCount = 0;
     this.cancelPending = false;
+    this.liveSessionStarted = false;
     if (this.remoteRecorder?.state === 'recording') {
       try {
         this.remoteRecorder.stop();
@@ -239,6 +264,9 @@ export class RealtimeAPIClient {
 
     const pc = new RTCPeerConnection();
     this.peerConnection = pc;
+    pc.onconnectionstatechange = () => {
+      console.log('[Realtime WebRTC] peer connection state', pc.connectionState);
+    };
     const stream = await navigator.mediaDevices.getUserMedia({ audio: this.routedVoice ? { echoCancellation: true, noiseSuppression: true } : true });
     if (this.intentionalClose || this.peerConnection !== pc) {
       stream.getTracks().forEach(track => track.stop());
@@ -293,6 +321,9 @@ export class RealtimeAPIClient {
 
     const channel = pc.createDataChannel('oai-events');
     this.dataChannel = channel;
+    channel.onopen = () => {
+      console.log('[Realtime WebRTC] data channel open');
+    };
     channel.onmessage = (event) => {
       try {
         this.handleServerMessage(JSON.parse(event.data));
@@ -302,6 +333,9 @@ export class RealtimeAPIClient {
     };
     channel.onerror = () => this.emit({ type: 'error', error: 'Realtime WebRTC data channel error' });
     channel.onclose = () => {
+      this.liveSessionReadyReject?.(new Error('GPT-Live data channel closed before session startup'));
+      this.liveSessionReadyResolve = null;
+      this.liveSessionReadyReject = null;
       if (!this.intentionalClose) {
         this.emit({
           type: 'disconnected',
@@ -313,13 +347,25 @@ export class RealtimeAPIClient {
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
+    const liveSessionReady = this.usesGPTLive
+      ? new Promise<void>((resolve, reject) => {
+          this.liveSessionReadyResolve = resolve;
+          this.liveSessionReadyReject = reject;
+        })
+      : null;
     const response = await fetch(this.webrtc.sessionUrl, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/sdp',
+        'Content-Type': this.usesGPTLive ? 'application/json' : 'application/sdp',
         ...(this.webrtc.headers || {})
       },
-      body: offer.sdp
+      body: this.usesGPTLive
+        ? JSON.stringify({ transport: 'webrtc', sdp: offer.sdp })
+        : offer.sdp
+    });
+    console.log('[Realtime WebRTC] session handshake response', {
+      status: response.status,
+      live: this.usesGPTLive
     });
     if (!response.ok) {
       const detail = await response.text();
@@ -327,17 +373,39 @@ export class RealtimeAPIClient {
       throw new Error(detail || `Failed to create WebRTC session (${response.status})`);
     }
     if (this.intentionalClose || this.peerConnection !== pc) throw new Error('Voice connection canceled');
-    await pc.setRemoteDescription({
-      type: 'answer',
-      sdp: await response.text()
-    });
+    const responseBody = await response.text();
+    let answerSdp = responseBody;
+    if (this.usesGPTLive) {
+      const payload = JSON.parse(responseBody);
+      answerSdp = payload?.transport?.sdp;
+      if (typeof answerSdp !== 'string' || !answerSdp.trim()) {
+        this.disconnect();
+        throw new Error('GPT-Live session response is missing the SDP answer');
+      }
+    }
+    await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+    console.log('[Realtime WebRTC] remote description applied', { live: this.usesGPTLive });
 
     const finalizeConnection = () => {
       this.reconnectAttempts = 0;
       this.emit({ type: 'connected' });
       emitBenchmarkEvent('session.connected', { transport: 'webrtc' });
-      this.sendSessionUpdate();
+      if (!this.usesGPTLive) this.sendSessionUpdate();
     };
+    if (liveSessionReady) {
+      const timeout = window.setTimeout(() => {
+        this.liveSessionReadyReject?.(new Error('GPT-Live session startup timeout'));
+      }, 15_000);
+      try {
+        await liveSessionReady;
+        finalizeConnection();
+      } finally {
+        window.clearTimeout(timeout);
+        this.liveSessionReadyResolve = null;
+        this.liveSessionReadyReject = null;
+      }
+      return;
+    }
     if (channel.readyState === 'open') {
       finalizeConnection();
     } else {
@@ -383,6 +451,7 @@ export class RealtimeAPIClient {
   }
 
   sendSessionUpdate(): void {
+    if (this.usesGPTLive) return;
     if (this.sessionUpdateSent) {
       console.log('Session update already sent, skipping duplicate');
       return;
@@ -483,6 +552,59 @@ export class RealtimeAPIClient {
 
   private handleServerMessage(message: any): void {
     switch (message.type) {
+      case 'session.started':
+        this.liveSessionStarted = true;
+        this.liveSessionReadyResolve?.();
+        this.emit({ type: 'session.updated' });
+        this.setAgentState('idle', 'live-session-started');
+        break;
+
+      case 'session.input_transcript.delta':
+        this.handleLiveTranscript('user', message);
+        break;
+
+      case 'session.output_transcript.delta':
+        this.handleLiveTranscript('assistant', message);
+        break;
+
+      case 'session.usage.updated':
+        this.emit({
+          type: 'usage.reported',
+          usage: { voice_duration_seconds: message.usage?.seconds ?? null },
+          response: message
+        });
+        this.emit({
+          type: 'provider.metrics',
+          provider: 'openai_live',
+          metrics: { voiceDurationSeconds: message.usage?.seconds ?? null }
+        });
+        break;
+
+      case 'response.event':
+        this.handleLiveResponseEvent(message);
+        break;
+
+      case 'session.delegation.created':
+        if (message.target === 'responses' && typeof message.response_id === 'string') {
+          this.ensureLiveDelegationResponse(message.response_id);
+          if (typeof message.delegation_id === 'string') {
+            this.liveDelegationResponseIds.set(message.delegation_id, message.response_id);
+          }
+        }
+        break;
+
+      case 'session.closed':
+        this.flushLiveTranscript('user');
+        this.flushLiveTranscript('assistant');
+        this.emit({
+          type: 'usage.reported',
+          usage: { voice_duration_seconds: message.usage?.seconds ?? null },
+          response: message
+        });
+        this.emit({ type: 'disconnected', reason: message.reason || 'session-closed' });
+        this.forceDisconnect();
+        break;
+
       case 'session.created':
         console.log('Session created successfully');
         break;
@@ -775,6 +897,112 @@ export class RealtimeAPIClient {
     }
   }
 
+  private handleLiveTranscript(role: 'user' | 'assistant', message: any): void {
+    const delta = typeof message.delta === 'string' ? message.delta : '';
+    if (!delta) return;
+    if (!this.liveTranscriptIds[role]) {
+      this.liveTranscriptSequence[role] += 1;
+      this.liveTranscriptIds[role] = `live-${role}-${this.liveTranscriptSequence[role]}`;
+      this.liveTranscriptBuffers[role] = '';
+      this.emit({ type: 'transcript.reset', role });
+    }
+    this.liveTranscriptBuffers[role] += delta;
+    this.emit({ type: 'transcript.delta', delta, role, itemId: this.liveTranscriptIds[role]! });
+    this.setAgentState(role === 'user' ? 'listening' : 'speaking', `live-${role}-transcript`);
+    const currentTimer = this.liveTranscriptTimers[role];
+    if (currentTimer) window.clearTimeout(currentTimer);
+    this.liveTranscriptTimers[role] = window.setTimeout(() => this.flushLiveTranscript(role), 1200);
+  }
+
+  private handleLiveResponseEvent(envelope: any): void {
+    const nested = envelope?.event;
+    if (!nested?.type) return;
+    const delegationId = typeof envelope.delegation_id === 'string' ? envelope.delegation_id : null;
+    if (nested.type === 'response.created') {
+      const responseId = nested.response?.id;
+      if (typeof responseId === 'string') {
+        this.ensureLiveDelegationResponse(responseId);
+        if (delegationId) this.liveDelegationResponseIds.set(delegationId, responseId);
+      }
+      return;
+    }
+    if (nested.type === 'response.output_item.done' && nested.item?.type === 'function_call') {
+      const callId = nested.item.call_id;
+      const responseId = nested.response_id || (delegationId ? this.liveDelegationResponseIds.get(delegationId) : undefined);
+      if (typeof callId !== 'string' || typeof responseId !== 'string') return;
+      const state = this.liveDelegationResponses.get(responseId);
+      if (!state || state.pendingCalls.has(callId)) return;
+      state.pendingCalls.add(callId);
+      this.liveCallResponseIds.set(callId, responseId);
+      this.emit({
+        type: 'function_call',
+        call: {
+          id: callId,
+          name: nested.item.name,
+          arguments: nested.item.arguments || '{}'
+        }
+      });
+      return;
+    }
+    if (nested.type === 'response.completed' || nested.type === 'response.done') {
+      const responseId = nested.response?.id || nested.response_id || (delegationId ? this.liveDelegationResponseIds.get(delegationId) : undefined);
+      if (typeof responseId !== 'string') return;
+      const state = this.liveDelegationResponses.get(responseId);
+      if (!state) return;
+      state.completed = true;
+      this.continueLiveDelegationIfReady(responseId);
+      return;
+    }
+    if (nested.type === 'error' || nested.type === 'response.failed') {
+      const error = nested.error || nested.response?.error;
+      this.emit({
+        type: 'error',
+        error: error?.message || 'GPT-Live delegated backend request failed'
+      });
+    }
+  }
+
+  private ensureLiveDelegationResponse(responseId: string) {
+    let state = this.liveDelegationResponses.get(responseId);
+    if (!state) {
+      state = {
+        pendingCalls: new Set(),
+        returnedCalls: new Set(),
+        completed: false,
+        continued: false
+      };
+      this.liveDelegationResponses.set(responseId, state);
+    }
+    return state;
+  }
+
+  private continueLiveDelegationIfReady(responseId: string): void {
+    const state = this.liveDelegationResponses.get(responseId);
+    if (!state || state.continued || !state.completed || state.pendingCalls.size === 0) return;
+    if (state.returnedCalls.size !== state.pendingCalls.size) return;
+    state.continued = true;
+    this.send({ type: 'response.create', event_id: crypto.randomUUID() });
+    for (const callId of state.pendingCalls) this.liveCallResponseIds.delete(callId);
+    this.liveDelegationResponses.delete(responseId);
+    for (const [delegationId, mappedResponseId] of this.liveDelegationResponseIds) {
+      if (mappedResponseId === responseId) this.liveDelegationResponseIds.delete(delegationId);
+    }
+  }
+
+  private flushLiveTranscript(role: 'user' | 'assistant'): void {
+    const timer = this.liveTranscriptTimers[role];
+    if (timer) window.clearTimeout(timer);
+    this.liveTranscriptTimers[role] = null;
+    const itemId = this.liveTranscriptIds[role];
+    const transcript = this.liveTranscriptBuffers[role];
+    this.liveTranscriptIds[role] = null;
+    this.liveTranscriptBuffers[role] = '';
+    if (itemId && transcript.trim()) {
+      this.emit({ type: 'transcript.done', transcript, role, itemId });
+    }
+    if (role === 'assistant') this.setAgentState('idle', 'live-assistant-caption-settled');
+  }
+
   sendAudio(audioData: Int16Array): void {
     if (this.webrtc) return;
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
@@ -818,6 +1046,26 @@ export class RealtimeAPIClient {
   }
 
   sendFunctionCallOutput(callId: string, output: any): void {
+    if (this.usesGPTLive) {
+      const responseId = this.liveCallResponseIds.get(callId);
+      if (!responseId) {
+        console.warn('Ignoring a GPT-Live function result with no pending delegated call', { callId });
+        return;
+      }
+      this.send({
+        type: 'response.item.create',
+        event_id: crypto.randomUUID(),
+        item: {
+          type: 'function_call_output',
+          call_id: callId,
+          output: JSON.stringify(output)
+        }
+      });
+      const state = this.liveDelegationResponses.get(responseId);
+      state?.returnedCalls.add(callId);
+      this.continueLiveDelegationIfReady(responseId);
+      return;
+    }
     this.send({
       type: 'conversation.item.create',
       item: {
@@ -834,6 +1082,15 @@ export class RealtimeAPIClient {
 
   sendSystemMessage(text: string): void {
     if (!text || !text.trim()) {
+      return;
+    }
+    if (this.usesGPTLive) {
+      this.send({
+        type: 'session.instructions.append',
+        event_id: crypto.randomUUID(),
+        delegation_id: null,
+        content: text.trim()
+      });
       return;
     }
     this.send({
@@ -855,6 +1112,10 @@ export class RealtimeAPIClient {
     if (!text || !text.trim()) {
       return;
     }
+    if (this.usesGPTLive) {
+      console.warn('Text user messages are not supported by this GPT-Live voice adapter');
+      return;
+    }
     this.send({
       type: 'conversation.item.create',
       item: {
@@ -872,6 +1133,7 @@ export class RealtimeAPIClient {
   }
 
   cancelResponse(options?: { suppressState?: boolean }): void {
+    if (this.usesGPTLive) return;
     if (!this.hasActiveResponse()) {
       console.warn('Cancel requested but no active response');
       return;
@@ -922,6 +1184,7 @@ export class RealtimeAPIClient {
   }
 
   requestResponse(): void {
+    if (this.usesGPTLive) return;
     this.send({
       type: 'response.create'
     });
@@ -1077,6 +1340,16 @@ export class RealtimeAPIClient {
   }
 
   disconnect(): void {
+    if (this.usesGPTLive && this.liveSessionStarted && this.dataChannel?.readyState === 'open' && !this.intentionalClose) {
+      this.intentionalClose = true;
+      this.send({ type: 'session.close', event_id: crypto.randomUUID() });
+      this.liveCloseTimer = window.setTimeout(() => this.forceDisconnect(), 3_000);
+      return;
+    }
+    this.forceDisconnect();
+  }
+
+  private forceDisconnect(): void {
     this.routedSpeechRequested = false; this.pendingRoutedAnswer = null;
     this.intentionalClose = true;
     this.sessionUpdateSent = false;
@@ -1085,6 +1358,17 @@ export class RealtimeAPIClient {
     this.bufferedSamples = 0;
     this.activeResponseCount = 0;
     this.cancelPending = false;
+    this.liveSessionStarted = false;
+    this.liveSessionReadyReject?.(new Error('Voice connection canceled'));
+    this.liveSessionReadyResolve = null;
+    this.liveSessionReadyReject = null;
+    if (this.liveCloseTimer) window.clearTimeout(this.liveCloseTimer);
+    this.liveCloseTimer = null;
+    this.liveDelegationResponses.clear();
+    this.liveDelegationResponseIds.clear();
+    this.liveCallResponseIds.clear();
+    this.flushLiveTranscript('user');
+    this.flushLiveTranscript('assistant');
     if (this.ws) {
       try {
         if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
@@ -1130,7 +1414,9 @@ export class RealtimeAPIClient {
   }
 
   isConnected(): boolean {
-    return this.dataChannel?.readyState === 'open' || (this.ws !== null && this.ws.readyState === WebSocket.OPEN);
+    return (this.usesGPTLive
+      ? this.liveSessionStarted && this.dataChannel?.readyState === 'open'
+      : this.dataChannel?.readyState === 'open') || (this.ws !== null && this.ws.readyState === WebSocket.OPEN);
   }
 
   async startCapture(): Promise<void> {
