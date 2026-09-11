@@ -67,7 +67,7 @@ test('GPT-Live uses a dedicated conversation model with Responses delegation', (
       parameters: { type: 'object', properties: { order_id: { type: 'string' } }, required: ['order_id'] }
     }]
   });
-  assert.equal(session.type, 'live');
+  assert.equal('type' in session, false, 'WebRTC session creation rejects session.type');
   assert.equal(session.model, 'gpt-live-1');
   assert.equal(session.audio.output.voice, 'meridian');
   assert.match(session.instructions, /Sound calm and delegate account work\./);

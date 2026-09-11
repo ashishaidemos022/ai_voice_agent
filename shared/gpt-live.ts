@@ -47,7 +47,6 @@ export function gptLiveSession(config: {
   ].filter(Boolean).join('\n\n');
 
   return {
-    type: 'live',
     model: OPENAI_MODELS.live.default,
     instructions: conversationInstructions,
     audio: {
