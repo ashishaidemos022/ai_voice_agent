@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fetchWithRuntimeWarmup, getAllowedModels, getGatewayToken, getUpstreamRequest, parseBearer, validateLabRequest } from '../api/open-weight-chat.js';
-import { validateCompletionRequest, validatePromotionRequest, validateTrainingRequest } from '../api/open-weight-training.js';
+import { validateCompletionRequest, validateEvaluationEvidence, validatePromotionRequest, validateTrainingRequest } from '../api/open-weight-training.js';
 
 test('API requires a strict bearer token shape', () => {
   assert.equal(parseBearer('Bearer header.payload.signature'), 'header.payload.signature');
@@ -107,4 +107,14 @@ test('promotion requires a perfect adapter result that improves on base', () => 
   assert.throws(() => validatePromotionRequest({ ...request, adapter_passed: 1 }), /perfect adapter score/);
   assert.throws(() => validatePromotionRequest({ ...request, base_passed: 2 }), /improves on the base/);
   assert.throws(() => validatePromotionRequest({ ...request, evaluation_sha256: 'bad' }), /evaluation hash/);
+});
+
+test('evaluation evidence is bounded and tied to a training job', () => {
+  const evidence = {
+    id: 'adapter-eval-2026-09-11T12-00-00-000Z', createdAt: '2026-09-11T12:00:00.000Z', suiteSha256: 'b'.repeat(64), temperature: 0,
+    job: { id: 'train-20260911-120000-abcdef12' }, cases: [{ id: 'case-1', prompt: 'Question?', base: { answer: 'No', pass: false, latencyMs: 10 }, adapter: { answer: 'Yes', pass: true, latencyMs: 12 } }]
+  };
+  assert.equal(validateEvaluationEvidence(evidence).cases.length, 1);
+  assert.throws(() => validateEvaluationEvidence({ ...evidence, cases: [] }), /1–20/);
+  assert.throws(() => validateEvaluationEvidence({ ...evidence, suiteSha256: 'bad' }), /suite hash/);
 });

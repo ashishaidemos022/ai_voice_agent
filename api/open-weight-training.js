@@ -60,6 +60,23 @@ export function validatePromotionRequest(body) {
   return { evaluation_id: body.evaluation_id, evaluation_sha256: body.evaluation_sha256, adapter_passed: body.adapter_passed, base_passed: body.base_passed, total: body.total };
 }
 
+export function validateEvaluationEvidence(body) {
+  if (!plainObject(body)) throw new Error('Evaluation evidence must be an object');
+  if (typeof body.id !== 'string' || !/^adapter-eval-[A-Za-z0-9-]+$/.test(body.id)) throw new Error('Invalid evaluation id');
+  if (typeof body.createdAt !== 'string' || !Number.isFinite(Date.parse(body.createdAt))) throw new Error('Invalid evaluation timestamp');
+  if (typeof body.suiteSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(body.suiteSha256)) throw new Error('Invalid suite hash');
+  if (!plainObject(body.job) || typeof body.job.id !== 'string' || !/^train-[A-Za-z0-9-]+$/.test(body.job.id)) throw new Error('Invalid evaluation job');
+  if (!Array.isArray(body.cases) || body.cases.length < 1 || body.cases.length > 20) throw new Error('Evaluation must contain 1–20 cases');
+  for (const item of body.cases) {
+    if (!plainObject(item) || typeof item.id !== 'string' || typeof item.prompt !== 'string' || !plainObject(item.base) || !plainObject(item.adapter)) throw new Error('Invalid evaluation case');
+    for (const variant of [item.base, item.adapter, item.fused].filter(Boolean)) {
+      if (typeof variant.answer !== 'string' || typeof variant.pass !== 'boolean' || !Number.isFinite(variant.latencyMs)) throw new Error('Invalid evaluation result');
+    }
+  }
+  if (JSON.stringify(body).length > 250000) throw new Error('Evaluation evidence is too large');
+  return body;
+}
+
 function runtimeConfig(env = process.env) {
   const model = getAllowedModels().find((entry) => entry.transport === 'openai-compatible');
   if (!model?.endpoint || !env.HUGGING_FACE_TOKEN || !env.OPEN_WEIGHT_RUNTIME_KEY) throw new Error('Training runtime is unavailable');
@@ -87,13 +104,15 @@ export default async function handler(req, res) {
   const completion = req.query?.action === 'completion';
   const fusedCompletion = req.query?.action === 'fused-completion';
   const promotion = req.query?.action === 'promote';
-  if ((completion || fusedCompletion || promotion) && (!jobId || req.method !== 'POST')) return json(res, 400, { error: 'Invalid training-job action' });
+  const evaluation = req.query?.action === 'evaluation';
+  if ((completion || fusedCompletion || promotion || evaluation) && (!jobId || req.method !== 'POST')) return json(res, 400, { error: 'Invalid training-job action' });
   let body;
-  try { body = req.method === 'POST' ? (completion || fusedCompletion ? validateCompletionRequest(req.body) : promotion ? validatePromotionRequest(req.body) : validateTrainingRequest(req.body)) : undefined; }
+  try { body = req.method === 'POST' ? (completion || fusedCompletion ? validateCompletionRequest(req.body) : promotion ? validatePromotionRequest(req.body) : evaluation ? validateEvaluationEvidence(req.body) : validateTrainingRequest(req.body)) : undefined; }
   catch (error) { return json(res, 400, { error: error instanceof Error ? error.message : 'Invalid request' }); }
   const path = completion ? `/v1/training/jobs/${jobId}/completions`
     : fusedCompletion ? `/v1/training/jobs/${jobId}/completions?variant=fused`
       : promotion ? `/v1/training/jobs/${jobId}/promote`
+        : evaluation ? `/v1/training/jobs/${jobId}/evaluations`
         : jobId ? `/v1/training/jobs/${jobId}` : '/v1/training/jobs';
   let upstream;
   try { upstream = await runtimeFetch(`${runtime.endpoint}${path}`, { method: req.method, headers: runtime.headers, body: body ? JSON.stringify(body) : undefined }, promotion ? 290000 : 30000, promotion ? 290000 : 180000); }

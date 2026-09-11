@@ -111,6 +111,49 @@ def hash_weight_files(directory: str) -> str:
     return digest.hexdigest()
 
 
+def save_evaluation(job_id: str, evidence: dict) -> tuple[dict, str]:
+    job = state["jobs"].get(job_id)
+    if not job or job.get("status") != "completed":
+        raise HTTPException(status_code=404, detail="Completed adapter not found")
+    if not isinstance(evidence, dict) or evidence.get("job", {}).get("id") != job_id:
+        raise HTTPException(status_code=400, detail="Evaluation job does not match")
+    evaluation_id = evidence.get("id")
+    cases = evidence.get("cases")
+    if not isinstance(evaluation_id, str) or not evaluation_id.startswith("adapter-eval-") or not isinstance(cases, list) or not 1 <= len(cases) <= 20:
+        raise HTTPException(status_code=400, detail="Invalid evaluation evidence")
+    canonical = json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()
+    if len(canonical) > 250_000:
+        raise HTTPException(status_code=400, detail="Evaluation evidence is too large")
+    evidence_hash = hashlib.sha256(canonical).hexdigest()
+    token = os.environ.get("HF_WRITE_TOKEN")
+    if not token:
+        raise HTTPException(status_code=503, detail="Evaluation storage is unavailable")
+    with tempfile.NamedTemporaryFile(mode="wb", suffix=".json", delete=False) as handle:
+        handle.write(json.dumps(evidence, indent=2, sort_keys=True).encode())
+        evidence_path = handle.name
+    try:
+        HfApi(token=token).upload_file(
+            path_or_fileobj=evidence_path,
+            path_in_repo=f"jobs/{job_id}/evaluations/{evaluation_id}.json",
+            repo_id=ADAPTER_REGISTRY,
+            repo_type="model",
+            commit_message=f"Save evaluation {evaluation_id}",
+        )
+    finally:
+        Path(evidence_path).unlink(missing_ok=True)
+    adapter_passed = sum(1 for item in cases if item.get("adapter", {}).get("pass") is True)
+    base_passed = sum(1 for item in cases if item.get("base", {}).get("pass") is True)
+    fused_passed = sum(1 for item in cases if item.get("fused", {}).get("pass") is True)
+    job.update({
+        "latest_evaluation_id": evaluation_id, "latest_evaluation_sha256": evidence_hash,
+        "latest_evaluation_total": len(cases), "latest_evaluation_base_passed": base_passed,
+        "latest_evaluation_adapter_passed": adapter_passed, "latest_evaluation_fused_passed": fused_passed,
+        "latest_evaluation_repository_path": f"jobs/{job_id}/evaluations/{evaluation_id}.json",
+    })
+    persist_manifest(job)
+    return job, evidence_hash
+
+
 def load_registry() -> None:
     token = os.environ.get("HF_WRITE_TOKEN")
     if not token:
@@ -408,3 +451,10 @@ def promote(job_id: str, request: PromotionRequest, x_runtime_key: str | None = 
     if state["status"] != "ready":
         raise HTTPException(status_code=503, detail=f"Runtime is {state['status']}")
     return {"job": public_job(promote_job(job_id, request))}
+
+
+@app.post("/v1/training/jobs/{job_id}/evaluations")
+def store_evaluation(job_id: str, evidence: dict, x_runtime_key: str | None = Header(default=None)):
+    authorize(x_runtime_key)
+    job, evidence_hash = save_evaluation(job_id, evidence)
+    return {"job": public_job(job), "evaluation_sha256": evidence_hash}
