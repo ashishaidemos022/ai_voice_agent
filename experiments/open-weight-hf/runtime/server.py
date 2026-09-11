@@ -31,6 +31,7 @@ state: dict[str, object] = {
 generation_lock = threading.Lock()
 training_lock = threading.Lock()
 promotion_lock = threading.Lock()
+model_load_lock = threading.Lock()
 
 
 class Message(BaseModel):
@@ -304,29 +305,35 @@ def train_job(job_id: str) -> None:
 def load_trained_model(job_id: str):
     if job_id in state["trained_models"]:
         return state["trained_models"][job_id]
-    job = state["jobs"].get(job_id)
-    if not job or job.get("status") != "completed":
-        raise HTTPException(status_code=404, detail="Completed adapter not found")
-    adapter_path = snapshot_download(ADAPTER_REGISTRY, repo_type="model", token=os.environ.get("HF_WRITE_TOKEN"), allow_patterns=f"jobs/{job_id}/*")
-    common = {"torch_dtype": torch.float16, "device_map": "auto", "low_cpu_mem_usage": True}
-    base = AutoModelForCausalLM.from_pretrained(state["paths"]["base"], **common)
-    model = PeftModel.from_pretrained(base, str(Path(adapter_path) / "jobs" / job_id)).eval()
-    state["trained_models"][job_id] = model
-    return model
+    with model_load_lock:
+        if job_id in state["trained_models"]:
+            return state["trained_models"][job_id]
+        job = state["jobs"].get(job_id)
+        if not job or job.get("status") != "completed":
+            raise HTTPException(status_code=404, detail="Completed adapter not found")
+        adapter_path = snapshot_download(ADAPTER_REGISTRY, repo_type="model", token=os.environ.get("HF_WRITE_TOKEN"), allow_patterns=f"jobs/{job_id}/*")
+        common = {"torch_dtype": torch.float16, "device_map": "auto", "low_cpu_mem_usage": True}
+        base = AutoModelForCausalLM.from_pretrained(state["paths"]["base"], **common)
+        model = PeftModel.from_pretrained(base, str(Path(adapter_path) / "jobs" / job_id)).eval()
+        state["trained_models"][job_id] = model
+        return model
 
 
 def load_fused_model(job_id: str):
     if job_id in state["fused_models"]:
         return state["fused_models"][job_id]
-    job = state["jobs"].get(job_id)
-    if not job or job.get("promotion_status") != "promoted":
-        raise HTTPException(status_code=404, detail="Promoted fused checkpoint not found")
-    snapshot = snapshot_download(ADAPTER_REGISTRY, repo_type="model", token=os.environ.get("HF_WRITE_TOKEN"), allow_patterns=f"jobs/{job_id}/fused/*")
-    path = Path(snapshot) / "jobs" / job_id / "fused"
-    common = {"torch_dtype": torch.float16, "device_map": "auto", "low_cpu_mem_usage": True}
-    model = AutoModelForCausalLM.from_pretrained(str(path), **common).eval()
-    state["fused_models"][job_id] = model
-    return model
+    with model_load_lock:
+        if job_id in state["fused_models"]:
+            return state["fused_models"][job_id]
+        job = state["jobs"].get(job_id)
+        if not job or job.get("promotion_status") != "promoted":
+            raise HTTPException(status_code=404, detail="Promoted fused checkpoint not found")
+        snapshot = snapshot_download(ADAPTER_REGISTRY, repo_type="model", token=os.environ.get("HF_WRITE_TOKEN"), allow_patterns=f"jobs/{job_id}/fused/*")
+        path = Path(snapshot) / "jobs" / job_id / "fused"
+        common = {"torch_dtype": torch.float16, "device_map": "auto", "low_cpu_mem_usage": True}
+        model = AutoModelForCausalLM.from_pretrained(str(path), **common).eval()
+        state["fused_models"][job_id] = model
+        return model
 
 
 def promote_job(job_id: str, request: PromotionRequest) -> dict:
