@@ -18,7 +18,7 @@ type EvidenceRun = {
 const WREN_SYSTEM = "You are Wren Restaurants' factual FAQ assistant. Answer only from the facts learned during training. Keep answers concise. Preserve qualifications about location-specific or holiday variations.";
 const wrenCases: AdapterTestCase[] = [
   { id: 'hours-saturday', category: 'hours', messages: [{ role: 'system', content: WREN_SYSTEM }, { role: 'user', content: 'Can we come to Wren for lunch at noon on Saturday?' }], expected: { required: [['11:30 a.m.', '11:30 am'], ['2:30 p.m.', '2:30 pm'], ['Tuesday–Sunday', 'Tuesday-Sunday', 'Tuesday through Sunday', 'Tuesday to Sunday'], ['location', 'locations'], ['holiday', 'holidays']] } },
-  { id: 'gift-card-cross-location', category: 'gift-cards', messages: [{ role: 'system', content: WREN_SYSTEM }, { role: 'user', content: 'Can I purchase a $75 Wren gift card online and use it at a different Wren location?' }], expected: { required: [['online'], ['$75', '75'], ['any Wren location', 'different Wren location', 'all Wren locations']] } },
+  { id: 'gift-card-cross-location', category: 'gift-cards', messages: [{ role: 'system', content: WREN_SYSTEM }, { role: 'user', content: 'Can I purchase a $75 Wren gift card online and use it at a different Wren location?' }], expected: { required: [['online'], ['any amount'], ['any Wren location', 'all Wren locations']], forbidden: ['cannot', "can't", 'can not', 'only at the location'] } },
 ];
 const wrenJsonl = wrenCases.map((item) => JSON.stringify(item)).join('\n');
 const HISTORY_KEY = 'viaana-adapter-evaluation-history-v1';
