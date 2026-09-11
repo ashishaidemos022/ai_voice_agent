@@ -56,12 +56,23 @@ export function OpenWeightLab(props: OpenWeightLabProps) {
   useEffect(() => {
     if (!session?.access_token) return;
     const headers = { Authorization: `Bearer ${session.access_token}` };
-    Promise.all([
-      fetch('/api/open-weight-chat', { headers }).then(readJson),
-      fetch('/api/open-weight-training', { headers }).then(readJson),
-    ])
-      .then(([registry, training]) => {
+    setError('');
+    fetch('/api/open-weight-chat', { headers })
+      .then(readJson)
+      .then((registry) => {
         const registered = (registry.models || []) as ModelVariant[];
+        setModels((current) => [
+          ...registered,
+          ...current.filter((model) => model.transport === 'trained-adapter' || model.transport === 'trained-fused'),
+        ]);
+        const base = registered.find((model) => model.transport === 'openai-compatible' && model.runtimeModel === 'base');
+        if (base) setSelectedModels((current) => current.length ? current : [base.id]);
+      })
+      .catch((reason) => setError(reason instanceof Error ? reason.message : 'Unable to load registered model variants'));
+
+    fetch('/api/open-weight-training', { headers })
+      .then(readJson)
+      .then((training) => {
         const trainedAdapters = ((training.jobs || []) as TrainingJob[])
           .filter((job) => job.status === 'completed')
           .map((job): ModelVariant => ({
@@ -80,13 +91,14 @@ export function OpenWeightLab(props: OpenWeightLabProps) {
           .filter((job) => job.status === 'completed' && job.promotion_status === 'promoted' && job.fused_sha256)
           .map((job): ModelVariant => ({ id: `${job.id}-fused`, model: `${job.name} · fused`, revision: job.fused_sha256!, precision: 'Fused FP16 checkpoint', providerOnly: null, transport: 'trained-fused', runtimeModel: job.id, supportsTools: false, datasetName: job.dataset_name, trainedAt: job.completed_at }));
         const trained = [...trainedAdapters, ...trainedFused];
-        const next = [...registered, ...trained];
-        setModels(next);
-        const base = registered.find((model) => model.transport === 'openai-compatible' && model.runtimeModel === 'base');
+        setModels((current) => [
+          ...current.filter((model) => model.transport !== 'trained-adapter' && model.transport !== 'trained-fused'),
+          ...trained,
+        ]);
         const latestAdapter = trainedAdapters.sort((a, b) => (b.trainedAt || 0) - (a.trainedAt || 0))[0];
-        setSelectedModels([base?.id, latestAdapter?.id].filter((id): id is string => !!id));
+        if (latestAdapter) setSelectedModels((current) => current.includes(latestAdapter.id) ? current : [...current, latestAdapter.id]);
       })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : 'Unable to load model variants'));
+      .catch((reason) => setError(reason instanceof Error ? reason.message : 'GPU runtime is waking; trained models will appear shortly'));
   }, [session?.access_token, view]);
 
   const totalCost = useMemo(() => results.reduce((sum, result) => sum + (result.costUsd || 0), 0), [results]);
