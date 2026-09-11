@@ -25,11 +25,12 @@ REPOSITORIES = {
 }
 ADAPTER_REGISTRY = "bhatsy/viaana-trained-adapters"
 state: dict[str, object] = {
-    "status": "starting", "error": None, "models": {}, "trained_models": {},
+    "status": "starting", "error": None, "models": {}, "trained_models": {}, "fused_models": {},
     "tokenizer": None, "paths": {}, "jobs": {},
 }
 generation_lock = threading.Lock()
 training_lock = threading.Lock()
+promotion_lock = threading.Lock()
 
 
 class Message(BaseModel):
@@ -66,8 +67,48 @@ class TrainedCompletionRequest(BaseModel):
     max_tokens: int = Field(default=256, ge=1, le=1024)
 
 
+class PromotionRequest(BaseModel):
+    evaluation_id: str = Field(pattern=r"^adapter-eval-[A-Za-z0-9-]+$")
+    evaluation_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    adapter_passed: int = Field(ge=1, le=20)
+    base_passed: int = Field(ge=0, le=20)
+    total: int = Field(ge=1, le=20)
+
+
 def public_job(job: dict) -> dict:
     return {key: value for key, value in job.items() if key not in {"examples", "model"}}
+
+
+def persist_manifest(job: dict) -> None:
+    token = os.environ.get("HF_WRITE_TOKEN")
+    if not token:
+        raise RuntimeError("HF_WRITE_TOKEN Space secret is required")
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as handle:
+        json.dump(public_job(job), handle, indent=2, sort_keys=True)
+        manifest_path = handle.name
+    try:
+        HfApi(token=token).upload_file(
+            path_or_fileobj=manifest_path,
+            path_in_repo=f"jobs/{job['id']}/training_manifest.json",
+            repo_id=ADAPTER_REGISTRY,
+            repo_type="model",
+            commit_message=f"Update manifest for {job['id']}",
+        )
+    finally:
+        Path(manifest_path).unlink(missing_ok=True)
+
+
+def hash_weight_files(directory: str) -> str:
+    digest = hashlib.sha256()
+    files = sorted(Path(directory).glob("*.safetensors"))
+    if not files:
+        raise RuntimeError("Fused checkpoint contains no safetensors weights")
+    for path in files:
+        digest.update(path.name.encode())
+        with path.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
+    return digest.hexdigest()
 
 
 def load_registry() -> None:
@@ -231,6 +272,73 @@ def load_trained_model(job_id: str):
     return model
 
 
+def load_fused_model(job_id: str):
+    if job_id in state["fused_models"]:
+        return state["fused_models"][job_id]
+    job = state["jobs"].get(job_id)
+    if not job or job.get("promotion_status") != "promoted":
+        raise HTTPException(status_code=404, detail="Promoted fused checkpoint not found")
+    snapshot = snapshot_download(ADAPTER_REGISTRY, repo_type="model", token=os.environ.get("HF_WRITE_TOKEN"), allow_patterns=f"jobs/{job_id}/fused/*")
+    path = Path(snapshot) / "jobs" / job_id / "fused"
+    common = {"torch_dtype": torch.float16, "device_map": "auto", "low_cpu_mem_usage": True}
+    model = AutoModelForCausalLM.from_pretrained(str(path), **common).eval()
+    state["fused_models"][job_id] = model
+    return model
+
+
+def promote_job(job_id: str, request: PromotionRequest) -> dict:
+    job = state["jobs"].get(job_id)
+    if not job or job.get("status") != "completed":
+        raise HTTPException(status_code=404, detail="Completed adapter not found")
+    if request.adapter_passed != request.total or request.base_passed >= request.adapter_passed:
+        raise HTTPException(status_code=400, detail="Promotion requires a perfect adapter score that improves on the base")
+    if job.get("promotion_status") == "promoted":
+        return job
+    with promotion_lock:
+        if job.get("promotion_status") == "promoted":
+            return job
+        try:
+            job.update({"promotion_status": "fusing", "promotion_error": None})
+            token = os.environ.get("HF_WRITE_TOKEN")
+            if not token:
+                raise RuntimeError("HF_WRITE_TOKEN Space secret is required")
+            adapter_snapshot = snapshot_download(ADAPTER_REGISTRY, repo_type="model", token=token, allow_patterns=f"jobs/{job_id}/*")
+            adapter_path = Path(adapter_snapshot) / "jobs" / job_id
+            common = {"torch_dtype": torch.float16, "device_map": "auto", "low_cpu_mem_usage": True}
+            base = AutoModelForCausalLM.from_pretrained(state["paths"]["base"], **common)
+            fused = PeftModel.from_pretrained(base, str(adapter_path)).merge_and_unload(safe_merge=True).eval()
+            with tempfile.TemporaryDirectory(prefix=f"viaana-fused-{job_id}-") as directory:
+                fused.save_pretrained(directory, safe_serialization=True, max_shard_size="2GB")
+                state["tokenizer"].save_pretrained(directory)
+                fused_hash = hash_weight_files(directory)
+                HfApi(token=token).upload_folder(
+                    folder_path=directory,
+                    repo_id=ADAPTER_REGISTRY,
+                    repo_type="model",
+                    path_in_repo=f"jobs/{job_id}/fused",
+                    commit_message=f"Promote fused checkpoint {job_id}",
+                )
+            job.update({
+                "promotion_status": "promoted", "promoted_at": int(time.time()),
+                "evaluation_id": request.evaluation_id, "evaluation_sha256": request.evaluation_sha256,
+                "evaluation_adapter_passed": request.adapter_passed, "evaluation_base_passed": request.base_passed,
+                "evaluation_total": request.total, "fused_sha256": fused_hash,
+                "fused_repository_path": f"jobs/{job_id}/fused",
+            })
+            persist_manifest(job)
+            state["fused_models"][job_id] = fused
+            return job
+        except HTTPException:
+            raise
+        except Exception as error:
+            job.update({"promotion_status": "failed", "promotion_error": f"{type(error).__name__}: {error}"})
+            try:
+                persist_manifest(job)
+            except Exception:
+                pass
+            raise HTTPException(status_code=500, detail=f"Checkpoint promotion failed: {type(error).__name__}") from error
+
+
 @app.get("/health")
 def health():
     return {"status": state["status"], "models": list((state.get("models") or {}).keys()), "error": state["error"]}
@@ -286,8 +394,17 @@ def get_training_job(job_id: str, x_runtime_key: str | None = Header(default=Non
 
 
 @app.post("/v1/training/jobs/{job_id}/completions")
-def complete_trained(job_id: str, request: TrainedCompletionRequest, x_runtime_key: str | None = Header(default=None)):
+def complete_trained(job_id: str, request: TrainedCompletionRequest, variant: Literal["adapter", "fused"] = "adapter", x_runtime_key: str | None = Header(default=None)):
     authorize(x_runtime_key)
     if state["status"] != "ready":
         raise HTTPException(status_code=503, detail=f"Runtime is {state['status']}")
-    return generate(load_trained_model(job_id), request.messages, request.temperature, request.max_tokens, job_id)
+    model = load_fused_model(job_id) if variant == "fused" else load_trained_model(job_id)
+    return generate(model, request.messages, request.temperature, request.max_tokens, f"{job_id}-{variant}")
+
+
+@app.post("/v1/training/jobs/{job_id}/promote")
+def promote(job_id: str, request: PromotionRequest, x_runtime_key: str | None = Header(default=None)):
+    authorize(x_runtime_key)
+    if state["status"] != "ready":
+        raise HTTPException(status_code=503, detail=f"Runtime is {state['status']}")
+    return {"job": public_job(promote_job(job_id, request))}

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fetchWithRuntimeWarmup, getAllowedModels, getGatewayToken, getUpstreamRequest, parseBearer, validateLabRequest } from '../api/open-weight-chat.js';
-import { validateCompletionRequest, validateTrainingRequest } from '../api/open-weight-training.js';
+import { validateCompletionRequest, validatePromotionRequest, validateTrainingRequest } from '../api/open-weight-training.js';
 
 test('API requires a strict bearer token shape', () => {
   assert.equal(parseBearer('Bearer header.payload.signature'), 'header.payload.signature');
@@ -96,4 +96,15 @@ test('trained completion API restricts messages and decoding settings', () => {
   assert.equal(result.max_tokens, 128);
   assert.throws(() => validateCompletionRequest({ messages: [{ role: 'tool', content: 'no' }] }), /message/);
   assert.throws(() => validateCompletionRequest({ messages: [{ role: 'user', content: 'Hello' }], max_tokens: 2048 }), /1–1024/);
+});
+
+test('promotion requires a perfect adapter result that improves on base', () => {
+  const request = validatePromotionRequest({
+    evaluation_id: 'adapter-eval-2026-09-11T12-00-00-000Z',
+    evaluation_sha256: 'a'.repeat(64), adapter_passed: 2, base_passed: 0, total: 2
+  });
+  assert.equal(request.adapter_passed, 2);
+  assert.throws(() => validatePromotionRequest({ ...request, adapter_passed: 1 }), /perfect adapter score/);
+  assert.throws(() => validatePromotionRequest({ ...request, base_passed: 2 }), /improves on the base/);
+  assert.throws(() => validatePromotionRequest({ ...request, evaluation_sha256: 'bad' }), /evaluation hash/);
 });

@@ -49,17 +49,28 @@ export function validateCompletionRequest(body) {
   return { messages, max_tokens, temperature };
 }
 
+export function validatePromotionRequest(body) {
+  if (!plainObject(body)) throw new Error('Request body must be an object');
+  const allowed = new Set(['evaluation_id', 'evaluation_sha256', 'adapter_passed', 'base_passed', 'total']);
+  if (Object.keys(body).some((key) => !allowed.has(key))) throw new Error('Unknown request field');
+  if (typeof body.evaluation_id !== 'string' || !/^adapter-eval-[A-Za-z0-9-]+$/.test(body.evaluation_id)) throw new Error('Invalid evaluation id');
+  if (typeof body.evaluation_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(body.evaluation_sha256)) throw new Error('Invalid evaluation hash');
+  for (const key of ['adapter_passed', 'base_passed', 'total']) if (!Number.isInteger(body[key]) || body[key] < 0 || body[key] > 20) throw new Error(`Invalid ${key}`);
+  if (body.total < 1 || body.adapter_passed !== body.total || body.base_passed >= body.adapter_passed) throw new Error('Promotion requires a perfect adapter score that improves on the base');
+  return { evaluation_id: body.evaluation_id, evaluation_sha256: body.evaluation_sha256, adapter_passed: body.adapter_passed, base_passed: body.base_passed, total: body.total };
+}
+
 function runtimeConfig(env = process.env) {
   const model = getAllowedModels().find((entry) => entry.transport === 'openai-compatible');
   if (!model?.endpoint || !env.HUGGING_FACE_TOKEN || !env.OPEN_WEIGHT_RUNTIME_KEY) throw new Error('Training runtime is unavailable');
   return { endpoint: model.endpoint, headers: { Authorization: `Bearer ${env.HUGGING_FACE_TOKEN}`, 'Content-Type': 'application/json', 'x-runtime-key': env.OPEN_WEIGHT_RUNTIME_KEY } };
 }
 
-async function runtimeFetch(url, init) {
-  const deadline = Date.now() + 180000;
+async function runtimeFetch(url, init, timeoutMs = 30000, deadlineMs = 180000) {
+  const deadline = Date.now() + deadlineMs;
   let response;
   do {
-    response = await fetch(url, { ...init, signal: AbortSignal.timeout(30000), redirect: 'error' });
+    response = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs), redirect: 'error' });
     if (![502, 503, 504].includes(response.status) || Date.now() >= deadline) return response;
     await response.arrayBuffer().catch(() => undefined);
     await new Promise((resolve) => setTimeout(resolve, 5000));
@@ -74,13 +85,18 @@ export default async function handler(req, res) {
   try { runtime = runtimeConfig(); } catch (error) { return json(res, 503, { error: error instanceof Error ? error.message : 'Training runtime is unavailable' }); }
   const jobId = typeof req.query?.jobId === 'string' && /^train-[A-Za-z0-9-]+$/.test(req.query.jobId) ? req.query.jobId : null;
   const completion = req.query?.action === 'completion';
-  if (completion && (!jobId || req.method !== 'POST')) return json(res, 400, { error: 'Invalid completion request' });
+  const fusedCompletion = req.query?.action === 'fused-completion';
+  const promotion = req.query?.action === 'promote';
+  if ((completion || fusedCompletion || promotion) && (!jobId || req.method !== 'POST')) return json(res, 400, { error: 'Invalid training-job action' });
   let body;
-  try { body = req.method === 'POST' ? (completion ? validateCompletionRequest(req.body) : validateTrainingRequest(req.body)) : undefined; }
+  try { body = req.method === 'POST' ? (completion || fusedCompletion ? validateCompletionRequest(req.body) : promotion ? validatePromotionRequest(req.body) : validateTrainingRequest(req.body)) : undefined; }
   catch (error) { return json(res, 400, { error: error instanceof Error ? error.message : 'Invalid request' }); }
-  const path = completion ? `/v1/training/jobs/${jobId}/completions` : jobId ? `/v1/training/jobs/${jobId}` : '/v1/training/jobs';
+  const path = completion ? `/v1/training/jobs/${jobId}/completions`
+    : fusedCompletion ? `/v1/training/jobs/${jobId}/completions?variant=fused`
+      : promotion ? `/v1/training/jobs/${jobId}/promote`
+        : jobId ? `/v1/training/jobs/${jobId}` : '/v1/training/jobs';
   let upstream;
-  try { upstream = await runtimeFetch(`${runtime.endpoint}${path}`, { method: req.method, headers: runtime.headers, body: body ? JSON.stringify(body) : undefined }); }
+  try { upstream = await runtimeFetch(`${runtime.endpoint}${path}`, { method: req.method, headers: runtime.headers, body: body ? JSON.stringify(body) : undefined }, promotion ? 290000 : 30000, promotion ? 290000 : 180000); }
   catch (error) { console.error('[open-weight-training] runtime failed', error instanceof Error ? error.name : error); return json(res, 502, { error: 'Training runtime request failed' }); }
   const payload = await upstream.json().catch(() => ({}));
   if (!upstream.ok) return json(res, upstream.status === 409 ? 409 : upstream.status === 404 ? 404 : 502, { error: payload.detail || `Training runtime returned HTTP ${upstream.status}` });
