@@ -19,6 +19,7 @@ export interface Tool {
 }
 
 export let mcpTools: Tool[] = [];
+const runtimeClientTools = new Map<string, Tool>();
 let selectedMcpToolNames: string[] | null = null;
 let selectedWebhookToolNames: string[] | null = null;
 let selectedClientToolNames: string[] | null = null;
@@ -63,6 +64,22 @@ const WEB_SEARCH_DEFAULTS = {
   snippets_only: true,
   allowed_domains: [] as string[]
 };
+
+function mergeRuntimeClientTools(tools: Tool[]): Tool[] {
+  const runtimeNames = new Set(runtimeClientTools.keys());
+  return [
+    ...tools.filter((tool) => !runtimeNames.has(tool.name)),
+    ...runtimeClientTools.values()
+  ];
+}
+
+function includeRuntimeClientToolSelections(): void {
+  if (selectedClientToolNames === null) return;
+  selectedClientToolNames = Array.from(new Set([
+    ...selectedClientToolNames,
+    ...runtimeClientTools.keys()
+  ]));
+}
 
 function buildWebSearchQuery(query: string, allowedDomains: string[], timeRange?: string) {
   const trimmed = query.trim();
@@ -441,10 +458,11 @@ export async function loadMCPTools(configId?: string, userId?: string): Promise<
       }
     ];
 
-    mcpTools = registeredTools;
+    mcpTools = mergeRuntimeClientTools(registeredTools);
+    includeRuntimeClientToolSelections();
   } catch (error) {
     console.error('Error loading MCP tools:', error);
-    mcpTools = [];
+    mcpTools = mergeRuntimeClientTools([]);
     selectedMcpToolNames = null;
     selectedWebhookToolNames = null;
     selectedClientToolNames = null;
@@ -459,9 +477,10 @@ export function registerRagKnowledgeTool(config: {
   model?: string | null;
 }): void {
   const toolName = 'search_knowledge_base';
+  runtimeClientTools.delete(toolName);
   mcpTools = mcpTools.filter((tool) => tool.name !== toolName);
   if (!config.enabled || !config.spaceIds.length) return;
-  mcpTools.push({
+  const ragTool: Tool = {
     name: toolName,
     description: config.ragMode === 'guardrail'
       ? 'Search the approved knowledge base. Use this before answering questions that depend on company knowledge, and do not invent an answer when evidence is unavailable.'
@@ -483,7 +502,9 @@ export function registerRagKnowledgeTool(config: {
       spaceIds: config.spaceIds,
       model: config.model || undefined
     })
-  });
+  };
+  runtimeClientTools.set(toolName, ragTool);
+  mcpTools.push(ragTool);
   if (selectedClientToolNames !== null && !selectedClientToolNames.includes(toolName)) {
     selectedClientToolNames = [...selectedClientToolNames, toolName];
   }

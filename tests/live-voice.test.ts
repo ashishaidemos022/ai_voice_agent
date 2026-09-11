@@ -81,6 +81,74 @@ test('GPT-Live uses a dedicated conversation model with Responses delegation', (
   assert.equal(gptLiveSession({ voice: 'alloy' }).audio.output.voice, 'quartz');
 });
 
+test('GPT-Live RAG tool survives MCP registry refreshes', async () => {
+  const runtime = globalThis as any;
+  const previousSupabase = runtime.toolRegistryTestSupabase;
+  runtime.toolRegistryTestSupabase = {
+    from() {
+      return {
+        select() { return this; },
+        eq() { return this; },
+        async insert() { return { error: null }; },
+        then(resolve: (value: any) => void) {
+          resolve({ data: [], error: null });
+        }
+      };
+    },
+    functions: { invoke: async () => ({ data: {}, error: null }) }
+  };
+
+  try {
+    const built = await build({
+      entryPoints: ['src/lib/tools-registry.ts'],
+      bundle: true,
+      write: false,
+      platform: 'node',
+      format: 'esm',
+      plugins: [{
+        name: 'tool-registry-boundaries',
+        setup(builder) {
+          builder.onResolve(
+            { filter: /^\.\/(supabase|mcp-api-client|mcp-normalizer|n8n-service|tool-utils|usage-tracker|rag-service)$/ },
+            (args) => ({ path: args.path, namespace: 'mock' })
+          );
+          builder.onLoad({ filter: /.*/, namespace: 'mock' }, (args) => {
+            if (args.path === './supabase') return { contents: 'export const supabase = globalThis.toolRegistryTestSupabase;' };
+            if (args.path === './mcp-api-client') return { contents: 'export const mcpApiClient = { executeTool: async () => ({ success: true }) };' };
+            if (args.path === './mcp-normalizer') return { contents: 'export const normalizeMCPArguments = (_name, _schema, params) => params; export const resolveSchemaDefinition = value => value;' };
+            if (args.path === './n8n-service') return { contents: 'export const triggerN8NWebhook = async () => ({});' };
+            if (args.path === './tool-utils') return { contents: 'export const buildN8NToolName = value => value; export const normalizeIdentifier = value => value;' };
+            if (args.path === './usage-tracker') return { contents: 'export const normalizeUsage = () => null; export const recordUsageEvent = async () => {};' };
+            return { contents: 'export const runRagAugmentation = async args => ({ query: args.query, grounded: true });' };
+          });
+        }
+      }]
+    });
+    const registry = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString('base64')}`);
+    const ragConfig = {
+      enabled: true,
+      agentConfigId: 'agent_1',
+      ragMode: 'guardrail',
+      spaceIds: ['space_1']
+    };
+
+    registry.registerRagKnowledgeTool(ragConfig);
+    assert.ok(registry.getToolSchemas().some((tool: any) => tool.name === 'search_knowledge_base'));
+
+    await registry.loadMCPTools('agent_1');
+    assert.ok(registry.getToolSchemas().some((tool: any) => tool.name === 'search_knowledge_base'));
+    assert.deepEqual(
+      await registry.executeTool('search_knowledge_base', { query: 'refund policy' }, { sessionId: 'session_1' }),
+      { query: 'refund policy', grounded: true }
+    );
+
+    registry.registerRagKnowledgeTool({ ...ragConfig, enabled: false });
+    assert.ok(!registry.getToolSchemas().some((tool: any) => tool.name === 'search_knowledge_base'));
+  } finally {
+    runtime.toolRegistryTestSupabase = previousSupabase;
+  }
+});
+
 test('realtime endpoint isolates routed sessions without changing native session defaults', async () => {
   const runtime = globalThis as any;
   const previous = { Deno: runtime.Deno, db: runtime.liveTestDb, model: runtime.liveTestModel, selections: runtime.liveTestSelections, fetch: globalThis.fetch };
