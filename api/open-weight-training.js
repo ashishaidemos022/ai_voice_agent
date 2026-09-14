@@ -83,16 +83,23 @@ function runtimeConfig(env = process.env) {
   return { endpoint: model.endpoint, headers: { Authorization: `Bearer ${env.HUGGING_FACE_TOKEN}`, 'Content-Type': 'application/json', 'x-runtime-key': env.OPEN_WEIGHT_RUNTIME_KEY } };
 }
 
-async function runtimeFetch(url, init, timeoutMs = 30000, deadlineMs = 180000) {
+export async function runtimeFetch(url, init, timeoutMs = 30000, deadlineMs = 180000, fetchImpl = fetch, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))) {
   const deadline = Date.now() + deadlineMs;
   let response;
+  let lastError;
   do {
-    response = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs), redirect: 'error' });
-    if (![502, 503, 504].includes(response.status) || Date.now() >= deadline) return response;
-    await response.arrayBuffer().catch(() => undefined);
-    await new Promise((resolve) => setTimeout(resolve, 5000));
+    try {
+      response = await fetchImpl(url, { ...init, signal: AbortSignal.timeout(timeoutMs), redirect: 'error' });
+      if (![502, 503, 504].includes(response.status) || Date.now() >= deadline) return response;
+      await response.arrayBuffer().catch(() => undefined);
+    } catch (error) {
+      lastError = error;
+      if (Date.now() >= deadline) throw error;
+    }
+    await sleep(5000);
   } while (Date.now() < deadline);
-  return response;
+  if (response) return response;
+  throw lastError || new Error('Training runtime did not become ready');
 }
 
 export default async function handler(req, res) {

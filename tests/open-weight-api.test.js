@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fetchWithRuntimeWarmup, getAllowedModels, getGatewayToken, getUpstreamRequest, parseBearer, validateLabRequest } from '../api/open-weight-chat.js';
-import { validateCompletionRequest, validateEvaluationEvidence, validatePromotionRequest, validateTrainingRequest } from '../api/open-weight-training.js';
+import { runtimeFetch, validateCompletionRequest, validateEvaluationEvidence, validatePromotionRequest, validateTrainingRequest } from '../api/open-weight-training.js';
 
 test('API requires a strict bearer token shape', () => {
   assert.equal(parseBearer('Bearer header.payload.signature'), 'header.payload.signature');
@@ -60,6 +60,17 @@ test('API retries a warming private runtime and preserves the request', async ()
   assert.equal(response.status, 200);
   assert.equal(bodies.length, 3);
   assert.deepEqual(bodies[2], { model: 'fused' });
+});
+
+test('training proxy retries network timeouts while the GPU runtime wakes', async () => {
+  let attempts = 0;
+  const response = await runtimeFetch('https://runtime.hf.space/v1/training/jobs', { method: 'GET' }, 1, 1000, async () => {
+    attempts += 1;
+    if (attempts === 1) throw new DOMException('Timed out', 'TimeoutError');
+    return new Response('{"jobs":[]}', { status: 200 });
+  }, async () => undefined);
+  assert.equal(response.status, 200);
+  assert.equal(attempts, 2);
 });
 
 test('API accepts bounded prompts and rejects arbitrary model access', () => {
