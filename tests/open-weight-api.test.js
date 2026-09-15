@@ -110,6 +110,17 @@ test('training API accepts bounded supervised JSONL records', () => {
   assert.throws(() => validateTrainingRequest({ ...result, examples: [{ messages: [{ role: 'assistant', content: 'bad' }] }, ...examples] }), /example/);
 });
 
+test('training API pins Tinker jobs to Inkling Small', () => {
+  const request = validateTrainingRequest({
+    backend: 'tinker', base_model: 'thinkingmachines/Inkling-Small', name: 'Inkling facts', dataset_name: 'facts-v1',
+    examples: Array.from({ length: 6 }, (_, index) => ({ messages: [{ role: 'user', content: `Question ${index}` }, { role: 'assistant', content: `Answer ${index}` }] })),
+    rank: 8, alpha: 16, learning_rate: 0.0002, max_steps: 10, seed: 42,
+  });
+  assert.equal(request.backend, 'tinker');
+  assert.equal(request.base_model, 'thinkingmachines/Inkling-Small');
+  assert.throws(() => validateTrainingRequest({ ...request, base_model: 'other/model' }), /Invalid base model/);
+});
+
 test('trained completion API restricts messages and decoding settings', () => {
   const result = validateCompletionRequest({ messages: [{ role: 'user', content: 'Hello' }], temperature: 0, max_tokens: 128 });
   assert.equal(result.max_tokens, 128);

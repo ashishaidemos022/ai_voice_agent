@@ -1,0 +1,7 @@
+fastapi>=0.115,<1
+huggingface_hub>=0.30,<2
+numpy>=1.24,<3
+pydantic>=2,<3
+tinker==0.29.0
+tinker-cookbook==0.5.7
+uvicorn[standard]>=0.34,<1

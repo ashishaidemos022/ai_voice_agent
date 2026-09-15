@@ -14,7 +14,7 @@ function plainObject(value) {
 
 export function validateTrainingRequest(body) {
   if (!plainObject(body)) throw new Error('Request body must be an object');
-  const allowed = new Set(['name', 'dataset_name', 'examples', 'rank', 'alpha', 'learning_rate', 'max_steps', 'seed']);
+  const allowed = new Set(['backend', 'base_model', 'name', 'dataset_name', 'examples', 'rank', 'alpha', 'learning_rate', 'max_steps', 'seed']);
   if (Object.keys(body).some((key) => !allowed.has(key))) throw new Error('Unknown request field');
   if (typeof body.name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9 _.-]{2,79}$/.test(body.name)) throw new Error('Invalid job name');
   if (typeof body.dataset_name !== 'string' || body.dataset_name.length < 3 || body.dataset_name.length > 80) throw new Error('Invalid dataset name');
@@ -33,7 +33,11 @@ export function validateTrainingRequest(body) {
   if (!Number.isFinite(body.learning_rate) || body.learning_rate < 0.00001 || body.learning_rate > 0.002) throw new Error('Learning rate must be 0.00001–0.002');
   if (!Number.isInteger(body.max_steps) || body.max_steps < 2 || body.max_steps > 200) throw new Error('Steps must be 2–200');
   if (!Number.isInteger(body.seed) || body.seed < 0 || body.seed > 2147483647) throw new Error('Invalid seed');
-  return { ...body, examples };
+  const backend = body.backend ?? 'local';
+  if (!['local', 'tinker'].includes(backend)) throw new Error('Invalid training backend');
+  const base_model = backend === 'tinker' ? 'thinkingmachines/Inkling-Small' : undefined;
+  if (body.base_model !== undefined && body.base_model !== base_model) throw new Error('Invalid base model for training backend');
+  return { ...body, backend, ...(base_model ? { base_model } : {}), examples };
 }
 
 export function validateCompletionRequest(body) {
@@ -77,7 +81,13 @@ export function validateEvaluationEvidence(body) {
   return body;
 }
 
-function runtimeConfig(env = process.env) {
+function runtimeConfig(env = process.env, backend = 'local') {
+  if (backend === 'tinker') {
+    if (!env.TINKER_RUNTIME_ENDPOINT || !env.TINKER_RUNTIME_KEY) throw new Error('Tinker training runtime is unavailable');
+    const url = new URL(env.TINKER_RUNTIME_ENDPOINT);
+    if (url.protocol !== 'https:' || !url.hostname.endsWith('.hf.space')) throw new Error('Tinker runtime must use an approved Hugging Face host');
+    return { endpoint: url.origin, headers: { 'Content-Type': 'application/json', 'x-runtime-key': env.TINKER_RUNTIME_KEY } };
+  }
   const model = getAllowedModels().find((entry) => entry.transport === 'openai-compatible');
   if (!model?.endpoint || !env.HUGGING_FACE_TOKEN || !env.OPEN_WEIGHT_RUNTIME_KEY) throw new Error('Training runtime is unavailable');
   return { endpoint: model.endpoint, headers: { Authorization: `Bearer ${env.HUGGING_FACE_TOKEN}`, 'Content-Type': 'application/json', 'x-runtime-key': env.OPEN_WEIGHT_RUNTIME_KEY } };
@@ -105,8 +115,6 @@ export async function runtimeFetch(url, init, timeoutMs = 30000, deadlineMs = 18
 export default async function handler(req, res) {
   if (!['GET', 'POST'].includes(req.method)) return json(res, 405, { error: 'Method not allowed' });
   if (!await authenticate(req)) return json(res, 401, { error: 'Authentication required' });
-  let runtime;
-  try { runtime = runtimeConfig(); } catch (error) { return json(res, 503, { error: error instanceof Error ? error.message : 'Training runtime is unavailable' }); }
   const jobId = typeof req.query?.jobId === 'string' && /^train-[A-Za-z0-9-]+$/.test(req.query.jobId) ? req.query.jobId : null;
   const completion = req.query?.action === 'completion';
   const fusedCompletion = req.query?.action === 'fused-completion';
@@ -116,6 +124,28 @@ export default async function handler(req, res) {
   let body;
   try { body = req.method === 'POST' ? (completion || fusedCompletion ? validateCompletionRequest(req.body) : promotion ? validatePromotionRequest(req.body) : evaluation ? validateEvaluationEvidence(req.body) : validateTrainingRequest(req.body)) : undefined; }
   catch (error) { return json(res, 400, { error: error instanceof Error ? error.message : 'Invalid request' }); }
+  const backend = jobId?.startsWith('train-tinker-') || body?.backend === 'tinker' ? 'tinker' : 'local';
+  if (body && backend === 'local' && !completion && !fusedCompletion && !promotion && !evaluation) {
+    const { backend: _backend, base_model: _baseModel, ...localBody } = body;
+    body = localBody;
+  }
+  if (req.method === 'GET' && !jobId) {
+    const configs = [];
+    for (const candidate of ['local', 'tinker']) {
+      try { configs.push(runtimeConfig(process.env, candidate)); } catch { /* optional runtime */ }
+    }
+    if (!configs.length) return json(res, 503, { error: 'Training runtimes are unavailable' });
+    const results = await Promise.all(configs.map(async (runtime) => {
+      try {
+        const upstream = await runtimeFetch(`${runtime.endpoint}/v1/training/jobs`, { method: 'GET', headers: runtime.headers });
+        const payload = await upstream.json().catch(() => ({}));
+        return upstream.ok ? payload.jobs || [] : [];
+      } catch { return []; }
+    }));
+    return json(res, 200, { jobs: results.flat().sort((a, b) => (b.created_at || 0) - (a.created_at || 0)) });
+  }
+  let runtime;
+  try { runtime = runtimeConfig(process.env, backend); } catch (error) { return json(res, 503, { error: error instanceof Error ? error.message : 'Training runtime is unavailable' }); }
   const path = completion ? `/v1/training/jobs/${jobId}/completions`
     : fusedCompletion ? `/v1/training/jobs/${jobId}/completions?variant=fused`
       : promotion ? `/v1/training/jobs/${jobId}/promote`
