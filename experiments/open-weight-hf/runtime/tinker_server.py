@@ -239,7 +239,7 @@ def promote_job(job_id: str, request: PromotionRequest) -> dict:
 
 
 app = FastAPI(title="Viaana Tinker Training Runtime")
-load_registry()
+threading.Thread(target=load_registry, daemon=True, name="tinker-registry-loader").start()
 
 
 @app.get("/health")
