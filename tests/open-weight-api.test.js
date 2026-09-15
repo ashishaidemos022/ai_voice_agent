@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fetchWithRuntimeWarmup, getAllowedModels, getGatewayToken, getUpstreamRequest, parseBearer, validateLabRequest } from '../api/open-weight-chat.js';
-import { runtimeFetch, validateCompletionRequest, validateEvaluationEvidence, validatePromotionRequest, validateTrainingRequest } from '../api/open-weight-training.js';
+import { runtimeConfig, runtimeFetch, validateCompletionRequest, validateEvaluationEvidence, validatePromotionRequest, validateTrainingRequest } from '../api/open-weight-training.js';
 
 test('API requires a strict bearer token shape', () => {
   assert.equal(parseBearer('Bearer header.payload.signature'), 'header.payload.signature');
@@ -119,6 +119,22 @@ test('training API pins Tinker jobs to Inkling Small', () => {
   assert.equal(request.backend, 'tinker');
   assert.equal(request.base_model, 'thinkingmachines/Inkling-Small');
   assert.throws(() => validateTrainingRequest({ ...request, base_model: 'other/model' }), /Invalid base model/);
+});
+
+test('Tinker proxy authenticates to the private Hugging Face runtime', () => {
+  const env = {
+    HUGGING_FACE_TOKEN: 'hf-secret',
+    OPEN_WEIGHT_RUNTIME_KEY: 'runtime-secret',
+    OPEN_WEIGHT_MODELS_JSON: JSON.stringify([{
+      id: 'base', model: 'bhatsy/base', revision: 'abc123', precision: 'bf16',
+      transport: 'openai-compatible', endpoint: 'https://bhatsy-runtime.hf.space', runtimeModel: 'base'
+    }])
+  };
+  const runtime = runtimeConfig(env, 'tinker');
+  assert.equal(runtime.endpoint, 'https://bhatsy-runtime.hf.space/tinker');
+  assert.equal(runtime.headers.Authorization, 'Bearer hf-secret');
+  assert.equal(runtime.headers['x-runtime-key'], 'runtime-secret');
+  assert.throws(() => runtimeConfig({ ...env, HUGGING_FACE_TOKEN: '' }, 'tinker'), /unavailable/);
 });
 
 test('trained completion API restricts messages and decoding settings', () => {

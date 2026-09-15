@@ -81,15 +81,15 @@ export function validateEvaluationEvidence(body) {
   return body;
 }
 
-function runtimeConfig(env = process.env, backend = 'local') {
-  const localModel = getAllowedModels().find((entry) => entry.transport === 'openai-compatible');
+export function runtimeConfig(env = process.env, backend = 'local') {
+  const localModel = getAllowedModels(env.OPEN_WEIGHT_MODELS_JSON).find((entry) => entry.transport === 'openai-compatible');
   if (backend === 'tinker') {
     const endpoint = env.TINKER_RUNTIME_ENDPOINT || (localModel?.endpoint ? `${localModel.endpoint}/tinker` : '');
     const runtimeKey = env.TINKER_RUNTIME_KEY || env.OPEN_WEIGHT_RUNTIME_KEY;
-    if (!endpoint || !runtimeKey) throw new Error('Tinker training runtime is unavailable');
+    if (!endpoint || !runtimeKey || !env.HUGGING_FACE_TOKEN) throw new Error('Tinker training runtime is unavailable');
     const url = new URL(endpoint);
     if (url.protocol !== 'https:' || url.username || url.password || url.port || url.search || url.hash || !url.hostname.endsWith('.hf.space')) throw new Error('Tinker runtime must use an approved Hugging Face host');
-    return { endpoint: `${url.origin}${url.pathname.replace(/\/$/, '')}`, headers: { 'Content-Type': 'application/json', 'x-runtime-key': runtimeKey } };
+    return { endpoint: `${url.origin}${url.pathname.replace(/\/$/, '')}`, headers: { Authorization: `Bearer ${env.HUGGING_FACE_TOKEN}`, 'Content-Type': 'application/json', 'x-runtime-key': runtimeKey } };
   }
   if (!localModel?.endpoint || !env.HUGGING_FACE_TOKEN || !env.OPEN_WEIGHT_RUNTIME_KEY) throw new Error('Training runtime is unavailable');
   return { endpoint: localModel.endpoint, headers: { Authorization: `Bearer ${env.HUGGING_FACE_TOKEN}`, 'Content-Type': 'application/json', 'x-runtime-key': env.OPEN_WEIGHT_RUNTIME_KEY } };
