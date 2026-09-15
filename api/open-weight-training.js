@@ -114,14 +114,19 @@ export async function runtimeFetch(url, init, timeoutMs = 30000, deadlineMs = 18
   throw lastError || new Error('Training runtime did not become ready');
 }
 
+export function validateTrainingJobId(value) {
+  return typeof value === 'string' && /^train-[A-Za-z0-9-]+$/.test(value) ? value : null;
+}
+
 export default async function handler(req, res) {
-  if (!['GET', 'POST'].includes(req.method)) return json(res, 405, { error: 'Method not allowed' });
+  if (!['GET', 'POST', 'DELETE'].includes(req.method)) return json(res, 405, { error: 'Method not allowed' });
   if (!await authenticate(req)) return json(res, 401, { error: 'Authentication required' });
-  const jobId = typeof req.query?.jobId === 'string' && /^train-[A-Za-z0-9-]+$/.test(req.query.jobId) ? req.query.jobId : null;
+  const jobId = validateTrainingJobId(req.query?.jobId);
   const completion = req.query?.action === 'completion';
   const fusedCompletion = req.query?.action === 'fused-completion';
   const promotion = req.query?.action === 'promote';
   const evaluation = req.query?.action === 'evaluation';
+  if (req.method === 'DELETE' && (!jobId || req.query?.action !== undefined)) return json(res, 400, { error: 'Invalid training-job deletion' });
   if ((completion || fusedCompletion || promotion || evaluation) && (!jobId || req.method !== 'POST')) return json(res, 400, { error: 'Invalid training-job action' });
   let body;
   try { body = req.method === 'POST' ? (completion || fusedCompletion ? validateCompletionRequest(req.body) : promotion ? validatePromotionRequest(req.body) : evaluation ? validateEvaluationEvidence(req.body) : validateTrainingRequest(req.body)) : undefined; }
@@ -154,7 +159,7 @@ export default async function handler(req, res) {
         : evaluation ? `/v1/training/jobs/${jobId}/evaluations`
         : jobId ? `/v1/training/jobs/${jobId}` : '/v1/training/jobs';
   let upstream;
-  try { upstream = await runtimeFetch(`${runtime.endpoint}${path}`, { method: req.method, headers: runtime.headers, body: body ? JSON.stringify(body) : undefined }, promotion ? 290000 : 30000, promotion ? 290000 : 180000); }
+  try { upstream = await runtimeFetch(`${runtime.endpoint}${path}`, { method: req.method, headers: runtime.headers, body: body ? JSON.stringify(body) : undefined }, promotion ? 290000 : req.method === 'DELETE' ? 120000 : 30000, promotion ? 290000 : 180000); }
   catch (error) { console.error('[open-weight-training] runtime failed', error instanceof Error ? error.name : error); return json(res, 502, { error: 'Training runtime request failed' }); }
   const payload = await upstream.json().catch(() => ({}));
   if (!upstream.ok) return json(res, upstream.status === 409 ? 409 : upstream.status === 404 ? 404 : 502, { error: payload.detail || `Training runtime returned HTTP ${upstream.status}` });

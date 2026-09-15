@@ -1,4 +1,5 @@
 import hashlib
+import gc
 import json
 import math
 import os
@@ -32,6 +33,7 @@ generation_lock = threading.Lock()
 training_lock = threading.Lock()
 promotion_lock = threading.Lock()
 model_load_lock = threading.Lock()
+registry_lock = threading.Lock()
 
 
 class Message(BaseModel):
@@ -97,6 +99,33 @@ def persist_manifest(job: dict) -> None:
         )
     finally:
         Path(manifest_path).unlink(missing_ok=True)
+
+
+def delete_job(job_id: str) -> dict:
+    job = state["jobs"].get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Training job not found")
+    if job.get("status") in {"queued", "loading", "training", "saving"}:
+        raise HTTPException(status_code=409, detail="Active training jobs cannot be deleted")
+    token = os.environ.get("HF_WRITE_TOKEN")
+    if not token:
+        raise HTTPException(status_code=503, detail="Adapter storage is unavailable")
+    with registry_lock:
+        try:
+            HfApi(token=token).delete_folder(
+                path_in_repo=f"jobs/{job_id}", repo_id=ADAPTER_REGISTRY, repo_type="model",
+                commit_message=f"Delete adapter job {job_id}",
+            )
+        except Exception as error:
+            if "404" not in str(error) and "not found" not in str(error).lower():
+                raise HTTPException(status_code=502, detail=f"Could not delete stored adapter: {type(error).__name__}") from error
+        state["trained_models"].pop(job_id, None)
+        state["fused_models"].pop(job_id, None)
+        state["jobs"].pop(job_id, None)
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    return {"deleted": True, "job_id": job_id, "deleted_artifacts": ["adapter", "fused", "evaluations", "manifest"]}
 
 
 def hash_weight_files(directory: str) -> str:
@@ -441,6 +470,12 @@ def get_training_job(job_id: str, x_runtime_key: str | None = Header(default=Non
     if not job:
         raise HTTPException(status_code=404, detail="Training job not found")
     return {"job": public_job(job)}
+
+
+@app.delete("/v1/training/jobs/{job_id}")
+def delete_training_job(job_id: str, x_runtime_key: str | None = Header(default=None)):
+    authorize(x_runtime_key)
+    return delete_job(job_id)
 
 
 @app.post("/v1/training/jobs/{job_id}/completions")

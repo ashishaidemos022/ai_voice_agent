@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fetchWithRuntimeWarmup, getAllowedModels, getGatewayToken, getUpstreamRequest, parseBearer, validateLabRequest } from '../api/open-weight-chat.js';
-import { runtimeConfig, runtimeFetch, validateCompletionRequest, validateEvaluationEvidence, validatePromotionRequest, validateTrainingRequest } from '../api/open-weight-training.js';
+import { runtimeConfig, runtimeFetch, validateCompletionRequest, validateEvaluationEvidence, validatePromotionRequest, validateTrainingJobId, validateTrainingRequest } from '../api/open-weight-training.js';
 
 test('API requires a strict bearer token shape', () => {
   assert.equal(parseBearer('Bearer header.payload.signature'), 'header.payload.signature');
@@ -163,4 +163,11 @@ test('evaluation evidence is bounded and tied to a training job', () => {
   assert.equal(validateEvaluationEvidence(evidence).cases.length, 1);
   assert.throws(() => validateEvaluationEvidence({ ...evidence, cases: [] }), /1–20/);
   assert.throws(() => validateEvaluationEvidence({ ...evidence, suiteSha256: 'bad' }), /suite hash/);
+});
+
+test('training job identifiers accept local and Tinker jobs but reject path injection', () => {
+  assert.equal(validateTrainingJobId('train-20260911-120000-abcdef12'), 'train-20260911-120000-abcdef12');
+  assert.equal(validateTrainingJobId('train-tinker-20260915-192757-ef9cd856'), 'train-tinker-20260915-192757-ef9cd856');
+  assert.equal(validateTrainingJobId('train-good/../../secrets'), null);
+  assert.equal(validateTrainingJobId(['train-safe']), null);
 });
