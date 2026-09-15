@@ -17,6 +17,7 @@ from huggingface_hub import HfApi, hf_hub_download
 from pydantic import BaseModel, Field
 from tinker_cookbook.renderers import TrainOnWhat, get_renderer, get_text_content
 from tinker_cookbook.supervised.data import conversation_to_datum
+from tinker_cookbook.tokenizer_utils import get_tokenizer
 
 BASE_MODEL = "thinkingmachines/Inkling-Small"
 ADAPTER_REGISTRY = "bhatsy/viaana-trained-adapters"
@@ -129,7 +130,7 @@ def train_job(job_id: str) -> None:
                 base_model=BASE_MODEL, rank=job["rank"], seed=job["seed"],
                 user_metadata={"viaana_job_id": job_id, "dataset_sha256": job["dataset_sha256"]},
             )
-            tokenizer = trainer.get_tokenizer()
+            tokenizer = get_tokenizer(BASE_MODEL)
             renderer = get_renderer("tml_v0", tokenizer, model_name=BASE_MODEL)
             examples = job.pop("examples")
             data = [conversation_to_datum(example["messages"], renderer, max_length=2048, train_on_what=TrainOnWhat.LAST_ASSISTANT_MESSAGE) for example in examples]
@@ -182,7 +183,7 @@ def sampling_client(job: dict):
 
 def complete_job(job: dict, request: CompletionRequest) -> dict:
     client = sampling_client(job)
-    tokenizer = client.get_tokenizer()
+    tokenizer = get_tokenizer(BASE_MODEL)
     renderer = get_renderer("tml_v0", tokenizer, model_name=BASE_MODEL)
     prompt = renderer.build_generation_prompt([message.model_dump() for message in request.messages])
     params = tinker.SamplingParams(max_tokens=request.max_tokens, temperature=request.temperature, stop=renderer.get_stop_sequences())
