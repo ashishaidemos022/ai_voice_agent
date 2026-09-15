@@ -23,6 +23,14 @@ test('API model registry is an allowlist', () => {
   assert.throws(() => getAllowedModels('[{"id":"x"}]'), /Missing/);
 });
 
+test('default registry includes Inkling Small through Vercel Gateway', () => {
+  const model = getAllowedModels().find((entry) => entry.id === 'inkling-small-vercel-baseline');
+  assert.equal(model?.model, 'thinkingmachines/inkling-small');
+  assert.equal(model?.transport, 'gateway');
+  assert.equal(model?.inputCostPerToken, 0.0000005);
+  assert.equal(model?.outputCostPerToken, 0.0000012);
+});
+
 test('API registry accepts approved private Hugging Face runtimes and rejects arbitrary hosts', () => {
   const raw = JSON.stringify([{
     id: 'fused', model: 'bhatsy/fused', revision: 'abc123', precision: 'bf16',

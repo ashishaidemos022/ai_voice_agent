@@ -10,6 +10,16 @@ const DEFAULT_MODELS = [{
   providerOnly: ['deepinfra'],
   transport: 'gateway',
   supportsTools: true
+}, {
+  id: 'inkling-small-vercel-baseline',
+  model: 'thinkingmachines/inkling-small',
+  revision: 'provider-undisclosed',
+  precision: 'provider-managed open weights',
+  inputCostPerToken: 0.0000005,
+  outputCostPerToken: 0.0000012,
+  providerOnly: null,
+  transport: 'gateway',
+  supportsTools: true
 }];
 
 export const config = { maxDuration: 300 };
