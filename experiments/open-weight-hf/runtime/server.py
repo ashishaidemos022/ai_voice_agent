@@ -465,3 +465,10 @@ def store_evaluation(job_id: str, evidence: dict, x_runtime_key: str | None = He
     authorize(x_runtime_key)
     job, evidence_hash = save_evaluation(job_id, evidence)
     return {"job": public_job(job), "evaluation_sha256": evidence_hash}
+
+
+# Tinker performs Inkling GPU work remotely. Mount its private control plane in
+# this existing auto-sleeping Space so we do not provision another paid worker.
+from tinker_server import app as tinker_app  # noqa: E402
+
+app.mount("/tinker", tinker_app)

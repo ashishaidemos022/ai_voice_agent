@@ -18,4 +18,8 @@ Required Space secret: `HF_TOKEN`, with read access to the three private model r
 
 Required training secret: `HF_WRITE_TOKEN`, scoped to read/write only `bhatsy/viaana-trained-adapters`.
 
+Optional managed Inkling training is mounted at `/tinker` and requires
+`TINKER_API_KEY`. Tinker performs the remote GPU operations; this Space only
+coordinates jobs, sampling, manifests, and evaluation evidence.
+
 Optional defense-in-depth secret: `RUNTIME_SHARED_SECRET`. When configured, callers must send the same value in `x-runtime-key`.

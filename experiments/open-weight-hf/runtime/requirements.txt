@@ -2,5 +2,7 @@ accelerate>=1.0,<2
 fastapi>=0.115,<1
 huggingface_hub>=0.30,<2
 peft>=0.15,<1
-transformers>=4.51,<5
+transformers>=4.57.6,<5
+tinker==0.29.0
+tinker-cookbook==0.5.7
 uvicorn[standard]>=0.34,<1

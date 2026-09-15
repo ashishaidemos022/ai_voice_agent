@@ -82,15 +82,17 @@ export function validateEvaluationEvidence(body) {
 }
 
 function runtimeConfig(env = process.env, backend = 'local') {
+  const localModel = getAllowedModels().find((entry) => entry.transport === 'openai-compatible');
   if (backend === 'tinker') {
-    if (!env.TINKER_RUNTIME_ENDPOINT || !env.TINKER_RUNTIME_KEY) throw new Error('Tinker training runtime is unavailable');
-    const url = new URL(env.TINKER_RUNTIME_ENDPOINT);
-    if (url.protocol !== 'https:' || !url.hostname.endsWith('.hf.space')) throw new Error('Tinker runtime must use an approved Hugging Face host');
-    return { endpoint: url.origin, headers: { 'Content-Type': 'application/json', 'x-runtime-key': env.TINKER_RUNTIME_KEY } };
+    const endpoint = env.TINKER_RUNTIME_ENDPOINT || (localModel?.endpoint ? `${localModel.endpoint}/tinker` : '');
+    const runtimeKey = env.TINKER_RUNTIME_KEY || env.OPEN_WEIGHT_RUNTIME_KEY;
+    if (!endpoint || !runtimeKey) throw new Error('Tinker training runtime is unavailable');
+    const url = new URL(endpoint);
+    if (url.protocol !== 'https:' || url.username || url.password || url.port || url.search || url.hash || !url.hostname.endsWith('.hf.space')) throw new Error('Tinker runtime must use an approved Hugging Face host');
+    return { endpoint: `${url.origin}${url.pathname.replace(/\/$/, '')}`, headers: { 'Content-Type': 'application/json', 'x-runtime-key': runtimeKey } };
   }
-  const model = getAllowedModels().find((entry) => entry.transport === 'openai-compatible');
-  if (!model?.endpoint || !env.HUGGING_FACE_TOKEN || !env.OPEN_WEIGHT_RUNTIME_KEY) throw new Error('Training runtime is unavailable');
-  return { endpoint: model.endpoint, headers: { Authorization: `Bearer ${env.HUGGING_FACE_TOKEN}`, 'Content-Type': 'application/json', 'x-runtime-key': env.OPEN_WEIGHT_RUNTIME_KEY } };
+  if (!localModel?.endpoint || !env.HUGGING_FACE_TOKEN || !env.OPEN_WEIGHT_RUNTIME_KEY) throw new Error('Training runtime is unavailable');
+  return { endpoint: localModel.endpoint, headers: { Authorization: `Bearer ${env.HUGGING_FACE_TOKEN}`, 'Content-Type': 'application/json', 'x-runtime-key': env.OPEN_WEIGHT_RUNTIME_KEY } };
 }
 
 export async function runtimeFetch(url, init, timeoutMs = 30000, deadlineMs = 180000, fetchImpl = fetch, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))) {
