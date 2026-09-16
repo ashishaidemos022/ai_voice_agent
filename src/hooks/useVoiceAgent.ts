@@ -740,10 +740,14 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
         emitBenchmarkEvent('transcript.user_final', {
           transcript: transcriptText
         });
+        // Start policy routing before the database write. In direct-agent
+        // sessions this synchronously interrupts the provider's native answer,
+        // preventing its opening words from racing the adapter response.
+        const policyRoutePromise = !isGPTLiveModel(configRef.current?.model)
+          ? maybeRunRagAugmentation(transcriptText)
+          : null;
         await persistMessage('user', transcriptText);
-        if (!isGPTLiveModel(configRef.current?.model)) {
-          await maybeRunRagAugmentation(transcriptText);
-        }
+        if (policyRoutePromise) await policyRoutePromise;
         delete transcriptsRef.current.user[itemId];
         if (transcriptsRef.current.activeUserId === itemId) {
           transcriptsRef.current.activeUserId = null;

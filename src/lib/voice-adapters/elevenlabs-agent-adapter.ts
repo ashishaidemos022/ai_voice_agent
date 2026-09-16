@@ -134,13 +134,17 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
             transcript: message,
             provider: 'elevenlabs_agent'
           });
+          // Mark the provider response active before publishing the final user
+          // transcript. A policy listener may synchronously interrupt here;
+          // beginning afterward would incorrectly clear that interruption and
+          // let the native Agent answer over the selected checkpoint.
+          this.beginResponse(itemId);
           this.emit('transcript.done', {
             type: 'transcript.done',
             transcript: message,
             role: 'user',
             itemId
           });
-          this.beginResponse(itemId);
           return;
         }
         this.assistantItemId = itemId;
