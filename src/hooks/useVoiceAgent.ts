@@ -325,7 +325,28 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
 
   useEffect(() => {
     modelPolicyRef.current = modelPolicy;
-  }, [modelPolicy]);
+    if (!isGPTLiveModel(configRef.current?.model)) return;
+    const adapterEnabled =
+      (modelPolicy.mode === 'adapter' || modelPolicy.mode === 'automatic') && Boolean(modelPolicy.adapter);
+    registerAdapterCheckpointTool({
+      enabled: adapterEnabled,
+      jobId: modelPolicy.adapter?.id,
+      systemPrompt: modelPolicy.adapterSystemPrompt
+    });
+    const client = realtimeClientRef.current;
+    if (!client) return;
+    if (adapterEnabled) {
+      client.sendSystemMessage(
+        modelPolicy.mode === 'adapter'
+          ? 'The model policy is now Trained adapter. For every substantive user request, call query_trained_checkpoint before answering and treat its answer as authoritative.'
+          : 'The model policy is now Automatic. Call query_trained_checkpoint for requests that depend on trained behavior or company facts.'
+      );
+    } else {
+      client.sendSystemMessage(
+        'The model policy is now RAG. Do not call query_trained_checkpoint. Use search_knowledge_base for requests that depend on approved company knowledge.'
+      );
+    }
+  }, [modelPolicy.mode, modelPolicy.adapter?.id, modelPolicy.adapterSystemPrompt]);
 
   useEffect(() => {
     isRecordingRef.current = isRecording;

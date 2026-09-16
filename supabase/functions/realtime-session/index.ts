@@ -343,7 +343,7 @@ Deno.serve(async (req: Request) => {
     const useTrainedCheckpoint = usesGPTLive &&
       (modelPolicy === 'adapter' || modelPolicy === 'automatic') &&
       typeof adapterId === 'string' && /^train-[A-Za-z0-9-]+$/.test(adapterId);
-    if (useTrainedCheckpoint && !liveTools.some((tool) => tool.name === 'query_trained_checkpoint')) {
+    if (usesGPTLive && !liveTools.some((tool) => tool.name === 'query_trained_checkpoint')) {
       liveTools.push({
         type: 'function',
         name: 'query_trained_checkpoint',
@@ -383,7 +383,9 @@ Deno.serve(async (req: Request) => {
         ? modelPolicy === 'adapter'
           ? 'For every substantive user request, call query_trained_checkpoint before answering. Treat its answer as authoritative and convey it without adding unsupported facts.'
           : 'For requests that depend on the trained behavior or company facts, call query_trained_checkpoint before answering. Treat its answer as authoritative.'
-        : null
+        : usesGPTLive
+          ? 'The trained-checkpoint tool is unavailable under the current model policy. Do not call query_trained_checkpoint.'
+          : null
     ].filter(Boolean).join('\n\n').trim();
     const session = usesGPTLive ? gptLiveSession({
       instructions: liveBackendInstructions,

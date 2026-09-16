@@ -157,6 +157,8 @@ test('GPT-Live RAG and trained-checkpoint tools survive MCP registry refreshes',
 
     registry.registerRagKnowledgeTool({ ...ragConfig, enabled: false });
     assert.ok(!registry.getToolSchemas().some((tool: any) => tool.name === 'search_knowledge_base'));
+    registry.registerAdapterCheckpointTool({ enabled: false });
+    assert.ok(!registry.getToolSchemas().some((tool: any) => tool.name === 'query_trained_checkpoint'));
   } finally {
     runtime.toolRegistryTestSupabase = previousSupabase;
     globalThis.fetch = previousFetch;
