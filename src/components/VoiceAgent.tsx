@@ -6,7 +6,7 @@ import { configPresetToRealtimeConfig, getAllConfigPresets, AgentConfigPreset } 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useAgentState } from '../state/agentState';
-import { BookOpenCheck, BrainCircuit, Gauge, Loader2, Mic, MicOff, Sparkles } from 'lucide-react';
+import { BookOpenCheck, BrainCircuit, Gauge, Loader2, Mic, MicOff, RefreshCw, Sparkles } from 'lucide-react';
 
 import { MainLayout } from './layout/MainLayout';
 import { Sidebar } from './layout/Sidebar';
@@ -208,6 +208,9 @@ export function VoiceAgent({
   const [adapterJobs, setAdapterJobs] = useState<VoiceAdapterCheckpoint[]>([]);
   const [selectedAdapterId, setSelectedAdapterId] = useState(() => typeof window === 'undefined' ? '' : window.localStorage.getItem(ADAPTER_SELECTION_KEY) || '');
   const [adapterRegistryError, setAdapterRegistryError] = useState<string | null>(null);
+  const [isAdapterRegistryLoading, setIsAdapterRegistryLoading] = useState(false);
+  const [adapterRegistryRefreshKey, setAdapterRegistryRefreshKey] = useState(0);
+  const consecutiveEmptyAdapterResponsesRef = useRef(0);
   const selectedAdapter = adapterJobs.find((job) => job.id === selectedAdapterId) || null;
   const resumeSessionRef = useRef<{ config: RealtimeConfig; presetId: string | null } | null>(null);
   const applyPreferencesToConfig = useCallback((baseConfig: RealtimeConfig) => {
@@ -279,9 +282,10 @@ export function VoiceAgent({
     if (!vaUser?.id) return;
     let cancelled = false;
     const loadAdapters = async () => {
+      if (!cancelled) setIsAdapterRegistryLoading(true);
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
-      if (!token) return;
+      if (!token) throw new Error('Sign in again to load trained adapters.');
       const response = await fetch('/api/open-weight-training', { headers: { Authorization: `Bearer ${token}` } });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || `Adapter registry failed (${response.status})`);
@@ -298,15 +302,36 @@ export function VoiceAgent({
           completedAt: job.completed_at
         }))
         .sort((a: VoiceAdapterCheckpoint, b: VoiceAdapterCheckpoint) => (b.completedAt || 0) - (a.completedAt || 0));
-      setAdapterJobs(jobs);
-      setSelectedAdapterId((current) => jobs.some((job: VoiceAdapterCheckpoint) => job.id === current) ? current : jobs[0]?.id || '');
+      if (jobs.length) {
+        consecutiveEmptyAdapterResponsesRef.current = 0;
+        setAdapterJobs(jobs);
+        setSelectedAdapterId((current) => jobs.some((job: VoiceAdapterCheckpoint) => job.id === current) ? current : jobs[0].id);
+      } else {
+        consecutiveEmptyAdapterResponsesRef.current += 1;
+        if (consecutiveEmptyAdapterResponsesRef.current >= 3) {
+          setAdapterJobs([]);
+          setSelectedAdapterId('');
+        }
+      }
       setAdapterRegistryError(null);
     };
-    loadAdapters().catch((reason) => {
-      if (!cancelled) setAdapterRegistryError(reason instanceof Error ? reason.message : 'Unable to load trained adapters');
-    });
-    return () => { cancelled = true; };
-  }, [vaUser?.id]);
+    const refresh = () => loadAdapters()
+      .catch((reason) => {
+        if (!cancelled) setAdapterRegistryError(reason instanceof Error ? reason.message : 'Unable to load trained adapters');
+      })
+      .finally(() => {
+        if (!cancelled) setIsAdapterRegistryLoading(false);
+      });
+    void refresh();
+    const timer = window.setInterval(refresh, 10_000);
+    const handleVisibility = () => { if (document.visibilityState === 'visible') void refresh(); };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [vaUser?.id, adapterRegistryRefreshKey]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -1244,13 +1269,23 @@ export function VoiceAgent({
                                 </div>
 
                                 <label className="text-xs text-white/50">
-                                  Trained checkpoint
+                                  <span className="flex items-center justify-between gap-3">
+                                    <span>Trained checkpoint</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setAdapterRegistryRefreshKey((value) => value + 1)}
+                                      disabled={isAdapterRegistryLoading}
+                                      className="inline-flex items-center gap-1 text-[10px] text-amber-100/70 hover:text-amber-100 disabled:opacity-40"
+                                    >
+                                      <RefreshCw className={cn('h-3 w-3', isAdapterRegistryLoading && 'animate-spin')} /> Refresh
+                                    </button>
+                                  </span>
                                   <select
                                     value={selectedAdapterId}
                                     onChange={(event) => setSelectedAdapterId(event.target.value)}
                                     className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white focus:border-amber-300/50 focus:outline-none"
                                   >
-                                    <option value="">{adapterJobs.length ? 'Select an adapter' : 'No completed adapters'}</option>
+                                    <option value="">{isAdapterRegistryLoading && !adapterJobs.length ? 'Loading trained adapters…' : adapterJobs.length ? 'Select an adapter' : 'No completed adapters'}</option>
                                     {adapterJobs.map((job) => (
                                       <option key={job.id} value={job.id}>{job.name} · {job.datasetName}</option>
                                     ))}

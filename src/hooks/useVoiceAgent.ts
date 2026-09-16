@@ -170,7 +170,22 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
       throw new Error('An agent configuration must be selected before starting a session.');
     }
 
-    const sessionMetadata = { config: sessionConfig, configId };
+    const policy = modelPolicyRef.current;
+    const sessionMetadata = {
+      config: sessionConfig,
+      configId,
+      model_policy: {
+        mode: policy.mode,
+        adapter: policy.adapter ? {
+          id: policy.adapter.id,
+          name: policy.adapter.name,
+          dataset_name: policy.adapter.datasetName,
+          backend: policy.adapter.backend,
+          artifact_sha256: policy.adapter.artifactSha256 || null
+        } : null
+      },
+      model_policy_turns: []
+    };
     const { data, error: dbError } = await supabase
       .from('va_sessions')
       .insert({
@@ -204,6 +219,37 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
     } catch (err) {
       console.warn('Failed to update session message count', err);
     }
+  }, []);
+
+  const recordModelRouteMetric = useCallback((metric: ModelRouteMetric) => {
+    setModelRouteMetrics((current) => ({ ...current, [metric.route]: metric }));
+    const currentSessionId = sessionIdRef.current;
+    if (!currentSessionId) return;
+    const priorTurns = Array.isArray(sessionMetadataRef.current.model_policy_turns)
+      ? sessionMetadataRef.current.model_policy_turns
+      : [];
+    const nextMetadata = {
+      ...sessionMetadataRef.current,
+      model_policy: {
+        mode: modelPolicyRef.current.mode,
+        adapter: modelPolicyRef.current.adapter ? {
+          id: modelPolicyRef.current.adapter.id,
+          name: modelPolicyRef.current.adapter.name,
+          dataset_name: modelPolicyRef.current.adapter.datasetName,
+          backend: modelPolicyRef.current.adapter.backend,
+          artifact_sha256: modelPolicyRef.current.adapter.artifactSha256 || null
+        } : null
+      },
+      model_policy_turns: [...priorTurns, metric].slice(-50)
+    };
+    sessionMetadataRef.current = nextMetadata;
+    void supabase
+      .from('va_sessions')
+      .update({ session_metadata: nextMetadata, updated_at: new Date().toISOString() })
+      .eq('id', currentSessionId)
+      .then(({ error: routeError }) => {
+        if (routeError) console.warn('[useVoiceAgent] failed to persist model route', routeError);
+      });
   }, []);
 
   const persistMessage = useCallback(
@@ -394,20 +440,17 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
     if (!answer) throw new Error('The trained adapter returned an empty answer.');
     const latencyMs = Number(body.viaana?.latency_ms) || Math.round(performance.now() - startedAt);
     setActiveModelRoute('adapter');
-    setModelRouteMetrics((current) => ({
-      ...current,
-      adapter: {
-        route: 'adapter',
-        label: adapter.name,
-        model: body.model || (adapter.backend === 'tinker' ? 'thinkingmachines/Inkling-Small' : null),
-        checkpoint: adapter.artifactSha256 || adapter.id,
-        latencyMs,
-        inputTokens: Number.isFinite(body.usage?.prompt_tokens) ? body.usage.prompt_tokens : null,
-        outputTokens: Number.isFinite(body.usage?.completion_tokens) ? body.usage.completion_tokens : null,
-        costUsd: Number.isFinite(body.viaana?.cost_usd) ? body.viaana.cost_usd : null,
-        recordedAt: new Date().toISOString()
-      }
-    }));
+    recordModelRouteMetric({
+      route: 'adapter',
+      label: adapter.name,
+      model: body.model || (adapter.backend === 'tinker' ? 'thinkingmachines/Inkling-Small' : null),
+      checkpoint: adapter.artifactSha256 || adapter.id,
+      latencyMs,
+      inputTokens: Number.isFinite(body.usage?.prompt_tokens) ? body.usage.prompt_tokens : null,
+      outputTokens: Number.isFinite(body.usage?.completion_tokens) ? body.usage.completion_tokens : null,
+      costUsd: Number.isFinite(body.viaana?.cost_usd) ? body.viaana.cost_usd : null,
+      recordedAt: new Date().toISOString()
+    });
     ragResponsePendingRef.current = false;
     setIsRagLoading(false);
     if (client?.speakAnswer) {
@@ -416,7 +459,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
       client.sendSystemMessage(`The trained adapter produced this authoritative answer. Repeat it exactly and add nothing:\n${answer}`);
       client.requestResponse();
     }
-  }, []);
+  }, [recordModelRouteMetric]);
 
   const maybeRunRagAugmentation = useCallback(async (transcriptText: string) => {
     const query = (transcriptText || '').trim();
@@ -499,20 +542,17 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
       });
       setRagResult(ragContext);
       setActiveModelRoute('rag');
-      setModelRouteMetrics((current) => ({
-        ...current,
-        rag: {
-          route: 'rag',
-          label: 'Knowledge RAG',
-          model: ragContext.model || metadata.model,
-          checkpoint: null,
-          latencyMs: ragContext.latencyMs || 0,
-          inputTokens: Number(ragContext.tokenUsage?.input_tokens ?? ragContext.tokenUsage?.prompt_tokens) || null,
-          outputTokens: Number(ragContext.tokenUsage?.output_tokens ?? ragContext.tokenUsage?.completion_tokens) || null,
-          costUsd: Number.isFinite(ragContext.estimatedCostUsd) ? ragContext.estimatedCostUsd : null,
-          recordedAt: ragContext.createdAt
-        }
-      }));
+      recordModelRouteMetric({
+        route: 'rag',
+        label: 'Knowledge RAG',
+        model: ragContext.model || metadata.model,
+        checkpoint: null,
+        latencyMs: ragContext.latencyMs || 0,
+        inputTokens: Number(ragContext.tokenUsage?.input_tokens ?? ragContext.tokenUsage?.prompt_tokens) || null,
+        outputTokens: Number(ragContext.tokenUsage?.output_tokens ?? ragContext.tokenUsage?.completion_tokens) || null,
+        costUsd: Number.isFinite(ragContext.estimatedCostUsd) ? ragContext.estimatedCostUsd : null,
+        recordedAt: ragContext.createdAt
+      });
       setRagError(null);
       const knowledgeLines = ragContext.citations
         .map((citation, index) => {
@@ -549,7 +589,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
         client.requestResponse();
       }
     }
-  }, [runAdapterAugmentation]);
+  }, [recordModelRouteMetric, runAdapterAugmentation]);
 
   const attachRealtimeHandlers = useCallback(() => {
     const client = realtimeClientRef.current;
