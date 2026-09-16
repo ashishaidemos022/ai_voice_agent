@@ -11,6 +11,7 @@ import { Message, RealtimeConfig, VoiceToolEvent } from '../types/voice-agent';
 import { runRagAugmentation } from '../lib/rag-service';
 import { shouldRunRagForTurn } from '../../shared/rag-routing';
 import type { RagAugmentationResult, RagMode } from '../types/rag';
+import type { AgentModelPolicyConfig, ModelRouteMetric } from '../types/agent-model-policy';
 import { configPresetToRealtimeConfig, getConfigPresetById } from '../lib/config-service';
 import { useAuth } from '../context/AuthContext';
 import { normalizeUsage, recordUsageEvent } from '../lib/usage-tracker';
@@ -68,7 +69,13 @@ const EMPTY_PROVIDER_METRICS: VoiceProviderMetrics = {
   voiceDurationSeconds: null
 };
 
-export function useVoiceAgent() {
+const DEFAULT_MODEL_POLICY: AgentModelPolicyConfig = {
+  mode: 'rag',
+  adapter: null,
+  adapterSystemPrompt: 'Answer using the behavior and facts learned during adapter training. Be concise. If the answer was not learned, say UNKNOWN.'
+};
+
+export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODEL_POLICY) {
   const { vaUser } = useAuth();
   const [isConnected, setIsConnected] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -90,6 +97,9 @@ export function useVoiceAgent() {
   const [isRagLoading, setIsRagLoading] = useState(false);
   const [voiceMetrics, setVoiceMetrics] = useState<VoiceMetricsSnapshot>(EMPTY_VOICE_METRICS);
   const [providerMetrics, setProviderMetrics] = useState<VoiceProviderMetrics>(EMPTY_PROVIDER_METRICS);
+  const [modelRouteMetrics, setModelRouteMetrics] = useState<Partial<Record<'rag' | 'adapter', ModelRouteMetric>>>({});
+  const [activeModelRoute, setActiveModelRoute] = useState<'voice' | 'rag' | 'adapter'>('voice');
+  const [adapterError, setAdapterError] = useState<string | null>(null);
 
   const audioManagerRef = useRef<AudioManager | null>(null);
   const realtimeClientRef = useRef<VoiceAdapter | null>(null);
@@ -123,6 +133,7 @@ export function useVoiceAgent() {
   });
   const activeConfigIdRef = useRef<string | null>(null);
   const ragResponsePendingRef = useRef(false);
+  const modelPolicyRef = useRef(modelPolicy);
   const assistantTextBufferRef = useRef('');
   const usedAssistantTextRef = useRef(false);
   const benchmarkOutputChunksRef = useRef<string[]>([]);
@@ -267,6 +278,10 @@ export function useVoiceAgent() {
   }, [config]);
 
   useEffect(() => {
+    modelPolicyRef.current = modelPolicy;
+  }, [modelPolicy]);
+
+  useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
 
@@ -344,6 +359,65 @@ export function useVoiceAgent() {
     [mergeRealtimeConfig]
   );
 
+  const runAdapterAugmentation = useCallback(async (query: string) => {
+    const policy = modelPolicyRef.current;
+    const adapter = policy.adapter;
+    if (!adapter) throw new Error('Select a completed trained adapter before using this route.');
+    const client = realtimeClientRef.current;
+    ragResponsePendingRef.current = true;
+    client?.cancelResponse({ suppressState: true });
+    setAgentState('thinking');
+    setIsRagLoading(true);
+    setRagInvoked(false);
+    setRagResult(null);
+    setRagError(null);
+    setAdapterError(null);
+    const startedAt = performance.now();
+    const { data } = await supabase.auth.getSession();
+    const accessToken = data.session?.access_token;
+    if (!accessToken) throw new Error('Sign in again to invoke the trained adapter.');
+    const response = await fetch(`/api/open-weight-training?jobId=${encodeURIComponent(adapter.id)}&action=completion`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [
+          { role: 'system', content: policy.adapterSystemPrompt || DEFAULT_MODEL_POLICY.adapterSystemPrompt },
+          { role: 'user', content: query }
+        ],
+        temperature: 0,
+        max_tokens: 256
+      })
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || `Adapter request failed (${response.status})`);
+    const answer = String(body.choices?.[0]?.message?.content || '').trim();
+    if (!answer) throw new Error('The trained adapter returned an empty answer.');
+    const latencyMs = Number(body.viaana?.latency_ms) || Math.round(performance.now() - startedAt);
+    setActiveModelRoute('adapter');
+    setModelRouteMetrics((current) => ({
+      ...current,
+      adapter: {
+        route: 'adapter',
+        label: adapter.name,
+        model: body.model || (adapter.backend === 'tinker' ? 'thinkingmachines/Inkling-Small' : null),
+        checkpoint: adapter.artifactSha256 || adapter.id,
+        latencyMs,
+        inputTokens: Number.isFinite(body.usage?.prompt_tokens) ? body.usage.prompt_tokens : null,
+        outputTokens: Number.isFinite(body.usage?.completion_tokens) ? body.usage.completion_tokens : null,
+        costUsd: Number.isFinite(body.viaana?.cost_usd) ? body.viaana.cost_usd : null,
+        recordedAt: new Date().toISOString()
+      }
+    }));
+    ragResponsePendingRef.current = false;
+    setIsRagLoading(false);
+    if (client?.speakAnswer) {
+      client.speakAnswer(answer);
+    } else if (client) {
+      client.sendSystemMessage(`The trained adapter produced this authoritative answer. Repeat it exactly and add nothing:\n${answer}`);
+      client.requestResponse();
+    }
+  }, []);
+
   const maybeRunRagAugmentation = useCallback(async (transcriptText: string) => {
     const query = (transcriptText || '').trim();
     if (!query) {
@@ -358,6 +432,28 @@ export function useVoiceAgent() {
       setRagResult(null);
       setRagError(null);
       ragResponsePendingRef.current = false;
+      return;
+    }
+    const policy = modelPolicyRef.current;
+    if ((policy.mode === 'adapter' || policy.mode === 'automatic') && policy.adapter) {
+      try {
+        await runAdapterAugmentation(query);
+        return;
+      } catch (err: unknown) {
+        console.error('[useVoiceAgent] trained adapter failed', err);
+        setAdapterError(err instanceof Error ? err.message : 'Trained adapter request failed');
+        ragResponsePendingRef.current = false;
+        setIsRagLoading(false);
+        if (policy.mode === 'adapter') {
+          setAgentState('idle');
+          return;
+        }
+      }
+    } else if (policy.mode === 'adapter') {
+      realtimeClientRef.current?.cancelResponse({ suppressState: true });
+      setAdapterError('Select a completed trained adapter before using this route.');
+      setIsRagLoading(false);
+      setAgentState('idle');
       return;
     }
     if (configRef.current?.voice_provider === 'elevenlabs_agent') {
@@ -402,6 +498,21 @@ export function useVoiceAgent() {
         guardrail: ragContext.guardrailTriggered
       });
       setRagResult(ragContext);
+      setActiveModelRoute('rag');
+      setModelRouteMetrics((current) => ({
+        ...current,
+        rag: {
+          route: 'rag',
+          label: 'Knowledge RAG',
+          model: ragContext.model || metadata.model,
+          checkpoint: null,
+          latencyMs: ragContext.latencyMs || 0,
+          inputTokens: Number(ragContext.tokenUsage?.input_tokens ?? ragContext.tokenUsage?.prompt_tokens) || null,
+          outputTokens: Number(ragContext.tokenUsage?.output_tokens ?? ragContext.tokenUsage?.completion_tokens) || null,
+          costUsd: Number.isFinite(ragContext.estimatedCostUsd) ? ragContext.estimatedCostUsd : null,
+          recordedAt: ragContext.createdAt
+        }
+      }));
       setRagError(null);
       const knowledgeLines = ragContext.citations
         .map((citation, index) => {
@@ -438,7 +549,7 @@ export function useVoiceAgent() {
         client.requestResponse();
       }
     }
-  }, []);
+  }, [runAdapterAugmentation]);
 
   const attachRealtimeHandlers = useCallback(() => {
     const client = realtimeClientRef.current;
@@ -881,6 +992,8 @@ export function useVoiceAgent() {
         setRagError(null);
         setRagInvoked(false);
         setIsRagLoading(false);
+        setAdapterError(null);
+        setActiveModelRoute('voice');
 
         await loadMCPTools(configId, vaUser?.id);
         if (isGPTLiveModel(hydratedConfig.model)) {
@@ -1298,6 +1411,9 @@ export function useVoiceAgent() {
     isRagLoading,
     voiceMetrics,
     providerMetrics,
+    modelRouteMetrics,
+    activeModelRoute,
+    adapterError,
     setConfig: updateConfig,
     setActiveConfig,
     initialize,

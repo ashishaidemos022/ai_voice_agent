@@ -6,7 +6,7 @@ import { configPresetToRealtimeConfig, getAllConfigPresets, AgentConfigPreset } 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useAgentState } from '../state/agentState';
-import { BookOpenCheck, Loader2, Mic, MicOff, Sparkles } from 'lucide-react';
+import { BookOpenCheck, BrainCircuit, Gauge, Loader2, Mic, MicOff, Sparkles } from 'lucide-react';
 
 import { MainLayout } from './layout/MainLayout';
 import { Sidebar } from './layout/Sidebar';
@@ -30,6 +30,7 @@ import { WelcomeHero } from './welcome/WelcomeHero';
 import { StartSessionButton } from './welcome/StartSessionButton';
 import { cn } from '../lib/utils';
 import { OPENAI_MODELS } from '../../shared/openai-models';
+import type { AgentModelPolicy, VoiceAdapterCheckpoint } from '../types/agent-model-policy';
 
 const defaultConfig: RealtimeConfig = {
   model: OPENAI_MODELS.realtime.default,
@@ -49,6 +50,10 @@ const defaultConfig: RealtimeConfig = {
     silence_duration_ms: 700
   }
 };
+
+const ADAPTER_SYSTEM_PROMPT = 'Answer using the behavior and facts learned during adapter training. Be concise. If the answer was not learned, say UNKNOWN.';
+const MODEL_POLICY_KEY = 'viaana-agent-model-policy-v1';
+const ADAPTER_SELECTION_KEY = 'viaana-agent-adapter-v1';
 
 const formatRelative = (dateString?: string | null) => {
   if (!dateString) return 'moments ago';
@@ -114,6 +119,16 @@ type MCPConnectionSummary = {
   status?: string | null;
   toolCount: number;
   tools: string[];
+};
+
+type AdapterRegistryJob = {
+  id: string;
+  name: string;
+  dataset_name: string;
+  backend?: 'local' | 'tinker';
+  status: string;
+  artifact_sha256?: string;
+  completed_at?: number;
 };
 
 export function VoiceAgent({
@@ -185,6 +200,15 @@ export function VoiceAgent({
   const [mcpConnectionSummary, setMcpConnectionSummary] = useState<MCPConnectionSummary[]>([]);
   const [isMcpSummaryLoading, setIsMcpSummaryLoading] = useState(false);
   const [sessionElapsedSeconds, setSessionElapsedSeconds] = useState(0);
+  const [modelPolicyMode, setModelPolicyMode] = useState<AgentModelPolicy>(() => {
+    if (typeof window === 'undefined') return 'rag';
+    const stored = window.localStorage.getItem(MODEL_POLICY_KEY);
+    return stored === 'adapter' || stored === 'automatic' ? stored : 'rag';
+  });
+  const [adapterJobs, setAdapterJobs] = useState<VoiceAdapterCheckpoint[]>([]);
+  const [selectedAdapterId, setSelectedAdapterId] = useState(() => typeof window === 'undefined' ? '' : window.localStorage.getItem(ADAPTER_SELECTION_KEY) || '');
+  const [adapterRegistryError, setAdapterRegistryError] = useState<string | null>(null);
+  const selectedAdapter = adapterJobs.find((job) => job.id === selectedAdapterId) || null;
   const resumeSessionRef = useRef<{ config: RealtimeConfig; presetId: string | null } | null>(null);
   const applyPreferencesToConfig = useCallback((baseConfig: RealtimeConfig) => {
     const nextConfig = { ...baseConfig };
@@ -231,13 +255,58 @@ export function VoiceAgent({
     isRagLoading,
     voiceMetrics,
     providerMetrics,
+    modelRouteMetrics,
+    activeModelRoute,
+    adapterError,
     setConfig,
     setActiveConfig,
     initialize,
     toggleRecording,
     sendA2UIEvent,
     cleanup
-  } = useVoiceAgent();
+  } = useVoiceAgent({ mode: modelPolicyMode, adapter: selectedAdapter, adapterSystemPrompt: ADAPTER_SYSTEM_PROMPT });
+
+  useEffect(() => {
+    window.localStorage.setItem(MODEL_POLICY_KEY, modelPolicyMode);
+  }, [modelPolicyMode]);
+
+  useEffect(() => {
+    if (selectedAdapterId) window.localStorage.setItem(ADAPTER_SELECTION_KEY, selectedAdapterId);
+    else window.localStorage.removeItem(ADAPTER_SELECTION_KEY);
+  }, [selectedAdapterId]);
+
+  useEffect(() => {
+    if (!vaUser?.id) return;
+    let cancelled = false;
+    const loadAdapters = async () => {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) return;
+      const response = await fetch('/api/open-weight-training', { headers: { Authorization: `Bearer ${token}` } });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `Adapter registry failed (${response.status})`);
+      if (cancelled) return;
+      const registryJobs = (Array.isArray(body.jobs) ? body.jobs : []) as AdapterRegistryJob[];
+      const jobs = registryJobs
+        .filter((job) => job.status === 'completed')
+        .map((job): VoiceAdapterCheckpoint => ({
+          id: job.id,
+          name: job.name,
+          datasetName: job.dataset_name,
+          backend: job.backend === 'tinker' ? 'tinker' : 'local',
+          artifactSha256: job.artifact_sha256,
+          completedAt: job.completed_at
+        }))
+        .sort((a: VoiceAdapterCheckpoint, b: VoiceAdapterCheckpoint) => (b.completedAt || 0) - (a.completedAt || 0));
+      setAdapterJobs(jobs);
+      setSelectedAdapterId((current) => jobs.some((job: VoiceAdapterCheckpoint) => job.id === current) ? current : jobs[0]?.id || '');
+      setAdapterRegistryError(null);
+    };
+    loadAdapters().catch((reason) => {
+      if (!cancelled) setAdapterRegistryError(reason instanceof Error ? reason.message : 'Unable to load trained adapters');
+    });
+    return () => { cancelled = true; };
+  }, [vaUser?.id]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -1139,6 +1208,101 @@ export function VoiceAgent({
                         <div className="flex flex-col gap-4 min-h-0 overflow-y-auto pr-1 pb-2">
                           {viewMode === 'current' ? (
                             <>
+                              <Card className="p-5 bg-slate-900/60 border-white/5 flex flex-col gap-4">
+                                <div className="flex items-center gap-3">
+                                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-300 to-orange-500">
+                                    <BrainCircuit className="h-5 w-5 text-slate-950" />
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="font-semibold text-white">Agent model policy</p>
+                                    <p className="text-xs text-white/50">Choose where the spoken answer is generated</p>
+                                  </div>
+                                  <span className="rounded-full border border-amber-300/25 bg-amber-400/10 px-2 py-1 text-[10px] uppercase tracking-wider text-amber-100">
+                                    {activeModelRoute === 'adapter' ? 'Adapter answered' : activeModelRoute === 'rag' ? 'RAG answered' : 'Voice ready'}
+                                  </span>
+                                </div>
+
+                                <div className="grid grid-cols-3 gap-2 rounded-xl border border-white/10 bg-slate-950/60 p-1">
+                                  {([
+                                    ['rag', 'RAG'],
+                                    ['adapter', 'Trained adapter'],
+                                    ['automatic', 'Automatic']
+                                  ] as const).map(([mode, label]) => (
+                                    <button
+                                      key={mode}
+                                      type="button"
+                                      onClick={() => setModelPolicyMode(mode)}
+                                      disabled={mode === 'adapter' && !selectedAdapter}
+                                      className={cn(
+                                        'rounded-lg px-2 py-2 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-35',
+                                        modelPolicyMode === mode ? 'bg-amber-300 text-slate-950' : 'text-white/50 hover:bg-white/5 hover:text-white'
+                                      )}
+                                    >
+                                      {label}
+                                    </button>
+                                  ))}
+                                </div>
+
+                                <label className="text-xs text-white/50">
+                                  Trained checkpoint
+                                  <select
+                                    value={selectedAdapterId}
+                                    onChange={(event) => setSelectedAdapterId(event.target.value)}
+                                    className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white focus:border-amber-300/50 focus:outline-none"
+                                  >
+                                    <option value="">{adapterJobs.length ? 'Select an adapter' : 'No completed adapters'}</option>
+                                    {adapterJobs.map((job) => (
+                                      <option key={job.id} value={job.id}>{job.name} · {job.datasetName}</option>
+                                    ))}
+                                  </select>
+                                </label>
+
+                                {selectedAdapter ? (
+                                  <div className="rounded-xl border border-emerald-300/15 bg-emerald-400/[0.04] p-3 text-xs text-white/55">
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span className="font-medium text-emerald-100">{selectedAdapter.backend === 'tinker' ? 'Inkling-Small · Tinker' : 'Qwen · private GPU'}</span>
+                                      <span className="font-mono text-[10px] text-white/35">{(selectedAdapter.artifactSha256 || selectedAdapter.id).slice(0, 12)}…</span>
+                                    </div>
+                                    <p className="mt-1">Adapter mode skips document retrieval. The trained checkpoint generates the answer; the voice provider only speaks it.</p>
+                                  </div>
+                                ) : (
+                                  <p className="text-xs leading-5 text-white/40">Train an adapter in Open Weight Lab to enable direct model answers. RAG remains available now.</p>
+                                )}
+
+                                {modelPolicyMode === 'automatic' && selectedAdapter && (
+                                  <p className="text-[11px] leading-5 text-white/40">Automatic sends knowledge questions to the trained adapter and falls back to RAG if the checkpoint request fails. Greetings and small talk stay with the live voice model.</p>
+                                )}
+
+                                {(adapterRegistryError || adapterError) && <p className="text-xs text-rose-300">{adapterError || adapterRegistryError}</p>}
+
+                                {(modelRouteMetrics.rag || modelRouteMetrics.adapter) && (
+                                  <div className="space-y-2 border-t border-white/10 pt-3">
+                                    <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-white/35">
+                                      <Gauge className="h-3.5 w-3.5" /> Measured answer path
+                                    </div>
+                                    {(['rag', 'adapter'] as const).map((route) => {
+                                      const metric = modelRouteMetrics[route];
+                                      if (!metric) return null;
+                                      return <div key={route} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-lg bg-black/20 px-3 py-2 text-xs">
+                                        <div className="min-w-0"><p className="truncate font-medium text-white/75">{route === 'rag' ? 'RAG pipeline' : metric.label}</p><p className="truncate text-[10px] text-white/35">{metric.model || 'Model not reported'}{metric.inputTokens != null || metric.outputTokens != null ? ` · ${metric.inputTokens ?? '?'} in / ${metric.outputTokens ?? '?'} out` : ''}</p></div>
+                                        <span className="font-mono text-white/60">{Math.round(metric.latencyMs)} ms</span>
+                                        <span className="font-mono text-white/60">{metric.costUsd == null ? 'Cost n/a' : `$${metric.costUsd.toFixed(6)}`}</span>
+                                      </div>;
+                                    })}
+                                    {modelRouteMetrics.rag && modelRouteMetrics.adapter && (
+                                      <div className="rounded-lg border border-amber-300/15 bg-amber-400/[0.04] px-3 py-2 text-[11px] leading-5 text-white/50">
+                                        <span className="font-semibold text-amber-100">Comparison:</span>{' '}
+                                        the adapter was {Math.abs(modelRouteMetrics.rag.latencyMs - modelRouteMetrics.adapter.latencyMs).toLocaleString()} ms {modelRouteMetrics.adapter.latencyMs <= modelRouteMetrics.rag.latencyMs ? 'faster' : 'slower'} on the recorded turns.
+                                        {' '}{modelRouteMetrics.rag.costUsd != null && modelRouteMetrics.adapter.costUsd != null
+                                          ? `Measured generation cost changed from $${modelRouteMetrics.rag.costUsd.toFixed(6)} to $${modelRouteMetrics.adapter.costUsd.toFixed(6)}.`
+                                          : 'Dollar-cost comparison is pending adapter runtime metering.'}
+                                      </div>
+                                    )}
+                                    <p className="text-[10px] leading-4 text-white/30">Latency covers answer generation. Cost appears only when the runtime reports it; voice transcription and speech costs are separate.</p>
+                                  </div>
+                                )}
+                              </Card>
+
                               <ToolExecutionFeed
                                 events={toolEvents}
                                 toolSummary={toolSummary}

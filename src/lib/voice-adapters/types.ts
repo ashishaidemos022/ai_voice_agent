@@ -17,6 +17,7 @@ export interface VoiceAdapter {
   sendSystemMessage(text: string): void;
   cancelResponse(options?: { suppressState?: boolean }): void;
   requestResponse(): void;
+  speakAnswer?: (text: string) => void;
   on(eventType: VoiceEventType, handler: (event: any) => void): void;
   off(eventType: VoiceEventType, handler: (event: any) => void): void;
   startCapture?: () => Promise<void>;

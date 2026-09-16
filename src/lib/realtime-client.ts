@@ -812,6 +812,12 @@ export class RealtimeAPIClient {
         this.emit({ type: 'interruption' });
         this.hasBufferedAudio = false;
         this.bufferedSamples = 0;
+        this.routedSpeechRequested = false;
+        if (this.pendingRoutedAnswer) {
+          const pending = this.pendingRoutedAnswer;
+          this.pendingRoutedAnswer = null;
+          this.speakAnswer(pending);
+        }
         break;
 
       case 'response.completed':
@@ -822,11 +828,9 @@ export class RealtimeAPIClient {
         this.setAgentState('idle');
         const response = message.response ?? message;
         this.emit({ type: 'response.done', response });
-        if (this.routedVoice) {
-          this.routedSpeechRequested = false;
-          const pending = this.pendingRoutedAnswer; this.pendingRoutedAnswer = null;
-          if (pending) this.speakAnswer(pending);
-        }
+        this.routedSpeechRequested = false;
+        const pending = this.pendingRoutedAnswer; this.pendingRoutedAnswer = null;
+        if (pending) this.speakAnswer(pending);
         if (response?.usage) {
           this.emit({
             type: 'usage.reported',
@@ -1159,7 +1163,7 @@ export class RealtimeAPIClient {
 
   /** Independent speech response: microphone context never competes with the routed answer. */
   speakAnswer(text: string): void {
-    if (!this.routedVoice || !text.trim()) return;
+    if (!text.trim()) return;
     if (this.routedSpeechRequested || this.hasActiveResponse()) { this.pendingRoutedAnswer = text; return; }
     this.routedSpeechRequested = true; this.suppressRoutedAudio = false;
     if (this.remoteAudio) this.remoteAudio.muted = false;

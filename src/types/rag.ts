@@ -70,6 +70,7 @@ export interface RagAugmentationResult {
   modelCostUsd?: number;
   toolCostUsd?: number;
   estimatedCostUsd?: number;
+  latencyMs?: number;
   guardrailTriggered?: boolean;
   createdAt: string;
 }

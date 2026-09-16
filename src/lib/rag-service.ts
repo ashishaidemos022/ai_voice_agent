@@ -210,6 +210,7 @@ export async function runRagAugmentation(input: {
     spaceIds: input.spaceIds,
     queryPreview: input.query.slice(0, 80)
   });
+  const startedAt = performance.now();
   const data = await invokeRagFunction({
     action: 'run_query',
     agent_config_id: input.agentConfigId,
@@ -238,6 +239,7 @@ export async function runRagAugmentation(input: {
     modelCostUsd: Number(data?.model_cost_usd) || 0,
     toolCostUsd: Number(data?.tool_cost_usd) || 0,
     estimatedCostUsd: Number(data?.estimated_cost_usd) || 0,
+    latencyMs: Math.round(performance.now() - startedAt),
     guardrailTriggered: Boolean(data?.guardrail_triggered),
     createdAt: new Date().toISOString()
   };
