@@ -6,6 +6,7 @@ import { buildN8NToolName, normalizeIdentifier } from './tool-utils';
 import { normalizeUsage, recordUsageEvent } from './usage-tracker';
 import { runRagAugmentation } from './rag-service';
 import type { RagMode } from '../types/rag';
+import { DEFAULT_ADAPTER_SYSTEM_PROMPT } from '../../shared/adapter-system-prompt';
 
 export interface Tool {
   name: string;
@@ -520,8 +521,7 @@ export function registerAdapterCheckpointTool(config: {
   mcpTools = mcpTools.filter((tool) => tool.name !== toolName);
   if (!config.enabled || !config.jobId) return;
   const jobId = config.jobId;
-  const systemPrompt = config.systemPrompt?.trim() ||
-    'Answer using the behavior and facts learned during adapter training. Be concise. If the answer was not learned, say UNKNOWN.';
+  const systemPrompt = config.systemPrompt?.trim() || DEFAULT_ADAPTER_SYSTEM_PROMPT;
   const adapterTool: Tool = {
     name: toolName,
     description: 'Ask the selected trained checkpoint for the authoritative answer to the user request.',

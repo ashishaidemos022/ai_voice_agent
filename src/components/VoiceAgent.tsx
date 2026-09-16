@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useVoiceAgent } from '../hooks/useVoiceAgent';
 import { chooseModelPolicy, chooseTrainedAdapter } from '../../shared/model-policy-selection';
+import { resolveAdapterSystemPrompt } from '../../shared/adapter-system-prompt';
 import { RealtimeConfig, Message } from '../types/voice-agent';
 import { getAllTools, loadMCPTools } from '../lib/tools-registry';
 import { configPresetToRealtimeConfig, getAllConfigPresets, AgentConfigPreset } from '../lib/config-service';
@@ -52,7 +53,6 @@ const defaultConfig: RealtimeConfig = {
   }
 };
 
-const ADAPTER_SYSTEM_PROMPT = 'Answer using the behavior and facts learned during adapter training. Be concise. If the answer was not learned, say UNKNOWN.';
 const MODEL_POLICY_KEY = 'viaana-agent-model-policy-v1';
 const ADAPTER_SELECTION_KEY = 'viaana-agent-adapter-v1';
 
@@ -268,7 +268,11 @@ export function VoiceAgent({
     toggleRecording,
     sendA2UIEvent,
     cleanup
-  } = useVoiceAgent({ mode: modelPolicyMode, adapter: selectedAdapter, adapterSystemPrompt: ADAPTER_SYSTEM_PROMPT });
+  } = useVoiceAgent({
+    mode: modelPolicyMode,
+    adapter: selectedAdapter,
+    adapterSystemPrompt: resolveAdapterSystemPrompt(selectedAdapter)
+  });
 
   useEffect(() => {
     window.localStorage.setItem(MODEL_POLICY_KEY, modelPolicyMode);

@@ -23,6 +23,7 @@ import {
 } from '../lib/elevenlabs-agent';
 import { requestRealtimeWebSocketSecret } from '../lib/realtime-session';
 import { isGPTLiveModel } from '../../shared/openai-models';
+import { DEFAULT_ADAPTER_SYSTEM_PROMPT } from '../../shared/adapter-system-prompt';
 import { formatA2UIEventMessage, type A2UIEvent } from '../lib/a2ui';
 import {
   emitBenchmarkEvent,
@@ -72,7 +73,7 @@ const EMPTY_PROVIDER_METRICS: VoiceProviderMetrics = {
 const DEFAULT_MODEL_POLICY: AgentModelPolicyConfig = {
   mode: 'rag',
   adapter: null,
-  adapterSystemPrompt: 'Answer using the behavior and facts learned during adapter training. Be concise. If the answer was not learned, say UNKNOWN.'
+  adapterSystemPrompt: DEFAULT_ADAPTER_SYSTEM_PROMPT
 };
 
 export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODEL_POLICY) {

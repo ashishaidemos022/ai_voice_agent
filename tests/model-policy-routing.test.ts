@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { resolveModelPolicyRoute } from '../shared/model-policy-routing.ts';
 import { chooseModelPolicy, chooseTrainedAdapter } from '../shared/model-policy-selection.ts';
+import { DEFAULT_ADAPTER_SYSTEM_PROMPT, WREN_ADAPTER_SYSTEM_PROMPT, resolveAdapterSystemPrompt } from '../shared/adapter-system-prompt.ts';
 
 test('explicit trained-adapter mode routes every substantive user turn to the adapter', () => {
   assert.equal(resolveModelPolicyRoute('adapter', true, "What are Ren's opening hours?"), 'adapter');
@@ -29,4 +30,9 @@ test('model-policy controls cannot display a checkpoint while RAG is selected', 
 test('selecting a trained checkpoint activates adapter mode', () => {
   assert.deepEqual(chooseTrainedAdapter('rag', 'train-wren'), { mode: 'adapter', adapterId: 'train-wren' });
   assert.deepEqual(chooseTrainedAdapter('adapter', ''), { mode: 'rag', adapterId: '' });
+});
+
+test('Wren voice requests use the same system prompt as the passing lab evaluation', () => {
+  assert.equal(resolveAdapterSystemPrompt({ name: 'Wren FAQ', datasetName: 'wren-faq-two-facts-v1' }), WREN_ADAPTER_SYSTEM_PROMPT);
+  assert.equal(resolveAdapterSystemPrompt({ name: 'Other adapter', datasetName: 'other-data' }), DEFAULT_ADAPTER_SYSTEM_PROMPT);
 });
