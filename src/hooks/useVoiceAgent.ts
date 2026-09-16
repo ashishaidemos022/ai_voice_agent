@@ -9,7 +9,7 @@ import { supabase } from '../lib/supabase';
 import { executeTool, loadMCPTools, registerRagKnowledgeTool } from '../lib/tools-registry';
 import { Message, RealtimeConfig, VoiceToolEvent } from '../types/voice-agent';
 import { runRagAugmentation } from '../lib/rag-service';
-import { shouldRunRagForTurn } from '../../shared/rag-routing';
+import { resolveModelPolicyRoute } from '../../shared/model-policy-routing';
 import type { RagAugmentationResult, RagMode } from '../types/rag';
 import type { AgentModelPolicyConfig, ModelRouteMetric } from '../types/agent-model-policy';
 import { configPresetToRealtimeConfig, getConfigPresetById } from '../lib/config-service';
@@ -470,15 +470,22 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
       ragResponsePendingRef.current = false;
       return;
     }
-    if (!shouldRunRagForTurn(query)) {
+    const policy = modelPolicyRef.current;
+    const policyRoute = resolveModelPolicyRoute(policy.mode, Boolean(policy.adapter), query);
+    console.log('[useVoiceAgent] model policy route', {
+      mode: policy.mode,
+      route: policyRoute,
+      adapterId: policy.adapter?.id || null,
+      query: query.slice(0, 120)
+    });
+    if (policyRoute === 'voice') {
       setRagInvoked(false);
       setRagResult(null);
       setRagError(null);
       ragResponsePendingRef.current = false;
       return;
     }
-    const policy = modelPolicyRef.current;
-    if ((policy.mode === 'adapter' || policy.mode === 'automatic') && policy.adapter) {
+    if (policyRoute === 'adapter') {
       try {
         await runAdapterAugmentation(query);
         return;
@@ -492,7 +499,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
           return;
         }
       }
-    } else if (policy.mode === 'adapter') {
+    } else if (policyRoute === 'adapter-unavailable') {
       realtimeClientRef.current?.cancelResponse({ suppressState: true });
       setAdapterError('Select a completed trained adapter before using this route.');
       setIsRagLoading(false);
