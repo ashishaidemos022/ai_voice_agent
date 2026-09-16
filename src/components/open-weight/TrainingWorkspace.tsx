@@ -14,7 +14,7 @@ type Job = {
   trainable_parameters?: number; artifact_sha256?: string; repository?: string; repository_path?: string; error?: string;
   promotion_status?: string; promoted_at?: number; fused_sha256?: string; fused_repository_path?: string; promoted_checkpoint_path?: string; promotion_kind?: string;
 };
-type Props = { accessToken: string; localBaseModelId?: string; tinkerBaseModelId?: string };
+type Props = { accessToken: string; localBaseModelId?: string; tinkerBaseModelId?: string; onJobDeleted?: (jobId: string) => void };
 
 const SYSTEM = 'You are Viaana Router. Reply with only compact JSON: {"tool":"<name>","arguments":{...}}.';
 const pairs = [
@@ -61,7 +61,7 @@ function download(name: string, text: string) {
   const anchor = document.createElement('a'); anchor.href = href; anchor.download = name; anchor.click(); URL.revokeObjectURL(href);
 }
 
-export function TrainingWorkspace({ accessToken, localBaseModelId, tinkerBaseModelId }: Props) {
+export function TrainingWorkspace({ accessToken, localBaseModelId, tinkerBaseModelId, onJobDeleted }: Props) {
   const [backend, setBackend] = useState<'local' | 'tinker'>('tinker');
   const [datasetName, setDatasetName] = useState('viaana-tool-routing-v1');
   const [jobName, setJobName] = useState('Viaana tool router adapter');
@@ -80,14 +80,18 @@ export function TrainingWorkspace({ accessToken, localBaseModelId, tinkerBaseMod
   const [testPrompt, setTestPrompt] = useState('Can you see where package QX-909 is right now?');
   const [comparison, setComparison] = useState<{ base?: string; trained?: string }>({});
   const fileRef = useRef<HTMLInputElement>(null);
+  const deletedJobIds = useRef(new Set<string>());
   const parsed = useMemo(() => { try { return { examples: parseJsonl(jsonl), error: '' }; } catch (reason) { return { examples: [] as Example[], error: reason instanceof Error ? reason.message : 'Invalid JSONL' }; } }, [jsonl]);
   const activeBaseModelId = activeJob?.backend === 'tinker' ? tinkerBaseModelId : localBaseModelId;
+  const activeJobId = activeJob?.id;
+  const activeJobStatus = activeJob?.status;
 
   const headers = useMemo(() => ({ Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }), [accessToken]);
   const refresh = async () => {
     const body = await readJson(await fetch('/api/open-weight-training', { headers }));
-    setJobs(body.jobs || []);
-    if (activeJob) setActiveJob((body.jobs || []).find((job: Job) => job.id === activeJob.id) || activeJob);
+    const nextJobs = ((body.jobs || []) as Job[]).filter((job) => !deletedJobIds.current.has(job.id));
+    setJobs(nextJobs);
+    setActiveJob((current) => current ? nextJobs.find((job) => job.id === current.id) || null : null);
   };
 
   useEffect(() => { refresh().catch((reason) => setError(reason instanceof Error ? reason.message : 'Unable to load training jobs')); }, [accessToken]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -96,15 +100,17 @@ export function TrainingWorkspace({ accessToken, localBaseModelId, tinkerBaseMod
     crypto.subtle.digest('SHA-256', new TextEncoder().encode(jsonl)).then((value) => setHash(Array.from(new Uint8Array(value)).map((byte) => byte.toString(16).padStart(2, '0')).join('')));
   }, [jsonl]);
   useEffect(() => {
-    if (!activeJob || ['completed', 'failed'].includes(activeJob.status)) return;
+    if (!activeJobId || !activeJobStatus || ['completed', 'failed'].includes(activeJobStatus)) return;
+    let cancelled = false;
     const timer = window.setInterval(async () => {
       try {
-        const body = await readJson(await fetch(`/api/open-weight-training?jobId=${encodeURIComponent(activeJob.id)}`, { headers }));
+        const body = await readJson(await fetch(`/api/open-weight-training?jobId=${encodeURIComponent(activeJobId)}`, { headers }));
+        if (cancelled || deletedJobIds.current.has(body.job.id)) return;
         setActiveJob(body.job); setJobs((current) => [body.job, ...current.filter((job) => job.id !== body.job.id)]);
-      } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to refresh job'); }
+      } catch (reason) { if (!cancelled) setError(reason instanceof Error ? reason.message : 'Unable to refresh job'); }
     }, 3000);
-    return () => window.clearInterval(timer);
-  }, [activeJob?.id, activeJob?.status, headers]);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [activeJobId, activeJobStatus, headers]);
 
   const launch = async () => {
     if (parsed.error) return setError(parsed.error);
@@ -139,8 +145,11 @@ export function TrainingWorkspace({ accessToken, localBaseModelId, tinkerBaseMod
     setDeletingJobId(job.id); setError('');
     try {
       await readJson(await fetch(`/api/open-weight-training?jobId=${encodeURIComponent(job.id)}`, { method: 'DELETE', headers }));
+      deletedJobIds.current.add(job.id);
       setJobs((current) => current.filter((item) => item.id !== job.id));
-      if (activeJob?.id === job.id) { setActiveJob(null); setComparison({}); }
+      setActiveJob((current) => current?.id === job.id ? null : current);
+      setComparison({});
+      onJobDeleted?.(job.id);
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to delete adapter'); }
     setDeletingJobId('');
   };

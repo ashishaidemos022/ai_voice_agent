@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, CheckCircle2, Clock3, Download, FlaskConical, Gauge, History, Layers3, Loader2, Play, RotateCcw, Settings2, Weight } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { MainLayout } from '../layout/MainLayout';
@@ -48,6 +48,7 @@ export function OpenWeightLab(props: OpenWeightLabProps) {
   const [history, setHistory] = useState<SavedRun[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const deletedJobIds = useRef(new Set<string>());
 
   useEffect(() => {
     try { setHistory(JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]')); } catch { setHistory([]); }
@@ -55,11 +56,13 @@ export function OpenWeightLab(props: OpenWeightLabProps) {
 
   useEffect(() => {
     if (!session?.access_token) return;
+    let cancelled = false;
     const headers = { Authorization: `Bearer ${session.access_token}` };
     setError('');
     fetch('/api/open-weight-chat', { headers })
       .then(readJson)
       .then((registry) => {
+        if (cancelled) return;
         const registered = (registry.models || []) as ModelVariant[];
         setModels((current) => [
           ...registered,
@@ -68,12 +71,14 @@ export function OpenWeightLab(props: OpenWeightLabProps) {
         const base = registered.find((model) => model.transport === 'openai-compatible' && model.runtimeModel === 'base');
         if (base) setSelectedModels((current) => current.length ? current : [base.id]);
       })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : 'Unable to load registered model variants'));
+      .catch((reason) => { if (!cancelled) setError(reason instanceof Error ? reason.message : 'Unable to load registered model variants'); });
 
     fetch('/api/open-weight-training', { headers })
       .then(readJson)
       .then((training) => {
-        const trainedAdapters = ((training.jobs || []) as TrainingJob[])
+        if (cancelled) return;
+        const jobs = ((training.jobs || []) as TrainingJob[]).filter((job) => !deletedJobIds.current.has(job.id));
+        const trainedAdapters = jobs
           .filter((job) => job.status === 'completed')
           .map((job): ModelVariant => ({
             id: job.id,
@@ -87,10 +92,10 @@ export function OpenWeightLab(props: OpenWeightLabProps) {
             datasetName: job.dataset_name,
             trainedAt: job.completed_at,
           }));
-        const trainedFused = ((training.jobs || []) as TrainingJob[])
+        const trainedFused = jobs
           .filter((job) => job.status === 'completed' && job.promotion_status === 'promoted' && job.fused_sha256)
           .map((job): ModelVariant => ({ id: `${job.id}-fused`, model: `${job.name} · fused`, revision: job.fused_sha256!, precision: 'Fused FP16 checkpoint', providerOnly: null, transport: 'trained-fused', runtimeModel: job.id, supportsTools: false, datasetName: job.dataset_name, trainedAt: job.completed_at }));
-        const promotedTinker = ((training.jobs || []) as TrainingJob[])
+        const promotedTinker = jobs
           .filter((job) => job.backend === 'tinker' && job.status === 'completed' && job.promotion_status === 'promoted' && job.promoted_checkpoint_path)
           .map((job): ModelVariant => ({ id: `${job.id}-promoted`, model: `${job.name} · promoted`, revision: job.artifact_sha256 || job.id, precision: 'Tinker LoRA checkpoint', providerOnly: null, transport: 'trained-checkpoint', runtimeModel: job.id, supportsTools: false, datasetName: job.dataset_name, trainedAt: job.completed_at }));
         const trained = [...trainedAdapters, ...trainedFused, ...promotedTinker];
@@ -99,10 +104,21 @@ export function OpenWeightLab(props: OpenWeightLabProps) {
           ...trained,
         ]);
         const latestAdapter = trainedAdapters.sort((a, b) => (b.trainedAt || 0) - (a.trainedAt || 0))[0];
-        if (latestAdapter) setSelectedModels((current) => current.includes(latestAdapter.id) ? current : [...current, latestAdapter.id]);
+        setSelectedModels((current) => {
+          const available = current.filter((id) => !id.startsWith('train-') || trained.some((model) => model.id === id));
+          return latestAdapter && !available.includes(latestAdapter.id) ? [...available, latestAdapter.id] : available;
+        });
       })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : 'GPU runtime is waking; trained models will appear shortly'));
+      .catch((reason) => { if (!cancelled) setError(reason instanceof Error ? reason.message : 'GPU runtime is waking; trained models will appear shortly'); });
+    return () => { cancelled = true; };
   }, [session?.access_token, view]);
+
+  const handleJobDeleted = (jobId: string) => {
+    deletedJobIds.current.add(jobId);
+    setModels((current) => current.filter((model) => model.runtimeModel !== jobId));
+    const ids = new Set([jobId, `${jobId}-fused`, `${jobId}-promoted`]);
+    setSelectedModels((current) => current.filter((id) => !ids.has(id)));
+  };
 
   const totalCost = useMemo(() => results.reduce((sum, result) => sum + (result.costUsd || 0), 0), [results]);
   const distinctOutputs = useMemo(() => new Set(results.filter((result) => !result.error).map((result) => result.text?.trim())).size, [results]);
@@ -158,7 +174,7 @@ export function OpenWeightLab(props: OpenWeightLabProps) {
 
     {view === 'evaluation' && session?.access_token && <EvaluationRunner accessToken={session.access_token} models={models.filter((model) => model.transport === 'gateway' || model.transport === 'openai-compatible')} />}
 
-    {view === 'training' && session?.access_token && <TrainingWorkspace accessToken={session.access_token} localBaseModelId={models.find((model) => model.transport === 'openai-compatible' && model.runtimeModel === 'base')?.id} tinkerBaseModelId={models.find((model) => model.model === 'thinkingmachines/inkling-small' || model.model === 'thinkingmachines/Inkling-Small')?.id} />}
+    {view === 'training' && session?.access_token && <TrainingWorkspace accessToken={session.access_token} onJobDeleted={handleJobDeleted} localBaseModelId={models.find((model) => model.transport === 'openai-compatible' && model.runtimeModel === 'base')?.id} tinkerBaseModelId={models.find((model) => model.model === 'thinkingmachines/inkling-small' || model.model === 'thinkingmachines/Inkling-Small')?.id} />}
 
     {view === 'history' && <Card className="overflow-hidden border-white/10 bg-white/[0.03]"><div className="border-b border-white/10 p-5"><h3 className="font-semibold text-white">Saved experiment runs</h3><p className="mt-1 text-xs text-white/40">The latest 25 runs are kept in this browser.</p></div>{history.length ? <div className="divide-y divide-white/5">{history.map((run) => <div key={run.id} className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><p className="truncate text-sm text-white/75">{run.prompt}</p><p className="mt-1 text-xs text-white/35">{new Date(run.createdAt).toLocaleString()} · {run.modelIds.length} model{run.modelIds.length === 1 ? '' : 's'} · T {run.temperature} · {run.maxTokens} max tokens</p></div><div className="flex gap-2"><button onClick={() => saveFile(run)} className="rounded-lg border border-white/10 p-2 text-white/40 hover:text-white" aria-label={`Download ${run.id}`}><Download className="h-4 w-4" /></button><button onClick={() => restore(run)} className="flex items-center gap-2 rounded-lg border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-xs text-amber-100"><RotateCcw className="h-3.5 w-3.5" /> Load</button></div></div>)}</div> : <p className="p-10 text-center text-sm text-white/40">Run your first comparison to create history.</p>}</Card>}
 

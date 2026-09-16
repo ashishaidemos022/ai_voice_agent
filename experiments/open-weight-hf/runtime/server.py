@@ -191,7 +191,7 @@ def load_registry() -> None:
     try:
         api = HfApi(token=token)
         for filename in api.list_repo_files(ADAPTER_REGISTRY, repo_type="model"):
-            if not filename.endswith("/training_manifest.json"):
+            if not filename.startswith("jobs/train-") or filename.startswith("jobs/train-tinker-") or not filename.endswith("/training_manifest.json"):
                 continue
             path = hf_hub_download(ADAPTER_REGISTRY, filename, repo_type="model", token=token)
             manifest = json.loads(Path(path).read_text())

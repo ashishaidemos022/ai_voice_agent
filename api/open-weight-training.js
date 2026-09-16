@@ -139,14 +139,19 @@ export default async function handler(req, res) {
   if (req.method === 'GET' && !jobId) {
     const configs = [];
     for (const candidate of ['local', 'tinker']) {
-      try { configs.push(runtimeConfig(process.env, candidate)); } catch { /* optional runtime */ }
+      try { configs.push({ ...runtimeConfig(process.env, candidate), backend: candidate }); } catch { /* optional runtime */ }
     }
     if (!configs.length) return json(res, 503, { error: 'Training runtimes are unavailable' });
     const results = await Promise.all(configs.map(async (runtime) => {
       try {
         const upstream = await runtimeFetch(`${runtime.endpoint}/v1/training/jobs`, { method: 'GET', headers: runtime.headers });
         const payload = await upstream.json().catch(() => ({}));
-        return upstream.ok ? payload.jobs || [] : [];
+        // Only the runtime that handles a job's mutations owns its registry entry.
+        // Older local runtimes may still cache Tinker manifests after deletion.
+        return upstream.ok && Array.isArray(payload.jobs) ? payload.jobs.filter((job) => {
+          const id = validateTrainingJobId(job?.id);
+          return id && (id.startsWith('train-tinker-') ? 'tinker' : 'local') === runtime.backend;
+        }) : [];
       } catch { return []; }
     }));
     return json(res, 200, { jobs: results.flat().sort((a, b) => (b.created_at || 0) - (a.created_at || 0)) });

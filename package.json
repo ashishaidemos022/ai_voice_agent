@@ -20,7 +20,7 @@
     "test:voice": "node --experimental-strip-types --test tests/routed-voice.test.ts tests/routed-voice-controls.test.js tests/live-voice.test.ts tests/live-voice-controls.test.js tests/voice-provider-routing.test.ts tests/model-policy-routing.test.ts",
     "smoke:gpt-live": "node scripts/gpt-live-smoke.mjs",
     "open-weight:eval": "node --experimental-strip-types scripts/open-weight-eval/cli.ts",
-    "test:open-weight-eval": "node --experimental-strip-types --test tests/open-weight-eval.test.ts tests/open-weight-api.test.js tests/open-weight-evidence.test.ts tests/open-weight-ui-evaluation.test.ts tests/open-weight-adapter-evaluation.test.ts",
+    "test:open-weight-eval": "node --experimental-strip-types --test tests/open-weight-eval.test.ts tests/open-weight-api.test.js tests/open-weight-evidence.test.ts tests/open-weight-ui-evaluation.test.ts tests/open-weight-adapter-evaluation.test.ts tests/open-weight-training-deletion.test.js tests/open-weight-training-ui.test.js",
     "typecheck:open-weight-eval": "tsc -p tsconfig.open-weight-eval.json"
   },
   "dependencies": {
