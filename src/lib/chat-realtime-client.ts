@@ -3,10 +3,13 @@ import { supabase } from './supabase';
 import { MEMORY_TOOL_NAMES, type MemoryReceipt } from '../../shared/agent-memory';
 import type { RagMode } from '../types/rag';
 import type {
+  ChatFixedModel,
   ChatRouteDecision,
-  ChatRoutingModel,
   ChatRoutingStrategy
 } from '../../shared/model-routing';
+import { trainedCheckpointId } from '../../shared/model-routing';
+import type { VoiceAdapterCheckpoint } from '../types/agent-model-policy';
+import { estimateInklingSmallCostUsd } from './model-route-metrics';
 
 export type ChatRealtimeEvent =
   | { type: 'connected' }
@@ -32,7 +35,8 @@ export interface ChatRealtimeConfig {
   vectorStoreIds?: string[];
   sessionId: string;
   routingStrategy: ChatRoutingStrategy;
-  fixedModel: ChatRoutingModel;
+  fixedModel: ChatFixedModel;
+  fixedCheckpoint?: VoiceAdapterCheckpoint | null;
 }
 
 export class ChatRealtimeClient {
@@ -150,6 +154,14 @@ export class ChatRealtimeClient {
       const { data: { session } } = await supabase.auth.getSession();
       if (!supabaseUrl || !anonKey || !session?.access_token) throw new Error('Authenticated chat configuration is unavailable');
 
+      const checkpointId = this.config.routingStrategy === 'fixed'
+        ? trainedCheckpointId(this.config.fixedModel)
+        : null;
+      if (checkpointId) {
+        await this.createCheckpointResponse(checkpointId, session.access_token);
+        return;
+      }
+
       const response = await fetch(`${supabaseUrl.replace(/\/$/, '')}/functions/v1/responses-chat`, {
         method: 'POST',
         headers: {
@@ -227,6 +239,82 @@ export class ChatRealtimeClient {
       this.emit({ type: 'error', error: error instanceof Error ? error.message : 'Responses request failed' });
       this.emit({ type: 'response.completed', text: '', route: this.activeRoute || undefined, memory: this.activeMemory });
     }
+  }
+
+  private checkpointMessages(): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
+    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
+    const system = [this.config.instructions, ...this.instructionsSuffix].filter(Boolean).join('\n\n');
+    if (system) messages.push({ role: 'system', content: system });
+    for (const item of this.input.slice(-40)) {
+      if (item?.role !== 'user' && item?.role !== 'assistant') continue;
+      const content = typeof item.content === 'string'
+        ? item.content
+        : Array.isArray(item.content)
+          ? item.content.map((part: { text?: string } | null) => part?.text || '').join('')
+          : '';
+      if (content.trim()) messages.push({ role: item.role, content: content.trim() });
+    }
+    return messages;
+  }
+
+  private async createCheckpointResponse(checkpointId: string, accessToken: string): Promise<void> {
+    const checkpoint = this.config.fixedCheckpoint;
+    if (!checkpoint || checkpoint.id !== checkpointId) throw new Error('The selected trained checkpoint is unavailable.');
+    const startedAt = performance.now();
+    const response = await fetch(`/api/open-weight-training?jobId=${encodeURIComponent(checkpointId)}&action=completion`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: this.checkpointMessages(),
+        temperature: this.config.temperature ?? 0,
+        max_tokens: Math.min(this.config.maxTokens || 256, 1024)
+      })
+    });
+    const json = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(json.error || `Checkpoint request failed (${response.status})`);
+    if (!this.connected) return;
+    const text = String(json.choices?.[0]?.message?.content || '').trim();
+    if (!text) throw new Error('The trained checkpoint returned an empty answer.');
+    const inputTokens = Number.isFinite(json.usage?.prompt_tokens) ? json.usage.prompt_tokens : 0;
+    const outputTokens = Number.isFinite(json.usage?.completion_tokens) ? json.usage.completion_tokens : 0;
+    const reportedCost = Number.isFinite(json.viaana?.cost_usd) ? json.viaana.cost_usd : null;
+    const estimatedCost = checkpoint.backend === 'tinker'
+      ? estimateInklingSmallCostUsd(inputTokens, outputTokens)
+      : null;
+    const route: ChatRouteDecision = {
+      turnId: this.activeTurnId || crypto.randomUUID(),
+      strategy: 'fixed',
+      routeKind: 'trained_checkpoint',
+      model: json.model || (checkpoint.backend === 'tinker' ? 'thinkingmachines/Inkling-Small' : 'private-checkpoint'),
+      checkpointId: checkpoint.id,
+      checkpointName: checkpoint.name,
+      checkpointBackend: checkpoint.backend,
+      taskType: 'grounded_answer',
+      complexity: 0,
+      confidence: 1,
+      requiresTools: false,
+      consequential: false,
+      reasoningEffort: 'none',
+      reasonCode: 'fixed_trained_checkpoint_selected',
+      reason: `Auto routing is disabled, so this turn used the selected trained checkpoint “${checkpoint.name}”.`,
+      policyVersion: 'chat-router-v1',
+      answerLatencyMs: Math.round(performance.now() - startedAt),
+      answerCostUsd: reportedCost ?? estimatedCost ?? 0,
+      inputTokens,
+      outputTokens,
+      cachedInputTokens: 0,
+      costKind: reportedCost != null ? 'reported' : estimatedCost != null ? 'estimated' : 'unavailable',
+      ragCostUsd: this.activeRoute?.ragCostUsd,
+      ragModelCostUsd: this.activeRoute?.ragModelCostUsd,
+      ragToolCostUsd: this.activeRoute?.ragToolCostUsd
+    };
+    this.activeRoute = route;
+    this.instructionsSuffix = [];
+    this.input.push({ role: 'assistant', content: text });
+    this.emit({ type: 'routing.selected', route });
+    this.emit({ type: 'response.delta', delta: text });
+    this.emit({ type: 'response.completed', text, route, memory: this.activeMemory });
+    this.emit({ type: 'usage.reported', usage: json.usage, model: route.model, route });
   }
 
   private emit(event: ChatRealtimeEvent) {

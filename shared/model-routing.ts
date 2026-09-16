@@ -9,6 +9,8 @@ export const CHAT_ROUTING_MODELS = [
 ] as const;
 
 export type ChatRoutingModel = typeof CHAT_ROUTING_MODELS[number];
+export const TRAINED_CHECKPOINT_MODEL_PREFIX = 'trained-checkpoint:' as const;
+export type ChatFixedModel = ChatRoutingModel | `${typeof TRAINED_CHECKPOINT_MODEL_PREFIX}${string}`;
 export type ChatRoutingStrategy = 'auto' | 'fixed';
 export type ChatTaskType =
   | 'classification'
@@ -54,7 +56,12 @@ export const ROUTE_SIGNALS_JSON_SCHEMA = {
 export type ChatRouteDecision = RouteSignals & {
   turnId: string;
   strategy: ChatRoutingStrategy;
-  model: ChatRoutingModel;
+  model: string;
+  routeKind?: 'openai' | 'trained_checkpoint';
+  checkpointId?: string;
+  checkpointName?: string;
+  checkpointBackend?: 'local' | 'tinker';
+  costKind?: 'reported' | 'estimated' | 'unavailable';
   reasoningEffort: ChatReasoningEffort;
   reasonCode: string;
   reason: string;
@@ -74,6 +81,16 @@ export type ChatRouteDecision = RouteSignals & {
 
 export function isChatRoutingModel(value: unknown): value is ChatRoutingModel {
   return typeof value === 'string' && CHAT_ROUTING_MODELS.includes(value as ChatRoutingModel);
+}
+
+export function trainedCheckpointModel(jobId: string): ChatFixedModel {
+  return `${TRAINED_CHECKPOINT_MODEL_PREFIX}${jobId}`;
+}
+
+export function trainedCheckpointId(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.startsWith(TRAINED_CHECKPOINT_MODEL_PREFIX)) return null;
+  const jobId = value.slice(TRAINED_CHECKPOINT_MODEL_PREFIX.length);
+  return /^train-[A-Za-z0-9-]+$/.test(jobId) ? jobId : null;
 }
 
 export function estimateTextCost(

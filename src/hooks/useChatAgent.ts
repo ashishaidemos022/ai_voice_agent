@@ -23,10 +23,12 @@ import { runRagAugmentation } from '../lib/rag-service';
 import type { RagAugmentationResult } from '../types/rag';
 import { OPENAI_MODELS, normalizeChatModel } from '../../shared/openai-models';
 import type {
+  ChatFixedModel,
   ChatRouteDecision,
-  ChatRoutingModel,
   ChatRoutingStrategy
 } from '../../shared/model-routing';
+import { trainedCheckpointId } from '../../shared/model-routing';
+import type { VoiceAdapterCheckpoint } from '../types/agent-model-policy';
 import { shouldRunRagForTurn } from '../../shared/rag-routing';
 import type { MemoryReceipt } from '../../shared/agent-memory';
 import { memoryRequest } from '../lib/agent-memory-service';
@@ -39,6 +41,16 @@ function resolveChatRealtimeModel(preset: AgentConfigPreset): string {
 }
 
 export type ChatViewMode = 'current' | 'history';
+
+type TrainingJobSummary = {
+  id: string;
+  name: string;
+  dataset_name: string;
+  status: string;
+  backend?: string;
+  artifact_sha256?: string;
+  completed_at?: number;
+};
 
 export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string | null) {
   const { vaUser } = useAuth();
@@ -63,7 +75,10 @@ export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string 
   const [isRagLoading, setIsRagLoading] = useState(false);
   const [availableTools, setAvailableTools] = useState<Tool[]>([]);
   const [routingStrategy, setRoutingStrategy] = useState<ChatRoutingStrategy>('auto');
-  const [fixedModel, setFixedModel] = useState<ChatRoutingModel>(OPENAI_MODELS.chat.frontier);
+  const [fixedModel, setFixedModel] = useState<ChatFixedModel>(OPENAI_MODELS.chat.frontier);
+  const [trainedCheckpoints, setTrainedCheckpoints] = useState<VoiceAdapterCheckpoint[]>([]);
+  const [isCheckpointRegistryLoading, setIsCheckpointRegistryLoading] = useState(false);
+  const [checkpointRegistryError, setCheckpointRegistryError] = useState<string | null>(null);
   const [currentRoute, setCurrentRoute] = useState<ChatRouteDecision | null>(null);
   const [memorySubjectId, setMemorySubjectId] = useState<string | null>(null);
   const [memoryReceipt, setMemoryReceipt] = useState<MemoryReceipt | undefined>();
@@ -125,6 +140,47 @@ export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string 
   useEffect(() => {
     refreshPresets();
   }, [refreshPresets]);
+
+  const refreshTrainedCheckpoints = useCallback(async () => {
+    if (!vaUser) {
+      setTrainedCheckpoints([]);
+      return;
+    }
+    setIsCheckpointRegistryLoading(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error('Sign in again to load trained checkpoints.');
+      const response = await fetch('/api/open-weight-training', { headers: { Authorization: `Bearer ${token}` } });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || `Checkpoint registry failed (${response.status})`);
+      const checkpoints = (Array.isArray(payload.jobs) ? payload.jobs : [])
+        .filter((job: TrainingJobSummary) => job.status === 'completed')
+        .map((job: TrainingJobSummary): VoiceAdapterCheckpoint => ({
+          id: job.id,
+          name: job.name,
+          datasetName: job.dataset_name,
+          backend: job.backend === 'tinker' ? 'tinker' : 'local',
+          artifactSha256: job.artifact_sha256,
+          completedAt: job.completed_at
+        }))
+        .sort((a: VoiceAdapterCheckpoint, b: VoiceAdapterCheckpoint) => (b.completedAt || 0) - (a.completedAt || 0));
+      setTrainedCheckpoints(checkpoints);
+      setFixedModel((current) => {
+        const selectedId = trainedCheckpointId(current);
+        return selectedId && !checkpoints.some((checkpoint: VoiceAdapterCheckpoint) => checkpoint.id === selectedId)
+          ? OPENAI_MODELS.chat.frontier
+          : current;
+      });
+      setCheckpointRegistryError(null);
+    } catch (err) {
+      setCheckpointRegistryError(err instanceof Error ? err.message : 'Unable to load trained checkpoints');
+    } finally {
+      setIsCheckpointRegistryLoading(false);
+    }
+  }, [vaUser]);
+
+  useEffect(() => { void refreshTrainedCheckpoints(); }, [refreshTrainedCheckpoints]);
 
   const refreshHistorySessions = useCallback(async () => {
     if (!vaUser) return;
@@ -371,6 +427,12 @@ export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string 
     try {
       const tools = await loadToolsForPreset(preset.id);
       setAvailableTools(tools);
+      const fixedCheckpoint = routingStrategy === 'fixed' && trainedCheckpointId(fixedModel)
+        ? trainedCheckpoints.find((checkpoint) => checkpoint.id === trainedCheckpointId(fixedModel)) || null
+        : null;
+      if (routingStrategy === 'fixed' && trainedCheckpointId(fixedModel) && !fixedCheckpoint) {
+        throw new Error('The selected trained checkpoint is no longer available. Refresh checkpoints and choose again.');
+      }
       const newSession = await createChatSession({
         userId: vaUser.id,
         agentPresetId: preset.id,
@@ -379,6 +441,9 @@ export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string 
           ...(channel ? { channel } : {}),
           routing_strategy: routingStrategy,
           fixed_model: routingStrategy === 'fixed' ? fixedModel : null,
+          fixed_checkpoint: fixedCheckpoint
+            ? { id: fixedCheckpoint.id, name: fixedCheckpoint.name, backend: fixedCheckpoint.backend, dataset_name: fixedCheckpoint.datasetName, artifact_sha256: fixedCheckpoint.artifactSha256 ?? null }
+            : null,
           routing_policy_version: 'chat-router-v1',
           memory_subject_id: memorySubjectId
         }
@@ -406,7 +471,8 @@ export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string 
         vectorStoreIds,
         sessionId: newSession.id,
         routingStrategy,
-        fixedModel
+        fixedModel,
+        fixedCheckpoint
       });
 
       attachRealtimeHandlers(realtimeRef.current);
@@ -421,7 +487,7 @@ export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string 
       setIsConnecting(false);
       refreshHistorySessions();
     }
-  }, [activePresetId, attachRealtimeHandlers, cleanupRealtime, endSession, fixedModel, loadToolsForPreset, presets, refreshHistorySessions, routingStrategy, vaUser, memorySubjectId, channel]);
+  }, [activePresetId, attachRealtimeHandlers, cleanupRealtime, endSession, fixedModel, loadToolsForPreset, presets, refreshHistorySessions, routingStrategy, vaUser, memorySubjectId, channel, trainedCheckpoints]);
 
   const sendMessage = useCallback(async (text: string) => {
     const trimmed = text.trim();
@@ -603,6 +669,10 @@ export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string 
     setRoutingStrategy,
     fixedModel,
     setFixedModel,
+    trainedCheckpoints,
+    isCheckpointRegistryLoading,
+    checkpointRegistryError,
+    refreshTrainedCheckpoints,
     currentRoute,
     memorySubjectId, setMemorySubjectId, memoryReceipt, answerSources
   };

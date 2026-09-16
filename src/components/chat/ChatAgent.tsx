@@ -37,7 +37,14 @@ import { configPresetToRealtimeConfig } from '../../lib/config-service';
 import type { RealtimeConfig } from '../../types/voice-agent';
 import { formatA2UIEventMessage, type A2UIEvent } from '../../lib/a2ui';
 import { Badge } from '../ui/Badge';
-import { CHAT_ROUTING_MODELS, type ChatRouteDecision, type ChatRoutingStrategy } from '../../../shared/model-routing';
+import {
+  CHAT_ROUTING_MODELS,
+  trainedCheckpointId,
+  trainedCheckpointModel,
+  type ChatFixedModel,
+  type ChatRouteDecision,
+  type ChatRoutingStrategy
+} from '../../../shared/model-routing';
 import { OPENAI_MODELS, OPENAI_PRICING_EFFECTIVE_DATE } from '../../../shared/openai-models';
 import { MemoryPanel, MemorySource } from './MemoryPanel';
 import { memoryReferences } from '../../../shared/agent-memory';
@@ -54,10 +61,15 @@ const MODEL_LABELS: Record<string, string> = {
   [OPENAI_MODELS.chat.frontier]: 'GPT-5.6 Sol'
 };
 
+const routeLabel = (route: ChatRouteDecision) => route.routeKind === 'trained_checkpoint'
+  ? `Trained · ${route.checkpointName || route.checkpointId || route.model}`
+  : MODEL_LABELS[route.model] || route.model;
+
 type SavedRoutingRun = {
   workflowKey: string;
   strategy: ChatRoutingStrategy;
   fixedModel?: string;
+  fixedModelLabel?: string;
   costUsd: number;
   turns: number;
   models: Record<string, number>;
@@ -152,6 +164,10 @@ export function ChatAgent({
     setRoutingStrategy,
     fixedModel,
     setFixedModel,
+    trainedCheckpoints,
+    isCheckpointRegistryLoading,
+    checkpointRegistryError,
+    refreshTrainedCheckpoints,
     currentRoute,
     memorySubjectId, setMemorySubjectId, memoryReceipt, answerSources
   } = useChatAgent(voiceMode ? 'routed_voice' : undefined, initialPresetId);
@@ -187,7 +203,10 @@ export function ChatAgent({
       .map((message) => message.raw?.routing)
       .filter((route): route is ChatRouteDecision => Boolean(route));
     const models = routes.reduce<Record<string, number>>((counts, route) => {
-      counts[route.model] = (counts[route.model] || 0) + 1;
+      const key = route.routeKind === 'trained_checkpoint'
+        ? `Trained · ${route.checkpointName || route.checkpointId || route.model}`
+        : route.model;
+      counts[key] = (counts[key] || 0) + 1;
       return counts;
     }, {});
     const userTurns = visibleMessages
@@ -204,6 +223,13 @@ export function ChatAgent({
       workflowKey: userTurns.length ? workflowFingerprint(userTurns) : ''
     };
   }, [visibleMessages]);
+  const selectedCheckpoint = useMemo(
+    () => trainedCheckpoints.find((checkpoint) => checkpoint.id === trainedCheckpointId(fixedModel)) || null,
+    [fixedModel, trainedCheckpoints]
+  );
+  const fixedModelLabel = selectedCheckpoint
+    ? `Trained · ${selectedCheckpoint.name}`
+    : MODEL_LABELS[fixedModel] || fixedModel;
   const comparisonRun = useMemo(() => savedRuns
     .filter((run) => run.workflowKey && run.workflowKey === routingReceipt.workflowKey && run.strategy !== routingStrategy)
     .sort((a, b) => b.savedAt.localeCompare(a.savedAt))[0], [routingReceipt.workflowKey, routingStrategy, savedRuns]);
@@ -214,6 +240,7 @@ export function ChatAgent({
         workflowKey: routingReceipt.workflowKey,
         strategy: routingStrategy,
         fixedModel: routingStrategy === 'fixed' ? fixedModel : undefined,
+        fixedModelLabel: routingStrategy === 'fixed' ? fixedModelLabel : undefined,
         costUsd: routingReceipt.costUsd,
         turns: routingReceipt.turns,
         models: routingReceipt.models,
@@ -224,7 +251,7 @@ export function ChatAgent({
       window.localStorage.setItem('chat-routing-comparison-runs', JSON.stringify(next));
     }
     void endSession();
-  }, [endSession, fixedModel, routingReceipt, routingStrategy, savedRuns]);
+  }, [endSession, fixedModel, fixedModelLabel, routingReceipt, routingStrategy, savedRuns]);
 
   const handleA2UIEvent = useCallback((event: A2UIEvent) => {
     void sendMessage(formatA2UIEventMessage(event));
@@ -398,16 +425,33 @@ export function ChatAgent({
                   ))}
                 </div>
                 {routingStrategy === 'fixed' ? (
-                  <select
-                    value={fixedModel}
-                    disabled={Boolean(session)}
-                    onChange={(event) => setFixedModel(event.target.value as typeof fixedModel)}
-                    className="w-full mt-3 rounded-xl bg-slate-950 border border-white/10 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400/60 disabled:opacity-50"
-                  >
-                    {CHAT_ROUTING_MODELS.map((model) => (
-                      <option key={model} value={model}>{MODEL_LABELS[model]}</option>
-                    ))}
-                  </select>
+                  <div className="mt-3 space-y-2">
+                    <select
+                      value={fixedModel}
+                      disabled={Boolean(session)}
+                      onChange={(event) => setFixedModel(event.target.value as ChatFixedModel)}
+                      className="w-full rounded-xl bg-slate-950 border border-white/10 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400/60 disabled:opacity-50"
+                    >
+                      <optgroup label="Hosted models">
+                        {CHAT_ROUTING_MODELS.map((model) => (
+                          <option key={model} value={model}>{MODEL_LABELS[model]}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Trained checkpoints">
+                        {trainedCheckpoints.map((checkpoint) => (
+                          <option key={checkpoint.id} value={trainedCheckpointModel(checkpoint.id)}>
+                            {checkpoint.name} · {checkpoint.datasetName}
+                          </option>
+                        ))}
+                      </optgroup>
+                    </select>
+                    <div className="flex items-center justify-between gap-3 text-[10px] text-white/40">
+                      <span>{isCheckpointRegistryLoading ? 'Loading trained checkpoints…' : trainedCheckpoints.length ? `${trainedCheckpoints.length} trained checkpoint${trainedCheckpoints.length === 1 ? '' : 's'} available` : 'No completed trained checkpoints'}</span>
+                      <button type="button" disabled={Boolean(session) || isCheckpointRegistryLoading} onClick={() => void refreshTrainedCheckpoints()} className="text-cyan-200/70 hover:text-cyan-100 disabled:opacity-40">Refresh</button>
+                    </div>
+                    {checkpointRegistryError && <p className="text-xs text-rose-300">{checkpointRegistryError}</p>}
+                    {selectedCheckpoint && <p className="rounded-lg border border-amber-300/15 bg-amber-400/[0.04] px-3 py-2 text-[11px] text-white/50">This fixed route uses {selectedCheckpoint.backend === 'tinker' ? 'Inkling-Small on Tinker' : 'the private GPU runtime'} and records checkpoint identity, latency, tokens, and cost in the receipt.</p>}
+                  </div>
                 ) : (
                   <div className="flex flex-wrap gap-1.5 mt-3">
                     {CHAT_ROUTING_MODELS.map((model) => (
@@ -563,7 +607,7 @@ export function ChatAgent({
                   <div className="flex items-center justify-between mt-3">
                     <div className="flex items-center gap-2 text-xs text-white/50">
                       <Terminal className="w-3.5 h-3.5" />
-                      Responses API · {routingStrategy === 'auto' ? 'dynamic routing' : MODEL_LABELS[fixedModel]}
+                      {selectedCheckpoint ? 'Trained checkpoint' : 'Responses API'} · {routingStrategy === 'auto' ? 'dynamic routing' : fixedModelLabel}
                     </div>
                     <Button
                       size="sm"
@@ -617,7 +661,7 @@ export function ChatAgent({
               <div className="flex items-center gap-2">
                 <Badge variant={routingStrategy === 'auto' ? 'success' : 'warning'}>
                   {routingStrategy === 'auto' ? <Zap className="w-3 h-3" /> : <Cpu className="w-3 h-3" />}
-                  {routingStrategy === 'auto' ? 'Auto active' : `Fixed · ${MODEL_LABELS[fixedModel]?.replace('GPT-', '')}`}
+                  {routingStrategy === 'auto' ? 'Auto active' : `Fixed · ${fixedModelLabel.replace('GPT-', '')}`}
                 </Badge>
                 <DollarSign className="w-5 h-5 text-emerald-300" />
               </div>
@@ -627,7 +671,7 @@ export function ChatAgent({
                 <p className="text-[10px] uppercase tracking-[0.2em] text-white/40">Current run</p>
                 <p className="text-2xl font-semibold text-white mt-1">{formatRouteCost(routingReceipt.costUsd)}</p>
                 <p className="text-xs text-white/45 mt-1">{routingReceipt.turns} completed turns</p>
-                <p className="text-[10px] text-white/35 mt-1">Estimated OpenAI API cost · standard processing · rates checked {OPENAI_PRICING_EFFECTIVE_DATE}</p>
+                <p className="text-[10px] text-white/35 mt-1">Estimated model and retrieval cost · hosted rates checked {OPENAI_PRICING_EFFECTIVE_DATE}</p>
               </div>
               <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-white/40">Answer</p>
@@ -680,7 +724,7 @@ export function ChatAgent({
                                 : 'border-emerald-300/30 bg-emerald-500/10 text-emerald-200'
                           )}>{index + 1}</span>
                           <div className="min-w-0">
-                            <p className="text-xs text-white/85 truncate">{MODEL_LABELS[route.model] || route.model}</p>
+                            <p className="text-xs text-white/85 truncate">{routeLabel(route)}</p>
                             <p className="text-[10px] text-white/40 capitalize truncate">{route.taskType.replace(/_/g, ' ')} · {route.reasoningEffort} reasoning</p>
                           </div>
                         </div>
@@ -691,6 +735,9 @@ export function ChatAgent({
                       </summary>
                       <div className="mt-2 pt-2 border-t border-white/10 text-[11px] text-white/55">
                         <p>{route.reason}</p>
+                        {route.routeKind === 'trained_checkpoint' && (
+                          <p className="mt-1 text-white/40 break-all">Checkpoint {route.checkpointId} · {route.checkpointBackend || 'unknown'} runtime · base {route.model}{route.costKind === 'estimated' ? ' · cost estimated' : route.costKind === 'unavailable' ? ' · cost unavailable' : ''}</p>
+                        )}
                         <div className="flex justify-between mt-2 text-white/40">
                           <span>Confidence {Math.round(route.confidence * 100)}%</span>
                           <span>Router {formatRouteCost(route.routerCostUsd)}</span>
@@ -709,7 +756,7 @@ export function ChatAgent({
                   <div>
                     <p className="text-xs text-white/50">
                       Previous {comparisonRun.strategy === 'fixed'
-                        ? `fixed ${MODEL_LABELS[comparisonRun.fixedModel || OPENAI_MODELS.chat.frontier]?.replace('GPT-', '')}`
+                        ? `fixed ${(comparisonRun.fixedModelLabel || MODEL_LABELS[comparisonRun.fixedModel || OPENAI_MODELS.chat.frontier] || comparisonRun.fixedModel || 'model').replace('GPT-', '')}`
                         : 'auto'} run
                     </p>
                     <p className="text-lg font-semibold text-white">{formatRouteCost(comparisonRun.costUsd)}</p>
@@ -977,7 +1024,7 @@ function ChatBubble({ message, a2uiEnabled, onA2UIEvent, onInspectSources, voice
           {message.isStreaming && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
           {route && (
             <Badge variant={route.strategy === 'auto' ? 'success' : 'warning'} className="normal-case tracking-normal">
-              {route.strategy === 'auto' ? 'Auto' : 'Fixed'} · {MODEL_LABELS[route.model] || route.model}
+              {route.strategy === 'auto' ? 'Auto' : 'Fixed'} · {routeLabel(route)}
             </Badge>
           )}
         </div>
@@ -1009,12 +1056,13 @@ function ChatBubble({ message, a2uiEnabled, onA2UIEvent, onInspectSources, voice
               Model decision receipt · {formatRouteCost((route.routerCostUsd || 0) + (route.answerCostUsd || 0) + (route.ragCostUsd || 0))}
             </summary>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2">
-              <span>Selected model</span><span className="text-white/80">{MODEL_LABELS[route.model] || route.model}</span>
+              <span>Selected model</span><span className="text-white/80">{routeLabel(route)}</span>
+              {route.routeKind === 'trained_checkpoint' && <><span>Checkpoint</span><span className="text-white/80 break-all">{route.checkpointId}</span><span>Base model</span><span className="text-white/80 break-all">{route.model}</span><span>Runtime</span><span className="text-white/80 capitalize">{route.checkpointBackend || 'Unknown'}</span></>}
               <span>Task</span><span className="text-white/80">{route.taskType.replace(/_/g, ' ')}</span>
               <span>Reasoning</span><span className="text-white/80">{route.reasoningEffort}</span>
               <span>Confidence</span><span className="text-white/80">{Math.round(route.confidence * 100)}%</span>
               <span>Response time</span><span className="text-white/80">{route.answerLatencyMs || 0}ms</span>
-              <span>Answer cost</span><span className="text-white/80">{formatRouteCost(route.answerCostUsd)}</span>
+              <span>Answer cost</span><span className="text-white/80">{route.costKind === 'unavailable' ? 'Unavailable' : `${route.costKind === 'estimated' ? '~' : ''}${formatRouteCost(route.answerCostUsd)}`}</span>
               <span>Router overhead</span><span className="text-white/80">{formatRouteCost(route.routerCostUsd)}</span>
               {(route.ragCostUsd || 0) > 0 && <><span>Knowledge retrieval</span><span className="text-white/80">{formatRouteCost(route.ragCostUsd)}</span></>}
             </div>
