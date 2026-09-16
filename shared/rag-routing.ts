@@ -9,10 +9,18 @@ const KNOWLEDGE_DETAIL = /\b(?:compare|difference|trade-?off|construction|materi
 const KNOWLEDGE_QUESTION = /\b(?:why|how|explain|tell me about|what (?:is|are|does)|which is better)\b/;
 const KNOWLEDGE_SUBJECT = /\b(?:product|shoe|shoes|footwear|boot|boots|loafer|derby|runner|sneaker|oxford|mule|slingback|heel|sandal|flat|policy|procedure|treatment|coverage|documentation)\b/;
 
+const SMALL_TALK = /^(?:hi|hello|hey|yo|good (?:morning|afternoon|evening)|thanks?|thank you|thx|ok(?:ay)?|cool|great|got it|sounds good|perfect|bye|goodbye|yes|no|yep|nope|sure)(?:\s+(?:there|so much|you|again|a lot|thanks|thank you))*[\s,.!]*(?:thanks?|thank you)?[\s.!]*$/;
+const DIRECT_QUESTION = /^(?:who|what|when|where|which|why|how|do|does|did|is|are|was|were|can|could|should|would|will|may|have|has)\b/;
+const INFORMATION_REQUEST = /\b(?:tell me|i(?:'d| would) like to know|i want to know|let me know|information (?:on|about)|details (?:on|about))\b/;
+
 export function shouldRunRagForTurn(text: string): boolean {
   const normalized = text.trim().toLowerCase();
   if (!normalized) return false;
   if (BOUNDED_OR_NAVIGATION_TASK.some((pattern) => pattern.test(normalized))) return false;
   if (KNOWLEDGE_DETAIL.test(normalized)) return true;
-  return KNOWLEDGE_QUESTION.test(normalized) && KNOWLEDGE_SUBJECT.test(normalized);
+  if (KNOWLEDGE_QUESTION.test(normalized) && KNOWLEDGE_SUBJECT.test(normalized)) return true;
+  if (SMALL_TALK.test(normalized)) return false;
+  // Any other question or explicit information request may depend on the agent's
+  // knowledge base, whatever business it serves.
+  return normalized.endsWith('?') || DIRECT_QUESTION.test(normalized) || INFORMATION_REQUEST.test(normalized);
 }

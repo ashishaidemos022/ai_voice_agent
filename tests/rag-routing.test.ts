@@ -20,3 +20,18 @@ test('Vault Noir runs RAG only for product knowledge turns', () => {
   for (const prompt of skipped) assert.equal(shouldRunRagForTurn(prompt), false, prompt);
   for (const prompt of retrieved) assert.equal(shouldRunRagForTurn(prompt), true, prompt);
 });
+
+test('knowledge questions retrieve regardless of business domain', () => {
+  const retrieved = [
+    'When does Wren open?',
+    "What are Wren's opening hours?",
+    'Do you take reservations?',
+    'Is there a vegan option on the menu',
+    'Where is the downtown location?',
+    'Tell me about the private dining room.',
+    "I'd like to know your parking options."
+  ];
+  const skipped = ['hi', 'Hello there!', 'thanks!', 'ok', 'Sounds good, thank you.'];
+  for (const prompt of retrieved) assert.equal(shouldRunRagForTurn(prompt), true, prompt);
+  for (const prompt of skipped) assert.equal(shouldRunRagForTurn(prompt), false, prompt);
+});
