@@ -12,12 +12,15 @@ export type VoiceAdapterCheckpoint = {
 export type ModelRouteMetric = {
   route: 'rag' | 'adapter';
   label: string;
+  query?: string | null;
   model?: string | null;
   checkpoint?: string | null;
   latencyMs: number;
+  providerLatencyMs?: number | null;
   inputTokens?: number | null;
   outputTokens?: number | null;
   costUsd?: number | null;
+  costKind?: 'reported' | 'estimated' | 'unavailable';
   recordedAt: string;
 };
 

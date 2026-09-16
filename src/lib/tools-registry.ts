@@ -7,6 +7,7 @@ import { normalizeUsage, recordUsageEvent } from './usage-tracker';
 import { runRagAugmentation } from './rag-service';
 import type { RagMode } from '../types/rag';
 import { DEFAULT_ADAPTER_SYSTEM_PROMPT } from '../../shared/adapter-system-prompt';
+import { estimateInklingSmallCostUsd } from './model-route-metrics';
 
 export interface Tool {
   name: string;
@@ -515,6 +516,7 @@ export function registerAdapterCheckpointTool(config: {
   enabled: boolean;
   jobId?: string | null;
   systemPrompt?: string | null;
+  backend?: 'local' | 'tinker' | null;
 }): void {
   const toolName = 'query_trained_checkpoint';
   runtimeClientTools.delete(toolName);
@@ -536,6 +538,7 @@ export function registerAdapterCheckpointTool(config: {
     executionType: 'client',
     source: 'client',
     execute: async (params: any) => {
+      const startedAt = performance.now();
       const query = `${params?.query || ''}`.trim();
       if (!query) throw new Error('Checkpoint query is required');
       const { data } = await supabase.auth.getSession();
@@ -557,7 +560,25 @@ export function registerAdapterCheckpointTool(config: {
       if (!response.ok) throw new Error(body.error || `Checkpoint request failed (${response.status})`);
       const answer = `${body.choices?.[0]?.message?.content || ''}`.trim();
       if (!answer) throw new Error('The trained checkpoint returned an empty answer.');
-      return { answer, model: body.model || null, checkpoint: jobId };
+      const inputTokens = Number.isFinite(body.usage?.prompt_tokens) ? body.usage.prompt_tokens : null;
+      const outputTokens = Number.isFinite(body.usage?.completion_tokens) ? body.usage.completion_tokens : null;
+      const reportedCost = Number.isFinite(body.viaana?.cost_usd) ? body.viaana.cost_usd : null;
+      const estimatedCost = config.backend === 'tinker'
+        ? estimateInklingSmallCostUsd(inputTokens, outputTokens)
+        : null;
+      return {
+        answer,
+        model: body.model || null,
+        checkpoint: jobId,
+        _metrics: {
+          latency_ms: Math.round(performance.now() - startedAt),
+          provider_latency_ms: Number.isFinite(body.viaana?.latency_ms) ? body.viaana.latency_ms : null,
+          input_tokens: inputTokens,
+          output_tokens: outputTokens,
+          cost_usd: reportedCost ?? estimatedCost,
+          cost_kind: reportedCost != null ? 'reported' : estimatedCost != null ? 'estimated' : 'unavailable'
+        }
+      };
     }
   };
   runtimeClientTools.set(toolName, adapterTool);

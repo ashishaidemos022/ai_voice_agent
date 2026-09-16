@@ -101,7 +101,9 @@ test('GPT-Live RAG and trained-checkpoint tools survive MCP registry refreshes',
   };
   globalThis.fetch = async () => Response.json({
     model: 'thinkingmachines/Inkling-Small',
-    choices: [{ message: { content: 'Wren opens at 11:30 a.m.' } }]
+    choices: [{ message: { content: 'Wren opens at 11:30 a.m.' } }],
+    usage: { prompt_tokens: 100, completion_tokens: 25 },
+    viaana: { latency_ms: 123 }
   });
 
   try {
@@ -151,12 +153,23 @@ test('GPT-Live RAG and trained-checkpoint tools survive MCP registry refreshes',
       { query: 'refund policy', grounded: true }
     );
     registry.registerRagKnowledgeTool({ ...ragConfig, enabled: false });
-    registry.registerAdapterCheckpointTool({ enabled: true, jobId: 'train-tinker-wren', systemPrompt: 'Use Wren facts.' });
+    registry.registerAdapterCheckpointTool({ enabled: true, jobId: 'train-tinker-wren', systemPrompt: 'Use Wren facts.', backend: 'tinker' });
     assert.ok(!registry.getToolSchemas().some((tool: any) => tool.name === 'search_knowledge_base'));
     assert.ok(registry.getToolSchemas().some((tool: any) => tool.name === 'query_trained_checkpoint'));
+    const checkpointResult = await registry.executeTool('query_trained_checkpoint', { query: 'When does Wren open?' }, { sessionId: 'session_1' });
+    assert.equal(checkpointResult.answer, 'Wren opens at 11:30 a.m.');
+    assert.equal(checkpointResult.model, 'thinkingmachines/Inkling-Small');
+    assert.equal(checkpointResult.checkpoint, 'train-tinker-wren');
     assert.deepEqual(
-      await registry.executeTool('query_trained_checkpoint', { query: 'When does Wren open?' }, { sessionId: 'session_1' }),
-      { answer: 'Wren opens at 11:30 a.m.', model: 'thinkingmachines/Inkling-Small', checkpoint: 'train-tinker-wren' }
+      { ...checkpointResult._metrics, latency_ms: 0 },
+      {
+        latency_ms: 0,
+        provider_latency_ms: 123,
+        input_tokens: 100,
+        output_tokens: 25,
+        cost_usd: 0.000094,
+        cost_kind: 'estimated'
+      }
     );
 
     registry.registerAdapterCheckpointTool({ enabled: false });

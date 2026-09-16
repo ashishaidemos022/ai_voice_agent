@@ -24,6 +24,7 @@ import {
 import { requestRealtimeWebSocketSecret } from '../lib/realtime-session';
 import { isGPTLiveModel } from '../../shared/openai-models';
 import { DEFAULT_ADAPTER_SYSTEM_PROMPT } from '../../shared/adapter-system-prompt';
+import { estimateInklingSmallCostUsd } from '../lib/model-route-metrics';
 import { formatA2UIEventMessage, type A2UIEvent } from '../lib/a2ui';
 import {
   emitBenchmarkEvent,
@@ -99,6 +100,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
   const [voiceMetrics, setVoiceMetrics] = useState<VoiceMetricsSnapshot>(EMPTY_VOICE_METRICS);
   const [providerMetrics, setProviderMetrics] = useState<VoiceProviderMetrics>(EMPTY_PROVIDER_METRICS);
   const [modelRouteMetrics, setModelRouteMetrics] = useState<Partial<Record<'rag' | 'adapter', ModelRouteMetric>>>({});
+  const [modelRouteTurns, setModelRouteTurns] = useState<ModelRouteMetric[]>([]);
   const [activeModelRoute, setActiveModelRoute] = useState<'voice' | 'rag' | 'adapter'>('voice');
   const [adapterError, setAdapterError] = useState<string | null>(null);
 
@@ -224,6 +226,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
 
   const recordModelRouteMetric = useCallback((metric: ModelRouteMetric) => {
     setModelRouteMetrics((current) => ({ ...current, [metric.route]: metric }));
+    setModelRouteTurns((current) => [...current, metric].slice(-50));
     const currentSessionId = sessionIdRef.current;
     if (!currentSessionId) return;
     const priorTurns = Array.isArray(sessionMetadataRef.current.model_policy_turns)
@@ -251,6 +254,12 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
       .then(({ error: routeError }) => {
         if (routeError) console.warn('[useVoiceAgent] failed to persist model route', routeError);
       });
+  }, []);
+
+  const resetModelRouteMetrics = useCallback(() => {
+    setModelRouteMetrics({});
+    setModelRouteTurns([]);
+    setActiveModelRoute('voice');
   }, []);
 
   const persistMessage = useCallback(
@@ -341,7 +350,8 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
     registerAdapterCheckpointTool({
       enabled: adapterEnabled,
       jobId: modelPolicy.adapter?.id,
-      systemPrompt: modelPolicy.adapterSystemPrompt
+      systemPrompt: modelPolicy.adapterSystemPrompt,
+      backend: modelPolicy.adapter?.backend
     });
     const client = realtimeClientRef.current;
     // GPT-Live tool schemas are fixed when the session is created. Reconnect
@@ -460,17 +470,26 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
     if (!response.ok) throw new Error(body.error || `Adapter request failed (${response.status})`);
     const answer = String(body.choices?.[0]?.message?.content || '').trim();
     if (!answer) throw new Error('The trained adapter returned an empty answer.');
-    const latencyMs = Number(body.viaana?.latency_ms) || Math.round(performance.now() - startedAt);
+    const latencyMs = Math.round(performance.now() - startedAt);
+    const inputTokens = Number.isFinite(body.usage?.prompt_tokens) ? body.usage.prompt_tokens : null;
+    const outputTokens = Number.isFinite(body.usage?.completion_tokens) ? body.usage.completion_tokens : null;
+    const reportedCost = Number.isFinite(body.viaana?.cost_usd) ? body.viaana.cost_usd : null;
+    const estimatedCost = adapter.backend === 'tinker'
+      ? estimateInklingSmallCostUsd(inputTokens, outputTokens)
+      : null;
     setActiveModelRoute('adapter');
     recordModelRouteMetric({
       route: 'adapter',
       label: adapter.name,
+      query,
       model: body.model || (adapter.backend === 'tinker' ? 'thinkingmachines/Inkling-Small' : null),
       checkpoint: adapter.artifactSha256 || adapter.id,
       latencyMs,
-      inputTokens: Number.isFinite(body.usage?.prompt_tokens) ? body.usage.prompt_tokens : null,
-      outputTokens: Number.isFinite(body.usage?.completion_tokens) ? body.usage.completion_tokens : null,
-      costUsd: Number.isFinite(body.viaana?.cost_usd) ? body.viaana.cost_usd : null,
+      providerLatencyMs: Number.isFinite(body.viaana?.latency_ms) ? body.viaana.latency_ms : null,
+      inputTokens,
+      outputTokens,
+      costUsd: reportedCost ?? estimatedCost,
+      costKind: reportedCost != null ? 'reported' : estimatedCost != null ? 'estimated' : 'unavailable',
       recordedAt: new Date().toISOString()
     });
     ragResponsePendingRef.current = false;
@@ -574,12 +593,14 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
       recordModelRouteMetric({
         route: 'rag',
         label: 'Knowledge RAG',
+        query,
         model: ragContext.model || metadata.model,
         checkpoint: null,
         latencyMs: ragContext.latencyMs || 0,
         inputTokens: Number(ragContext.tokenUsage?.input_tokens ?? ragContext.tokenUsage?.prompt_tokens) || null,
         outputTokens: Number(ragContext.tokenUsage?.output_tokens ?? ragContext.tokenUsage?.completion_tokens) || null,
         costUsd: Number.isFinite(ragContext.estimatedCostUsd) ? ragContext.estimatedCostUsd : null,
+        costKind: Number.isFinite(ragContext.estimatedCostUsd) ? 'estimated' : 'unavailable',
         recordedAt: ragContext.createdAt
       });
       setRagError(null);
@@ -918,6 +939,43 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
         const result = await executeTool(name, parsedArgs, {
           sessionId: currentSessionId || undefined
         });
+        if (name === 'search_knowledge_base') {
+          const ragMetric = result as RagAugmentationResult;
+          setRagResult(ragMetric);
+          setRagInvoked(true);
+          setActiveModelRoute('rag');
+          recordModelRouteMetric({
+            route: 'rag',
+            label: 'Knowledge RAG',
+            query: String(parsedArgs.query || ragMetric.question || ''),
+            model: ragMetric.model || null,
+            checkpoint: null,
+            latencyMs: Number(ragMetric.latencyMs) || 0,
+            inputTokens: Number(ragMetric.tokenUsage?.input_tokens ?? ragMetric.tokenUsage?.prompt_tokens) || null,
+            outputTokens: Number(ragMetric.tokenUsage?.output_tokens ?? ragMetric.tokenUsage?.completion_tokens) || null,
+            costUsd: Number.isFinite(ragMetric.estimatedCostUsd) ? ragMetric.estimatedCostUsd : null,
+            costKind: Number.isFinite(ragMetric.estimatedCostUsd) ? 'estimated' : 'unavailable',
+            recordedAt: ragMetric.createdAt || new Date().toISOString()
+          });
+        } else if (name === 'query_trained_checkpoint') {
+          const checkpointResult = result as Record<string, any>;
+          const metrics = checkpointResult._metrics || {};
+          setActiveModelRoute('adapter');
+          recordModelRouteMetric({
+            route: 'adapter',
+            label: modelPolicyRef.current.adapter?.name || 'Trained adapter',
+            query: String(parsedArgs.query || ''),
+            model: checkpointResult.model || null,
+            checkpoint: checkpointResult.checkpoint || modelPolicyRef.current.adapter?.id || null,
+            latencyMs: Number(metrics.latency_ms) || 0,
+            providerLatencyMs: Number(metrics.provider_latency_ms) || null,
+            inputTokens: Number.isFinite(metrics.input_tokens) ? metrics.input_tokens : null,
+            outputTokens: Number.isFinite(metrics.output_tokens) ? metrics.output_tokens : null,
+            costUsd: Number.isFinite(metrics.cost_usd) ? metrics.cost_usd : null,
+            costKind: metrics.cost_kind || 'unavailable',
+            recordedAt: new Date().toISOString()
+          });
+        }
         setToolEvents((prev) =>
           prev.map((tool) =>
             tool.id === toolEventId
@@ -953,7 +1011,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
         setIsProcessing(false);
       }
     });
-  }, [persistMessage, resetTranscripts, vaUser?.id]);
+  }, [persistMessage, recordModelRouteMetric, resetTranscripts, vaUser?.id]);
 
   const startMetering = useCallback(() => {
     if (audioIntervalRef.current) clearInterval(audioIntervalRef.current);
@@ -1081,7 +1139,8 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
           registerAdapterCheckpointTool({
             enabled: (policy.mode === 'adapter' || policy.mode === 'automatic') && Boolean(policy.adapter),
             jobId: policy.adapter?.id,
-            systemPrompt: policy.adapterSystemPrompt
+            systemPrompt: policy.adapterSystemPrompt,
+            backend: policy.adapter?.backend
           });
         }
 
@@ -1494,10 +1553,12 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
     voiceMetrics,
     providerMetrics,
     modelRouteMetrics,
+    modelRouteTurns,
     activeModelRoute,
     adapterError,
     setConfig: updateConfig,
     setActiveConfig,
+    resetModelRouteMetrics,
     initialize,
     toggleRecording,
     interrupt,

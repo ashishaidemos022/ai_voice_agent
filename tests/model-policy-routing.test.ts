@@ -3,6 +3,8 @@ import test from 'node:test';
 import { resolveModelPolicyRoute } from '../shared/model-policy-routing.ts';
 import { chooseModelPolicy, chooseTrainedAdapter } from '../shared/model-policy-selection.ts';
 import { DEFAULT_ADAPTER_SYSTEM_PROMPT, WREN_ADAPTER_SYSTEM_PROMPT, resolveAdapterSystemPrompt } from '../shared/adapter-system-prompt.ts';
+import { estimateInklingSmallCostUsd, summarizeModelRouteMetrics } from '../src/lib/model-route-metrics.ts';
+import type { ModelRouteMetric } from '../src/types/agent-model-policy.ts';
 
 test('explicit trained-adapter mode routes every substantive user turn to the adapter', () => {
   assert.equal(resolveModelPolicyRoute('adapter', true, "What are Ren's opening hours?"), 'adapter');
@@ -35,4 +37,29 @@ test('selecting a trained checkpoint activates adapter mode', () => {
 test('Wren voice requests use the same system prompt as the passing lab evaluation', () => {
   assert.equal(resolveAdapterSystemPrompt({ name: 'Wren FAQ', datasetName: 'wren-faq-two-facts-v1' }), WREN_ADAPTER_SYSTEM_PROMPT);
   assert.equal(resolveAdapterSystemPrompt({ name: 'Other adapter', datasetName: 'other-data' }), DEFAULT_ADAPTER_SYSTEM_PROMPT);
+});
+
+test('Inkling adapter cost uses prompt and completion token rates', () => {
+  assert.equal(estimateInklingSmallCostUsd(1_000_000, 1_000_000), 2.02);
+  assert.equal(estimateInklingSmallCostUsd(100, 25), 0.000094);
+  assert.equal(estimateInklingSmallCostUsd(null, 25), null);
+});
+
+test('model route summaries retain every turn and total cost and latency', () => {
+  const turns: ModelRouteMetric[] = [
+    { route: 'rag', label: 'RAG', latencyMs: 900, costUsd: 0.001, recordedAt: '2026-09-16T10:00:00Z' },
+    { route: 'rag', label: 'RAG', latencyMs: 1100, costUsd: 0.002, recordedAt: '2026-09-16T10:01:00Z' },
+    { route: 'adapter', label: 'Wren', latencyMs: 500, costUsd: 0.0001, recordedAt: '2026-09-16T10:02:00Z' }
+  ];
+  assert.deepEqual(summarizeModelRouteMetrics(turns, 'rag'), {
+    route: 'rag',
+    turnCount: 2,
+    totalLatencyMs: 2000,
+    averageLatencyMs: 1000,
+    totalCostUsd: 0.003,
+    pricedTurnCount: 2,
+    estimatedTurnCount: 0,
+    inputTokens: 0,
+    outputTokens: 0
+  });
 });

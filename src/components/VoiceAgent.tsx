@@ -8,7 +8,7 @@ import { configPresetToRealtimeConfig, getAllConfigPresets, AgentConfigPreset } 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useAgentState } from '../state/agentState';
-import { BookOpenCheck, BrainCircuit, Gauge, Loader2, Mic, MicOff, RefreshCw, Sparkles } from 'lucide-react';
+import { BookOpenCheck, BrainCircuit, Loader2, Mic, MicOff, RefreshCw, Sparkles } from 'lucide-react';
 
 import { MainLayout } from './layout/MainLayout';
 import { Sidebar } from './layout/Sidebar';
@@ -16,6 +16,7 @@ import { TopBar } from './layout/TopBar';
 import { WorkspaceSidePanels } from './layout/WorkspaceSidePanels';
 import { VoiceInteractionArea } from './voice/VoiceInteractionArea';
 import { VoiceEmbedPanel } from './voice/VoiceEmbedPanel';
+import { ModelRouteComparison } from './voice/ModelRouteComparison';
 import { ConversationThread } from './conversation/ConversationThread';
 import { ToolsList } from './tools/ToolsList';
 import { ToolExecutionFeed } from './tools/ToolExecutionFeed';
@@ -259,11 +260,12 @@ export function VoiceAgent({
     isRagLoading,
     voiceMetrics,
     providerMetrics,
-    modelRouteMetrics,
+    modelRouteTurns,
     activeModelRoute,
     adapterError,
     setConfig,
     setActiveConfig,
+    resetModelRouteMetrics,
     initialize,
     toggleRecording,
     sendA2UIEvent,
@@ -366,6 +368,7 @@ export function VoiceAgent({
     });
     setIsInitializing(true);
     try {
+      if (!override?.config && !isInitialized) resetModelRouteMetrics();
       await initialize(configToUse, presetIdToUse);
       rememberSessionConfig(configToUse, presetIdToUse);
       setIsInitialized(true);
@@ -375,7 +378,7 @@ export function VoiceAgent({
     } finally {
       setIsInitializing(false);
     }
-  }, [currentConfig, pendingConfigId, initialize, rememberSessionConfig, isInitializing]);
+  }, [currentConfig, pendingConfigId, initialize, rememberSessionConfig, isInitializing, isInitialized, resetModelRouteMetrics]);
 
   const handleEnd = useCallback(async () => {
     console.log('[VoiceAgent] handleEnd invoked, cleaning up session');
@@ -1323,32 +1326,7 @@ export function VoiceAgent({
 
                                 {(adapterRegistryError || adapterError) && <p className="text-xs text-rose-300">{adapterError || adapterRegistryError}</p>}
 
-                                {(modelRouteMetrics.rag || modelRouteMetrics.adapter) && (
-                                  <div className="space-y-2 border-t border-white/10 pt-3">
-                                    <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-white/35">
-                                      <Gauge className="h-3.5 w-3.5" /> Measured answer path
-                                    </div>
-                                    {(['rag', 'adapter'] as const).map((route) => {
-                                      const metric = modelRouteMetrics[route];
-                                      if (!metric) return null;
-                                      return <div key={route} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-lg bg-black/20 px-3 py-2 text-xs">
-                                        <div className="min-w-0"><p className="truncate font-medium text-white/75">{route === 'rag' ? 'RAG pipeline' : metric.label}</p><p className="truncate text-[10px] text-white/35">{metric.model || 'Model not reported'}{metric.inputTokens != null || metric.outputTokens != null ? ` · ${metric.inputTokens ?? '?'} in / ${metric.outputTokens ?? '?'} out` : ''}</p></div>
-                                        <span className="font-mono text-white/60">{Math.round(metric.latencyMs)} ms</span>
-                                        <span className="font-mono text-white/60">{metric.costUsd == null ? 'Cost n/a' : `$${metric.costUsd.toFixed(6)}`}</span>
-                                      </div>;
-                                    })}
-                                    {modelRouteMetrics.rag && modelRouteMetrics.adapter && (
-                                      <div className="rounded-lg border border-amber-300/15 bg-amber-400/[0.04] px-3 py-2 text-[11px] leading-5 text-white/50">
-                                        <span className="font-semibold text-amber-100">Comparison:</span>{' '}
-                                        the adapter was {Math.abs(modelRouteMetrics.rag.latencyMs - modelRouteMetrics.adapter.latencyMs).toLocaleString()} ms {modelRouteMetrics.adapter.latencyMs <= modelRouteMetrics.rag.latencyMs ? 'faster' : 'slower'} on the recorded turns.
-                                        {' '}{modelRouteMetrics.rag.costUsd != null && modelRouteMetrics.adapter.costUsd != null
-                                          ? `Measured generation cost changed from $${modelRouteMetrics.rag.costUsd.toFixed(6)} to $${modelRouteMetrics.adapter.costUsd.toFixed(6)}.`
-                                          : 'Dollar-cost comparison is pending adapter runtime metering.'}
-                                      </div>
-                                    )}
-                                    <p className="text-[10px] leading-4 text-white/30">Latency covers answer generation. Cost appears only when the runtime reports it; voice transcription and speech costs are separate.</p>
-                                  </div>
-                                )}
+                                <ModelRouteComparison turns={modelRouteTurns} final={!isInitialized} />
                               </Card>
 
                               <ToolExecutionFeed
