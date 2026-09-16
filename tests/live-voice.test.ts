@@ -139,24 +139,26 @@ test('GPT-Live RAG and trained-checkpoint tools survive MCP registry refreshes',
     };
 
     registry.registerRagKnowledgeTool(ragConfig);
-    registry.registerAdapterCheckpointTool({ enabled: true, jobId: 'train-tinker-wren', systemPrompt: 'Use Wren facts.' });
+    registry.registerAdapterCheckpointTool({ enabled: false });
     assert.ok(registry.getToolSchemas().some((tool: any) => tool.name === 'search_knowledge_base'));
-    assert.ok(registry.getToolSchemas().some((tool: any) => tool.name === 'query_trained_checkpoint'));
+    assert.ok(!registry.getToolSchemas().some((tool: any) => tool.name === 'query_trained_checkpoint'));
 
     await registry.loadMCPTools('agent_1');
     assert.ok(registry.getToolSchemas().some((tool: any) => tool.name === 'search_knowledge_base'));
-    assert.ok(registry.getToolSchemas().some((tool: any) => tool.name === 'query_trained_checkpoint'));
+    assert.ok(!registry.getToolSchemas().some((tool: any) => tool.name === 'query_trained_checkpoint'));
     assert.deepEqual(
       await registry.executeTool('search_knowledge_base', { query: 'refund policy' }, { sessionId: 'session_1' }),
       { query: 'refund policy', grounded: true }
     );
+    registry.registerRagKnowledgeTool({ ...ragConfig, enabled: false });
+    registry.registerAdapterCheckpointTool({ enabled: true, jobId: 'train-tinker-wren', systemPrompt: 'Use Wren facts.' });
+    assert.ok(!registry.getToolSchemas().some((tool: any) => tool.name === 'search_knowledge_base'));
+    assert.ok(registry.getToolSchemas().some((tool: any) => tool.name === 'query_trained_checkpoint'));
     assert.deepEqual(
       await registry.executeTool('query_trained_checkpoint', { query: 'When does Wren open?' }, { sessionId: 'session_1' }),
       { answer: 'Wren opens at 11:30 a.m.', model: 'thinkingmachines/Inkling-Small', checkpoint: 'train-tinker-wren' }
     );
 
-    registry.registerRagKnowledgeTool({ ...ragConfig, enabled: false });
-    assert.ok(!registry.getToolSchemas().some((tool: any) => tool.name === 'search_knowledge_base'));
     registry.registerAdapterCheckpointTool({ enabled: false });
     assert.ok(!registry.getToolSchemas().some((tool: any) => tool.name === 'query_trained_checkpoint'));
   } finally {
@@ -223,12 +225,24 @@ test('realtime endpoint isolates routed sessions without changing native session
     assert.equal(requests[2].session.delegation.responses.model, 'gpt-5.6-sol');
     assert.deepEqual(
       requests[2].session.delegation.responses.tools.map((tool: any) => tool.name).sort(),
-      ['query_trained_checkpoint', 'search_knowledge_base', 'web_search']
+      ['query_trained_checkpoint', 'web_search']
     );
     assert.match(requests[2].session.instructions, /Agent instructions \(authoritative\):\nOriginal native instructions/);
     assert.match(requests[2].session.instructions, /get_current_time|web_search/);
-    assert.match(requests[2].session.delegation.responses.instructions, /approved knowledge is insufficient/);
+    assert.doesNotMatch(requests[2].session.delegation.responses.instructions, /search_knowledge_base/);
     assert.match(requests[2].session.delegation.responses.instructions, /every substantive user request, call query_trained_checkpoint/);
+    const ragResponse = await handler!(new Request('https://test.invalid?agent_id=agent&model_policy=rag', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer valid', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transport: 'webrtc', sdp: 'rag-live-offer-sdp' })
+    }));
+    assert.equal(ragResponse.status, 201);
+    assert.deepEqual(
+      requests[3].session.delegation.responses.tools.map((tool: any) => tool.name).sort(),
+      ['search_knowledge_base', 'web_search']
+    );
+    assert.match(requests[3].session.delegation.responses.instructions, /search_knowledge_base/);
+    assert.doesNotMatch(requests[3].session.delegation.responses.instructions, /query_trained_checkpoint/);
   } finally { runtime.Deno = previous.Deno; runtime.liveTestDb = previous.db; runtime.liveTestModel = previous.model; runtime.liveTestSelections = previous.selections; globalThis.fetch = previous.fetch; }
 });
 

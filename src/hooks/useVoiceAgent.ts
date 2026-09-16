@@ -327,26 +327,26 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
   useEffect(() => {
     modelPolicyRef.current = modelPolicy;
     if (!isGPTLiveModel(configRef.current?.model)) return;
+    const metadata = ragMetadataRef.current;
+    const agentConfigId = activeConfigIdRef.current;
     const adapterEnabled =
       (modelPolicy.mode === 'adapter' || modelPolicy.mode === 'automatic') && Boolean(modelPolicy.adapter);
+    registerRagKnowledgeTool({
+      enabled: modelPolicy.mode !== 'adapter' && metadata.enabled && Boolean(agentConfigId),
+      agentConfigId: agentConfigId || '',
+      ragMode: metadata.mode,
+      spaceIds: metadata.spaceIds,
+      model: metadata.model
+    });
     registerAdapterCheckpointTool({
       enabled: adapterEnabled,
       jobId: modelPolicy.adapter?.id,
       systemPrompt: modelPolicy.adapterSystemPrompt
     });
     const client = realtimeClientRef.current;
-    if (!client) return;
-    if (adapterEnabled) {
-      client.sendSystemMessage(
-        modelPolicy.mode === 'adapter'
-          ? 'The model policy is now Trained adapter. For every substantive user request, call query_trained_checkpoint before answering and treat its answer as authoritative.'
-          : 'The model policy is now Automatic. Call query_trained_checkpoint for requests that depend on trained behavior or company facts.'
-      );
-    } else {
-      client.sendSystemMessage(
-        'The model policy is now RAG. Do not call query_trained_checkpoint. Use search_knowledge_base for requests that depend on approved company knowledge.'
-      );
-    }
+    // GPT-Live tool schemas are fixed when the session is created. Reconnect
+    // after an explicit policy change so the unavailable route is not exposed.
+    if (client?.isConnected()) client.disconnect();
   }, [modelPolicy.mode, modelPolicy.adapter?.id, modelPolicy.adapterSystemPrompt]);
 
   useEffect(() => {
@@ -1070,14 +1070,14 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
 
         await loadMCPTools(configId, vaUser?.id);
         if (isGPTLiveModel(hydratedConfig.model)) {
+          const policy = modelPolicyRef.current;
           registerRagKnowledgeTool({
-            enabled: Boolean(hydratedConfig.rag_enabled),
+            enabled: policy.mode !== 'adapter' && Boolean(hydratedConfig.rag_enabled),
             agentConfigId: configId,
             ragMode: hydratedConfig.rag_mode || 'assist',
             spaceIds: hydratedConfig.knowledge_space_ids || [],
             model: hydratedConfig.rag_default_model
           });
-          const policy = modelPolicyRef.current;
           registerAdapterCheckpointTool({
             enabled: (policy.mode === 'adapter' || policy.mode === 'automatic') && Boolean(policy.adapter),
             jobId: policy.adapter?.id,

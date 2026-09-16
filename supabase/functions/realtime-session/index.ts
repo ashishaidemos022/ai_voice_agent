@@ -340,10 +340,11 @@ Deno.serve(async (req: Request) => {
     const liveTools = usesGPTLive ? await loadLiveFunctionTools(agentId, vaUser.id) : [];
     const modelPolicy = requestUrl.searchParams.get('model_policy');
     const adapterId = requestUrl.searchParams.get('adapter_id');
+    const useKnowledgeBase = usesGPTLive && modelPolicy !== 'adapter';
     const useTrainedCheckpoint = usesGPTLive &&
       (modelPolicy === 'adapter' || modelPolicy === 'automatic') &&
       typeof adapterId === 'string' && /^train-[A-Za-z0-9-]+$/.test(adapterId);
-    if (usesGPTLive && !liveTools.some((tool) => tool.name === 'query_trained_checkpoint')) {
+    if (useTrainedCheckpoint && !liveTools.some((tool) => tool.name === 'query_trained_checkpoint')) {
       liveTools.push({
         type: 'function',
         name: 'query_trained_checkpoint',
@@ -359,7 +360,7 @@ Deno.serve(async (req: Request) => {
     const knowledgeSpaceIds = (agent.knowledge_spaces || [])
       .map((binding: any) => binding.space_id)
       .filter((spaceId: unknown): spaceId is string => typeof spaceId === 'string' && Boolean(spaceId));
-    if (usesGPTLive && agent.rag_enabled && knowledgeSpaceIds.length && !liveTools.some((tool) => tool.name === 'search_knowledge_base')) {
+    if (useKnowledgeBase && agent.rag_enabled && knowledgeSpaceIds.length && !liveTools.some((tool) => tool.name === 'search_knowledge_base')) {
       liveTools.push({
         type: 'function',
         name: 'search_knowledge_base',
@@ -376,16 +377,14 @@ Deno.serve(async (req: Request) => {
     }
     const liveBackendInstructions = [
       agent.instructions || '',
-      usesGPTLive && agent.rag_enabled && knowledgeSpaceIds.length
+      useKnowledgeBase && agent.rag_enabled && knowledgeSpaceIds.length
         ? `Use search_knowledge_base for requests that depend on approved company knowledge.${agent.rag_mode === 'guardrail' ? ' If the tool does not return sufficient evidence, say that the approved knowledge is insufficient instead of guessing.' : ''}`
         : null,
       useTrainedCheckpoint
         ? modelPolicy === 'adapter'
           ? 'For every substantive user request, call query_trained_checkpoint before answering. Treat its answer as authoritative and convey it without adding unsupported facts.'
           : 'For requests that depend on the trained behavior or company facts, call query_trained_checkpoint before answering. Treat its answer as authoritative.'
-        : usesGPTLive
-          ? 'The trained-checkpoint tool is unavailable under the current model policy. Do not call query_trained_checkpoint.'
-          : null
+        : null
     ].filter(Boolean).join('\n\n').trim();
     const session = usesGPTLive ? gptLiveSession({
       instructions: liveBackendInstructions,
