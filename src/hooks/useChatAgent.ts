@@ -511,6 +511,7 @@ export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string 
     };
 
     setMessages((prev) => [...prev, outgoing].slice(-MAX_CONTEXT_MESSAGES));
+    const turnStartedAt = performance.now();
 
     const preset = presets.find((p) => p.id === activePresetId);
     const hasKnowledgeSpaces = (preset?.knowledge_spaces?.length || 0) > 0;
@@ -609,13 +610,17 @@ export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string 
 
     responseStartMsRef.current = Date.now();
     firstTokenRecordedRef.current = false;
-    realtimeRef.current.sendUserMessage(trimmed, ragContext?.estimatedCostUsd
-      ? {
-          total: ragContext.estimatedCostUsd,
-          model: ragContext.modelCostUsd || 0,
-          tool: ragContext.toolCostUsd || 0
-        }
-      : undefined);
+    realtimeRef.current.sendUserMessage(trimmed, {
+      startedAt: turnStartedAt,
+      rag: ragContext
+        ? {
+            costUsd: ragContext.estimatedCostUsd || 0,
+            modelCostUsd: ragContext.modelCostUsd || 0,
+            toolCostUsd: ragContext.toolCostUsd || 0,
+            latencyMs: ragContext.latencyMs || 0
+          }
+        : undefined
+    });
   }, [activePresetId, presets, memorySubjectId, updateSources, routingStrategy, fixedModel]);
 
   const loadHistoricalSession = useCallback(async (sessionId: string) => {

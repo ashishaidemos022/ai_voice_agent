@@ -73,6 +73,10 @@ export type ChatRouteDecision = RouteSignals & {
   ragModelCostUsd?: number;
   ragToolCostUsd?: number;
   answerLatencyMs?: number;
+  /** Knowledge retrieval time before the answer model ran. */
+  ragLatencyMs?: number;
+  /** Client-measured time from sending the turn to the final answer, including retrieval, routing, tools, and network. */
+  turnLatencyMs?: number;
   answerCostUsd?: number;
   inputTokens?: number;
   cachedInputTokens?: number;

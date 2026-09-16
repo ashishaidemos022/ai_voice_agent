@@ -76,6 +76,24 @@ type SavedRoutingRun = {
   savedAt: string;
 };
 
+const formatLatency = (ms = 0) => ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${Math.round(ms)}ms`;
+
+/** Splits a turn's wall-clock time into retrieval, routing, model answer, and everything else. */
+const routeLatency = (route: ChatRouteDecision) => {
+  const retrieval = route.ragLatencyMs || 0;
+  const routing = route.routerLatencyMs || 0;
+  const answer = route.answerLatencyMs || 0;
+  const total = route.turnLatencyMs;
+  return {
+    measured: total != null,
+    total: total ?? retrieval + routing + answer,
+    retrieval,
+    routing,
+    answer,
+    other: total != null ? Math.max(0, total - retrieval - routing - answer) : 0
+  };
+};
+
 const formatRouteCost = (value = 0) => value < 0.01 ? `$${value.toFixed(5)}` : `$${value.toFixed(3)}`;
 
 function workflowFingerprint(turns: string[]): string {
@@ -217,6 +235,10 @@ export function ChatAgent({
       routerCostUsd: routes.reduce((sum, route) => sum + (route.routerCostUsd || 0), 0),
       answerCostUsd: routes.reduce((sum, route) => sum + (route.answerCostUsd || 0), 0),
       ragCostUsd: routes.reduce((sum, route) => sum + (route.ragCostUsd || 0), 0),
+      avgTurnLatencyMs: routes.length ? routes.reduce((sum, route) => sum + routeLatency(route).total, 0) / routes.length : 0,
+      avgRetrievalLatencyMs: routes.some((route) => route.ragLatencyMs)
+        ? routes.filter((route) => route.ragLatencyMs).reduce((sum, route) => sum + (route.ragLatencyMs || 0), 0) / routes.filter((route) => route.ragLatencyMs).length
+        : 0,
       turns: routes.length,
       models,
       routes,
@@ -670,7 +692,7 @@ export function ChatAgent({
               <div className="col-span-3 rounded-xl border border-emerald-400/20 bg-gradient-to-br from-emerald-500/10 to-cyan-500/5 p-3">
                 <p className="text-[10px] uppercase tracking-[0.2em] text-white/40">Current run</p>
                 <p className="text-2xl font-semibold text-white mt-1">{formatRouteCost(routingReceipt.costUsd)}</p>
-                <p className="text-xs text-white/45 mt-1">{routingReceipt.turns} completed turns</p>
+                <p className="text-xs text-white/45 mt-1">{routingReceipt.turns} completed turns{routingReceipt.turns > 0 && ` · avg ${formatLatency(routingReceipt.avgTurnLatencyMs)} per turn`}{routingReceipt.avgRetrievalLatencyMs > 0 && ` · retrieval avg ${formatLatency(routingReceipt.avgRetrievalLatencyMs)}`}</p>
                 <p className="text-[10px] text-white/35 mt-1">Estimated model and retrieval cost · hosted rates checked {OPENAI_PRICING_EFFECTIVE_DATE}</p>
               </div>
               <div className="rounded-xl border border-white/10 bg-black/20 p-3">
@@ -730,7 +752,7 @@ export function ChatAgent({
                         </div>
                         <div className="text-right shrink-0">
                           <p className="text-xs text-emerald-200">{formatRouteCost((route.routerCostUsd || 0) + (route.answerCostUsd || 0) + (route.ragCostUsd || 0))}</p>
-                          <p className="text-[10px] text-white/35">{route.answerLatencyMs || 0}ms</p>
+                          <p className="text-[10px] text-white/35" title="Total turn time">{formatLatency(routeLatency(route).total)}</p>
                         </div>
                       </summary>
                       <div className="mt-2 pt-2 border-t border-white/10 text-[11px] text-white/55">
@@ -1061,7 +1083,16 @@ function ChatBubble({ message, a2uiEnabled, onA2UIEvent, onInspectSources, voice
               <span>Task</span><span className="text-white/80">{route.taskType.replace(/_/g, ' ')}</span>
               <span>Reasoning</span><span className="text-white/80">{route.reasoningEffort}</span>
               <span>Confidence</span><span className="text-white/80">{Math.round(route.confidence * 100)}%</span>
-              <span>Response time</span><span className="text-white/80">{route.answerLatencyMs || 0}ms</span>
+              {(() => {
+                const latency = routeLatency(route);
+                return <>
+                  <span>Total turn time</span><span className="text-white/80">{formatLatency(latency.total)}{!latency.measured && ' (stages only)'}</span>
+                  {latency.retrieval > 0 && <><span className="pl-3">Knowledge retrieval</span><span className="text-white/80">{formatLatency(latency.retrieval)}</span></>}
+                  {latency.routing > 0 && <><span className="pl-3">Routing decision</span><span className="text-white/80">{formatLatency(latency.routing)}</span></>}
+                  <span className="pl-3">Model answer</span><span className="text-white/80">{formatLatency(latency.answer)}</span>
+                  {latency.other > 0 && <><span className="pl-3">Network, tools &amp; overhead</span><span className="text-white/80">{formatLatency(latency.other)}</span></>}
+                </>;
+              })()}
               <span>Answer cost</span><span className="text-white/80">{route.costKind === 'unavailable' ? 'Unavailable' : `${route.costKind === 'estimated' ? '~' : ''}${formatRouteCost(route.answerCostUsd)}`}</span>
               <span>Router overhead</span><span className="text-white/80">{formatRouteCost(route.routerCostUsd)}</span>
               {(route.ragCostUsd || 0) > 0 && <><span>Knowledge retrieval</span><span className="text-white/80">{formatRouteCost(route.ragCostUsd)}</span></>}

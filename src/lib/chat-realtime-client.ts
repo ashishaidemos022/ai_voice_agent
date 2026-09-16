@@ -39,6 +39,12 @@ export interface ChatRealtimeConfig {
   fixedCheckpoint?: VoiceAdapterCheckpoint | null;
 }
 
+export type ChatTurnContext = {
+  /** performance.now() when the user sent the turn, before any knowledge retrieval. */
+  startedAt?: number;
+  rag?: { costUsd: number; modelCostUsd: number; toolCostUsd: number; latencyMs: number };
+};
+
 export class ChatRealtimeClient {
   private config: ChatRealtimeConfig;
   private eventHandlers: Map<ChatRealtimeEvent['type'], Set<(event: any) => void>> = new Map();
@@ -51,6 +57,7 @@ export class ChatRealtimeClient {
   private activeTurnId: string | null = null;
   private activeRoute: ChatRouteDecision | null = null;
   private activeMemory: MemoryReceipt | undefined;
+  private activeTurnContext: ChatTurnContext = {};
   private responseCount = 0;
 
   constructor(config: ChatRealtimeConfig) {
@@ -85,31 +92,13 @@ export class ChatRealtimeClient {
     return this.connected;
   }
 
-  sendUserMessage(text: string, ragCost?: { total: number; model: number; tool: number }) {
+  sendUserMessage(text: string, turnContext: ChatTurnContext = {}) {
     if (!this.connected || !text.trim()) return;
     this.activeTurnId = crypto.randomUUID();
     this.activeMemory = undefined;
     this.responseCount = 0;
     this.activeRoute = null;
-    if (ragCost && ragCost.total > 0) {
-      this.activeRoute = {
-        turnId: this.activeTurnId,
-        strategy: this.config.routingStrategy,
-        model: this.config.fixedModel,
-        reasoningEffort: 'none',
-        reasonCode: 'pending_route',
-        reason: 'Route pending.',
-        policyVersion: 'chat-router-v1',
-        taskType: 'grounded_answer',
-        complexity: 0,
-        confidence: 0,
-        requiresTools: false,
-        consequential: false,
-        ragCostUsd: ragCost.total,
-        ragModelCostUsd: ragCost.model,
-        ragToolCostUsd: ragCost.tool
-      };
-    }
+    this.activeTurnContext = { ...turnContext, startedAt: turnContext.startedAt ?? performance.now() };
     this.input.push({ role: 'user', content: text.trim() });
     void this.createResponse();
   }
@@ -175,7 +164,7 @@ export class ChatRealtimeClient {
           turn_id: this.activeTurnId,
           routing_strategy: this.config.routingStrategy,
           fixed_model: this.config.fixedModel,
-          route_decision: this.activeRoute?.reasonCode === 'pending_route' ? undefined : this.activeRoute,
+          route_decision: this.activeRoute || undefined,
           input: this.input,
           instructions_suffix: this.instructionsSuffix.join('\n\n') || undefined,
           tools: getToolSchemas()
@@ -191,13 +180,8 @@ export class ChatRealtimeClient {
 
       const responseRoute = json._routing as ChatRouteDecision | undefined;
       if (responseRoute) {
-        if (!this.activeRoute || this.activeRoute.reasonCode === 'pending_route') {
-          this.activeRoute = {
-            ...responseRoute,
-            ragCostUsd: this.activeRoute?.ragCostUsd,
-            ragModelCostUsd: this.activeRoute?.ragModelCostUsd,
-            ragToolCostUsd: this.activeRoute?.ragToolCostUsd
-          };
+        if (!this.activeRoute) {
+          this.activeRoute = responseRoute;
           this.emit({ type: 'routing.selected', route: this.activeRoute });
         } else {
           this.activeRoute = {
@@ -231,11 +215,13 @@ export class ChatRealtimeClient {
           .map((content: any) => content.text || '')
           .join('')).trim();
         if (text) this.emit({ type: 'response.delta', delta: text });
+        this.completeTurnRoute();
         this.emit({ type: 'response.completed', text, route: this.activeRoute || undefined, memory: this.activeMemory });
       }
       if (json.usage) this.emit({ type: 'usage.reported', usage: json.usage, model: json.model, route: this.activeRoute || undefined });
     } catch (error) {
       this.instructionsSuffix = [];
+      this.completeTurnRoute();
       this.emit({ type: 'error', error: error instanceof Error ? error.message : 'Responses request failed' });
       this.emit({ type: 'response.completed', text: '', route: this.activeRoute || undefined, memory: this.activeMemory });
     }
@@ -303,18 +289,32 @@ export class ChatRealtimeClient {
       inputTokens,
       outputTokens,
       cachedInputTokens: 0,
-      costKind: reportedCost != null ? 'reported' : estimatedCost != null ? 'estimated' : 'unavailable',
-      ragCostUsd: this.activeRoute?.ragCostUsd,
-      ragModelCostUsd: this.activeRoute?.ragModelCostUsd,
-      ragToolCostUsd: this.activeRoute?.ragToolCostUsd
+      costKind: reportedCost != null ? 'reported' : estimatedCost != null ? 'estimated' : 'unavailable'
     };
     this.activeRoute = route;
+    this.completeTurnRoute();
     this.instructionsSuffix = [];
     this.input.push({ role: 'assistant', content: text });
-    this.emit({ type: 'routing.selected', route });
+    this.emit({ type: 'routing.selected', route: this.activeRoute });
     this.emit({ type: 'response.delta', delta: text });
-    this.emit({ type: 'response.completed', text, route, memory: this.activeMemory });
-    this.emit({ type: 'usage.reported', usage: json.usage, model: route.model, route });
+    this.emit({ type: 'response.completed', text, route: this.activeRoute, memory: this.activeMemory });
+    this.emit({ type: 'usage.reported', usage: json.usage, model: route.model, route: this.activeRoute });
+  }
+
+  /** Stamps retrieval cost/latency and end-to-end turn time onto the route when the turn finishes. */
+  private completeTurnRoute() {
+    if (!this.activeRoute) return;
+    const { rag, startedAt } = this.activeTurnContext;
+    this.activeRoute = {
+      ...this.activeRoute,
+      ...(rag ? {
+        ragCostUsd: rag.costUsd,
+        ragModelCostUsd: rag.modelCostUsd,
+        ragToolCostUsd: rag.toolCostUsd,
+        ragLatencyMs: rag.latencyMs
+      } : {}),
+      ...(startedAt != null ? { turnLatencyMs: Math.round(performance.now() - startedAt) } : {})
+    };
   }
 
   private emit(event: ChatRealtimeEvent) {
