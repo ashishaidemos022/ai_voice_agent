@@ -93,6 +93,10 @@ export function trainedCheckpointId(value: unknown): string | null {
   return /^train-[A-Za-z0-9-]+$/.test(jobId) ? jobId : null;
 }
 
+export function usesTrainedCheckpoint(strategy: ChatRoutingStrategy, fixedModel: unknown): boolean {
+  return strategy === 'fixed' && trainedCheckpointId(fixedModel) !== null;
+}
+
 export function estimateTextCost(
   model: string,
   inputTokens: number,

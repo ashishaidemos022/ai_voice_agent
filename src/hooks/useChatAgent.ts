@@ -27,7 +27,7 @@ import type {
   ChatRouteDecision,
   ChatRoutingStrategy
 } from '../../shared/model-routing';
-import { trainedCheckpointId } from '../../shared/model-routing';
+import { trainedCheckpointId, usesTrainedCheckpoint } from '../../shared/model-routing';
 import type { VoiceAdapterCheckpoint } from '../types/agent-model-policy';
 import { shouldRunRagForTurn } from '../../shared/rag-routing';
 import type { MemoryReceipt } from '../../shared/agent-memory';
@@ -519,9 +519,13 @@ export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string 
       carriedTools: [...(sourcesRef.current?.carriedTools || []), ...(sourcesRef.current?.tools || [])].filter(tool => tool.status === 'succeeded')
     };
     setAnswerSources(sourcesRef.current);
+    // A trained checkpoint answers from its fine-tuned knowledge, so it never retrieves.
+    const trainedCheckpointSelected = usesTrainedCheckpoint(routingStrategy, fixedModel);
     const knowledgeNeeded = shouldRunRagForTurn(trimmed);
-    const canRunRag = preset?.rag_enabled && hasKnowledgeSpaces && knowledgeNeeded && Boolean(realtimeRef.current);
-    if (!preset?.rag_enabled) {
+    const canRunRag = !trainedCheckpointSelected && preset?.rag_enabled && hasKnowledgeSpaces && knowledgeNeeded && Boolean(realtimeRef.current);
+    if (trainedCheckpointSelected) {
+      console.debug('[RAG] Skipping augmentation - trained checkpoint selected', { presetId: preset?.id });
+    } else if (!preset?.rag_enabled) {
       console.debug('[RAG] Skipping augmentation - preset disabled', { presetId: preset?.id });
     } else if (!hasKnowledgeSpaces) {
       console.debug('[RAG] Skipping augmentation - no knowledge spaces attached', { presetId: preset?.id });
@@ -612,7 +616,7 @@ export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string 
           tool: ragContext.toolCostUsd || 0
         }
       : undefined);
-  }, [activePresetId, presets, memorySubjectId, updateSources]);
+  }, [activePresetId, presets, memorySubjectId, updateSources, routingStrategy, fixedModel]);
 
   const loadHistoricalSession = useCallback(async (sessionId: string) => {
     setIsHistoryLoading(true);

@@ -5,7 +5,7 @@ import { chooseModelPolicy, chooseTrainedAdapter } from '../shared/model-policy-
 import { DEFAULT_ADAPTER_SYSTEM_PROMPT, WREN_ADAPTER_SYSTEM_PROMPT, resolveAdapterSystemPrompt } from '../shared/adapter-system-prompt.ts';
 import { estimateInklingSmallCostUsd, summarizeModelRouteMetrics } from '../src/lib/model-route-metrics.ts';
 import type { ModelRouteMetric } from '../src/types/agent-model-policy.ts';
-import { trainedCheckpointId, trainedCheckpointModel } from '../shared/model-routing.ts';
+import { trainedCheckpointId, trainedCheckpointModel, usesTrainedCheckpoint } from '../shared/model-routing.ts';
 
 test('explicit trained-adapter mode routes every substantive user turn to the adapter', () => {
   assert.equal(resolveModelPolicyRoute('adapter', true, "What are Ren's opening hours?"), 'adapter');
@@ -70,4 +70,10 @@ test('trained checkpoints have validated fixed-model routing identifiers', () =>
   assert.equal(trainedCheckpointId('trained-checkpoint:train-tinker-wren'), 'train-tinker-wren');
   assert.equal(trainedCheckpointId('trained-checkpoint:not-a-job'), null);
   assert.equal(trainedCheckpointId('gpt-5.6-sol'), null);
+});
+
+test('only a fixed trained checkpoint counts as a trained-checkpoint session', () => {
+  assert.equal(usesTrainedCheckpoint('fixed', 'trained-checkpoint:train-tinker-wren'), true);
+  assert.equal(usesTrainedCheckpoint('auto', 'trained-checkpoint:train-tinker-wren'), false);
+  assert.equal(usesTrainedCheckpoint('fixed', 'gpt-5.6-sol'), false);
 });
