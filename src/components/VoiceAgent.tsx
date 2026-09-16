@@ -16,7 +16,8 @@ import { TopBar } from './layout/TopBar';
 import { WorkspaceSidePanels } from './layout/WorkspaceSidePanels';
 import { VoiceInteractionArea } from './voice/VoiceInteractionArea';
 import { VoiceEmbedPanel } from './voice/VoiceEmbedPanel';
-import { ModelRouteComparison } from './voice/ModelRouteComparison';
+import { VoiceConversationReceipt } from './voice/VoiceConversationReceipt';
+import type { VoiceTurnReceipt } from '../../shared/voice-receipts';
 import { ConversationThread } from './conversation/ConversationThread';
 import { ToolsList } from './tools/ToolsList';
 import { ToolExecutionFeed } from './tools/ToolExecutionFeed';
@@ -191,6 +192,7 @@ export function VoiceAgent({
   const [viewMode, setViewMode] = useState<'current' | 'history'>(activePanel === 'logs' ? 'history' : 'current');
   const [selectedHistoricalSessionId, setSelectedHistoricalSessionId] = useState<string | undefined>();
   const [historicalMessages, setHistoricalMessages] = useState<Message[]>([]);
+  const [historicalReceipts, setHistoricalReceipts] = useState<VoiceTurnReceipt[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [pendingConfigId, setPendingConfigId] = useState<string | null>(persistedConfigId);
@@ -260,7 +262,7 @@ export function VoiceAgent({
     isRagLoading,
     voiceMetrics,
     providerMetrics,
-    modelRouteTurns,
+    voiceReceipts,
     activeModelRoute,
     adapterError,
     setConfig,
@@ -423,6 +425,16 @@ export function VoiceAgent({
     setHistoricalMessages([]);
     setSelectedHistoricalSessionId(sessionId);
     setViewMode('history');
+    setHistoricalReceipts([]);
+    void supabase
+      .from('va_sessions')
+      .select('session_metadata')
+      .eq('id', sessionId)
+      .maybeSingle()
+      .then(({ data: sessionRow }) => {
+        const receipts = sessionRow?.session_metadata?.voice_receipts;
+        setHistoricalReceipts(Array.isArray(receipts) ? receipts : []);
+      });
 
     try {
       const messageCount = await verifySessionHasMessages(sessionId);
@@ -1326,7 +1338,7 @@ export function VoiceAgent({
 
                                 {(adapterRegistryError || adapterError) && <p className="text-xs text-rose-300">{adapterError || adapterRegistryError}</p>}
 
-                                <ModelRouteComparison turns={modelRouteTurns} final={!isInitialized} />
+                                <VoiceConversationReceipt receipts={voiceReceipts} final={!isInitialized} />
                               </Card>
 
                               <ToolExecutionFeed
@@ -1419,14 +1431,19 @@ export function VoiceAgent({
                           />
                         </>
                       ) : (
-                        <Card className="p-6 flex items-center justify-center">
-                          <div className="text-center">
-                            <p className="text-white/70 mb-2">Viewing session history</p>
-                            <p className="text-sm text-white/50">
-                              Use the back button to return to live runtime
-                            </p>
-                          </div>
-                        </Card>
+                        <>
+                          <Card className="p-6 flex items-center justify-center">
+                            <div className="text-center">
+                              <p className="text-white/70 mb-2">Viewing session history</p>
+                              <p className="text-sm text-white/50">
+                                Use the back button to return to live runtime
+                              </p>
+                            </div>
+                          </Card>
+                          <Card className="p-5 bg-slate-900/60 border-white/5">
+                            <VoiceConversationReceipt receipts={historicalReceipts} historical />
+                          </Card>
+                        </>
                       )}
                     </div>
                   </div>

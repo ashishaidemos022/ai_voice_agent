@@ -12,6 +12,7 @@ import { runRagAugmentation } from '../lib/rag-service';
 import { resolveModelPolicyRoute } from '../../shared/model-policy-routing';
 import type { RagAugmentationResult, RagMode } from '../types/rag';
 import type { AgentModelPolicyConfig, ModelRouteMetric } from '../types/agent-model-policy';
+import { VoiceReceiptBuilder, type VoiceTurnReceipt } from '../../shared/voice-receipts';
 import { configPresetToRealtimeConfig, getConfigPresetById } from '../lib/config-service';
 import { useAuth } from '../context/AuthContext';
 import { normalizeUsage, recordUsageEvent } from '../lib/usage-tracker';
@@ -102,6 +103,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
   const [modelRouteMetrics, setModelRouteMetrics] = useState<Partial<Record<'rag' | 'adapter', ModelRouteMetric>>>({});
   const [modelRouteTurns, setModelRouteTurns] = useState<ModelRouteMetric[]>([]);
   const [activeModelRoute, setActiveModelRoute] = useState<'voice' | 'rag' | 'adapter'>('voice');
+  const [voiceReceipts, setVoiceReceipts] = useState<VoiceTurnReceipt[]>([]);
   const [adapterError, setAdapterError] = useState<string | null>(null);
 
   const audioManagerRef = useRef<AudioManager | null>(null);
@@ -140,11 +142,48 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
   const assistantTextBufferRef = useRef('');
   const usedAssistantTextRef = useRef(false);
   const benchmarkOutputChunksRef = useRef<string[]>([]);
+  const receiptPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const receiptBuilderRef = useRef<VoiceReceiptBuilder | null>(null);
+  if (!receiptBuilderRef.current) {
+    receiptBuilderRef.current = new VoiceReceiptBuilder(
+      () => {
+        const policy = modelPolicyRef.current;
+        const voiceConfig = configRef.current;
+        const provider = voiceConfig?.voice_provider || 'openai_realtime';
+        return {
+          policyMode: policy.mode,
+          voiceModel: provider === 'openai_realtime' ? voiceConfig?.model || null : provider,
+          checkpoint: policy.adapter && policy.mode !== 'rag'
+            ? { id: policy.adapter.id, name: policy.adapter.name, backend: policy.adapter.backend, artifactSha256: policy.adapter.artifactSha256 || null }
+            : null
+        };
+      },
+      (receipts) => {
+        setVoiceReceipts(receipts);
+        // Receipts change on every usage/timing event; batch the metadata write.
+        if (receiptPersistTimerRef.current) clearTimeout(receiptPersistTimerRef.current);
+        receiptPersistTimerRef.current = setTimeout(() => {
+          const currentSessionId = sessionIdRef.current;
+          if (!currentSessionId) return;
+          const nextMetadata = { ...sessionMetadataRef.current, voice_receipts: receipts.slice(-100) };
+          sessionMetadataRef.current = nextMetadata;
+          void supabase
+            .from('va_sessions')
+            .update({ session_metadata: nextMetadata, updated_at: new Date().toISOString() })
+            .eq('id', currentSessionId)
+            .then(({ error: receiptError }) => {
+              if (receiptError) console.warn('[useVoiceAgent] failed to persist voice receipts', receiptError);
+            });
+        }, 500);
+      }
+    );
+  }
   const metricsCollectorRef = useRef<VoiceMetricsCollector | null>(null);
   if (!metricsCollectorRef.current) {
     metricsCollectorRef.current = new VoiceMetricsCollector(
       setVoiceMetrics,
-      (_turn: VoiceTurnMetric, turns: VoiceTurnMetric[]) => {
+      (turn: VoiceTurnMetric, turns: VoiceTurnMetric[]) => {
+        receiptBuilderRef.current?.audioTurnCompleted(turn);
         const currentSessionId = sessionIdRef.current;
         if (!currentSessionId) return;
         const nextMetadata = {
@@ -225,6 +264,17 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
   }, []);
 
   const recordModelRouteMetric = useCallback((metric: ModelRouteMetric) => {
+    const stage = {
+      model: metric.model ?? null,
+      latencyMs: metric.latencyMs,
+      providerLatencyMs: metric.providerLatencyMs ?? null,
+      inputTokens: metric.inputTokens ?? null,
+      outputTokens: metric.outputTokens ?? null,
+      costUsd: metric.costUsd ?? null,
+      costKind: metric.costKind || 'unavailable'
+    };
+    if (metric.route === 'rag') receiptBuilderRef.current?.retrieval(stage, metric.query);
+    else receiptBuilderRef.current?.adapter(stage, metric.query);
     setModelRouteMetrics((current) => ({ ...current, [metric.route]: metric }));
     setModelRouteTurns((current) => [...current, metric].slice(-50));
     const currentSessionId = sessionIdRef.current;
@@ -257,6 +307,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
   }, []);
 
   const resetModelRouteMetrics = useCallback(() => {
+    receiptBuilderRef.current?.reset();
     setModelRouteMetrics({});
     setModelRouteTurns([]);
     setActiveModelRoute('voice');
@@ -526,11 +577,13 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
       ragResponsePendingRef.current = false;
       return;
     }
+    let adapterFailed = false;
     if (policyRoute === 'adapter') {
       try {
         await runAdapterAugmentation(query);
         return;
       } catch (err: unknown) {
+        adapterFailed = true;
         console.error('[useVoiceAgent] trained adapter failed', err);
         setAdapterError(err instanceof Error ? err.message : 'Trained adapter request failed');
         ragResponsePendingRef.current = false;
@@ -603,6 +656,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
         costKind: Number.isFinite(ragContext.estimatedCostUsd) ? 'estimated' : 'unavailable',
         recordedAt: ragContext.createdAt
       });
+      if (adapterFailed) receiptBuilderRef.current?.route('rag', 'adapter');
       setRagError(null);
       const knowledgeLines = ragContext.citations
         .map((citation, index) => {
@@ -783,6 +837,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
         emitBenchmarkEvent('transcript.user_final', {
           transcript: transcriptText
         });
+        receiptBuilderRef.current?.userTurn(transcriptText);
         // Start policy routing before the database write. In direct-agent
         // sessions this synchronously interrupts the provider's native answer,
         // preventing its opening words from racing the adapter response.
@@ -873,6 +928,8 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
       setIsProcessing(false);
       setAgentState('idle');
       setLiveAssistantTranscript('');
+      // Attach usage before markResponseDone, which may close the audio turn.
+      receiptBuilderRef.current?.responseUsage(event?.response?.usage);
       metricsCollectorRef.current?.markResponseDone();
       const usage = normalizeUsage(event?.response?.usage);
       if (usage && vaUser?.id) {
@@ -1554,6 +1611,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
     providerMetrics,
     modelRouteMetrics,
     modelRouteTurns,
+    voiceReceipts,
     activeModelRoute,
     adapterError,
     setConfig: updateConfig,
