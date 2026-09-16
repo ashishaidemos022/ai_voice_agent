@@ -28,6 +28,7 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
   private sawStreamingAssistantText = false;
   private conversationId: string | null = null;
   private usageFinalized = false;
+  private injectedSpeechRequest: string | null = null;
 
   constructor(config: RealtimeConfig, session: DirectAgentSession) {
     this.config = config;
@@ -123,6 +124,11 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
       onMessage: ({ message, role, event_id: eventId }) => {
         const itemId = eventId !== undefined ? `elevenlabs-${eventId}` : crypto.randomUUID();
         if (role === 'user') {
+          if (this.injectedSpeechRequest && message === this.injectedSpeechRequest) {
+            this.injectedSpeechRequest = null;
+            this.beginResponse(itemId);
+            return;
+          }
           beginBenchmarkTurn();
           emitBenchmarkEvent('transcript.user_final', {
             transcript: message,
@@ -282,6 +288,16 @@ export class ElevenLabsAgentAdapter implements VoiceAdapter {
 
   requestResponse(): void {
     this.conversation?.sendUserActivity();
+  }
+
+  speakAnswer(text: string): void {
+    if (!this.conversation || !text.trim()) return;
+    const request = 'Read the checkpoint answer supplied in context exactly. Do not add, omit, or paraphrase any words.';
+    this.injectedSpeechRequest = request;
+    this.interrupted = false;
+    this.conversation.setVolume({ volume: 1 });
+    this.conversation.sendContextualUpdate(`Authoritative checkpoint answer for the next response:\n${text.trim()}`);
+    this.conversation.sendUserMessage(request);
   }
 
   async startCapture(): Promise<void> {
