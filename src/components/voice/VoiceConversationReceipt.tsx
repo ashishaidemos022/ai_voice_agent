@@ -116,7 +116,7 @@ export function VoiceConversationReceipt({ receipts, final = false, historical =
             {summary.avgAdapterLatencyMs > 0 && ` · adapter avg ${formatLatency(summary.avgAdapterLatencyMs)}`}
           </p>
           <p className="mt-1 text-[10px] text-white/35">
-            Estimated voice model, retrieval, and adapter cost · hosted rates checked {OPENAI_PRICING_EFFECTIVE_DATE}
+            Estimated voice model, retrieval, and adapter cost · hosted rates checked {OPENAI_PRICING_EFFECTIVE_DATE} · GPT-Live $0.05/min
             {summary.unpricedStages > 0 && ` · ${summary.unpricedStages} unpriced ${summary.unpricedStages === 1 ? 'stage' : 'stages'} excluded`}
           </p>
         </div>
@@ -191,7 +191,14 @@ export function VoiceConversationReceipt({ receipts, final = false, historical =
                     {latency.adapter > 0 && <><span className="pl-3">Adapter generation</span><span className="text-white/80">{formatLatency(latency.adapter)}</span></>}
                     {latency.measured && <><span className="pl-3">Voice model &amp; network</span><span className="text-white/80">{formatLatency(latency.voice)}</span></>}
                     <span>Voice model cost</span>
-                    <span className="text-white/80">{receipt.voiceUsage.responses === 0 ? '—' : receipt.voiceUsage.costUsd == null ? 'Unavailable' : `~${formatCost(receipt.voiceUsage.costUsd)}`}</span>
+                    <span className="text-white/80">
+                      {receipt.voiceUsage.costUsd != null
+                        ? `~${formatCost(receipt.voiceUsage.costUsd)}`
+                        : (receipt.voiceUsage.durationSeconds ?? 0) > 0
+                          ? 'Duration billed · no rate for this model'
+                          : receipt.voiceUsage.responses > 0 ? 'Unavailable' : 'No usage reported'}
+                    </span>
+                    {(receipt.voiceUsage.durationSeconds ?? 0) > 0 && <><span className="pl-3">Voice session time</span><span className="text-white/80">{Math.round(receipt.voiceUsage.durationSeconds)}s</span></>}
                     {receipt.voiceUsage.responses > 0 && <>
                       <span className="pl-3">Audio tokens</span><span className="text-white/80">{receipt.voiceUsage.inputAudioTokens} in / {receipt.voiceUsage.outputAudioTokens} out</span>
                       <span className="pl-3">Text tokens</span><span className="text-white/80">{receipt.voiceUsage.inputTextTokens} in / {receipt.voiceUsage.outputTextTokens} out</span>

@@ -738,8 +738,15 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
       }
     });
 
+    client.on('speech.started', () => receiptBuilderRef.current?.userSpeechStarted());
+    client.on('speech.stopped', () => receiptBuilderRef.current?.userSpeechEnded());
+    client.on('usage.reported', (event: { usage?: { voice_duration_seconds?: number | null } }) => {
+      receiptBuilderRef.current?.voiceDuration(event?.usage?.voice_duration_seconds);
+    });
+
     client.on('agent_state', (event) => {
       console.log('[useVoiceAgent] agent_state update', event);
+      if (event.state === 'speaking') receiptBuilderRef.current?.agentAudioStarted();
       setAgentState(event.state);
       if (event.state === 'listening' && audioManager) {
         audioManager.stopPlayback();
@@ -777,6 +784,8 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
         itemId: event.itemId
       });
       const isUser = event.role === 'user';
+      // GPT-Live has no server VAD events; its last caller caption approximates end of speech.
+      if (isUser && isGPTLiveModel(configRef.current?.model)) receiptBuilderRef.current?.userSpeechEnded();
       if (!isUser && assistantTextBufferRef.current.length > 0) {
         return;
       }

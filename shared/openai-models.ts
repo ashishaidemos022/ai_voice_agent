@@ -99,6 +99,11 @@ export const OPENAI_TOOL_PRICING = {
 
 export const OPENAI_PRICING_EFFECTIVE_DATE = '2026-08-17';
 
+/** Duration-billed voice models, USD per minute of session audio (billed per second). */
+export const OPENAI_VOICE_DURATION_PRICING: Partial<Record<OpenAIModelId, { perMinute: number; effectiveDate: string }>> = {
+  'gpt-live-1': { perMinute: 0.05, effectiveDate: '2026-09-10' }
+};
+
 export function getOpenAIModelPricing(model?: string | null): ModelPricing | undefined {
   const candidate = model?.trim();
   if (!candidate) return undefined;

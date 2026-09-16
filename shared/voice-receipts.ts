@@ -1,4 +1,4 @@
-import { getOpenAIModelPricing } from './openai-models.ts';
+import { getOpenAIModelPricing, OPENAI_VOICE_DURATION_PRICING, type OpenAIModelId } from './openai-models.ts';
 
 export type VoicePolicyMode = 'rag' | 'adapter' | 'automatic';
 export type VoiceTurnRoute = 'voice' | 'rag' | 'adapter';
@@ -28,6 +28,8 @@ export type VoiceModelUsage = {
   cachedInputTokens: number;
   outputTextTokens: number;
   outputAudioTokens: number;
+  /** Session seconds billed by duration-priced voice models (e.g. GPT-Live). */
+  durationSeconds: number;
   /** Null when the voice model has no token pricing (e.g. duration-billed or third-party voice). */
   costUsd: number | null;
 };
@@ -104,6 +106,12 @@ export function voicePolicyReason(policyMode: VoicePolicyMode, route: VoiceTurnR
   return { reasonCode: 'voice_model_direct', reason: 'No knowledge was needed, so the live voice model answered directly.' };
 }
 
+/** Estimates duration-billed voice cost when a per-minute rate is configured for the model. */
+export function estimateVoiceDurationCost(model: string | null | undefined, seconds: number): number | null {
+  const perMinute = model ? OPENAI_VOICE_DURATION_PRICING[model.trim() as OpenAIModelId]?.perMinute : undefined;
+  return perMinute == null ? null : (seconds / 60) * perMinute;
+}
+
 export type VoiceReceiptContext = {
   policyMode: VoicePolicyMode;
   voiceModel: string | null;
@@ -121,18 +129,25 @@ export class VoiceReceiptBuilder {
   private getContext: () => VoiceReceiptContext;
   private onChange: (receipts: VoiceTurnReceipt[]) => void;
   private now: () => Date;
+  private clock: () => number;
+  private userSpeechEndedAt: number | null = null;
+  private sessionVoiceSeconds = 0;
 
   constructor(
     getContext: () => VoiceReceiptContext,
     onChange: (receipts: VoiceTurnReceipt[]) => void = () => {},
-    now: () => Date = () => new Date()
+    now: () => Date = () => new Date(),
+    clock: () => number = () => performance.now()
   ) {
     this.getContext = getContext;
     this.onChange = onChange;
     this.now = now;
+    this.clock = clock;
   }
 
   reset(receipts: VoiceTurnReceipt[] = []) {
+    this.userSpeechEndedAt = null;
+    this.sessionVoiceSeconds = 0;
     this.receipts = receipts.map((receipt) => ({ ...receipt }));
     this.emit();
   }
@@ -189,6 +204,7 @@ export class VoiceReceiptBuilder {
     const cost = estimateRealtimeResponseCost(receipt.voiceModel, usage);
     const prior = receipt.voiceUsage;
     receipt.voiceUsage = {
+      ...prior,
       responses: prior.responses + 1,
       inputTextTokens: prior.inputTextTokens + count(input.text_tokens ?? (input.audio_tokens == null ? usage.input_tokens : 0)),
       inputAudioTokens: prior.inputAudioTokens + count(input.audio_tokens),
@@ -200,11 +216,48 @@ export class VoiceReceiptBuilder {
     this.emit();
   }
 
+  /** Provider-event fallback for first-audio timing: the caller stopped speaking. */
+  userSpeechStarted() {
+    this.userSpeechEndedAt = null;
+  }
+
+  userSpeechEnded() {
+    this.userSpeechEndedAt = this.clock();
+  }
+
+  /** The agent began speaking; measures first audio from the last end of caller speech. */
+  agentAudioStarted() {
+    if (this.userSpeechEndedAt == null) return;
+    const elapsed = Math.max(0, Math.round(this.clock() - this.userSpeechEndedAt));
+    this.userSpeechEndedAt = null;
+    const receipt = this.current();
+    if (receipt.firstAudioMs == null) receipt.firstAudioMs = elapsed;
+    this.emit();
+  }
+
+  /** Cumulative session seconds reported by duration-billed voice models. */
+  voiceDuration(cumulativeSeconds: number | null | undefined) {
+    if (!Number.isFinite(cumulativeSeconds)) return;
+    const delta = Math.max(0, Number(cumulativeSeconds) - this.sessionVoiceSeconds);
+    this.sessionVoiceSeconds = Math.max(this.sessionVoiceSeconds, Number(cumulativeSeconds));
+    if (!delta) return;
+    const receipt = this.current();
+    const durationSeconds = (receipt.voiceUsage.durationSeconds ?? 0) + delta;
+    const durationCost = estimateVoiceDurationCost(receipt.voiceModel, delta);
+    receipt.voiceUsage = {
+      ...receipt.voiceUsage,
+      durationSeconds,
+      costUsd: durationCost == null ? receipt.voiceUsage.costUsd : (receipt.voiceUsage.costUsd ?? 0) + durationCost
+    };
+    this.emit();
+  }
+
   audioTurnCompleted(metric: { firstAudioMs: number | null; toolCallMs: number | null }) {
     const receipt = this.openReceipt();
     if (!receipt) return;
-    receipt.firstAudioMs = metric.firstAudioMs;
-    receipt.toolCallMs = metric.toolCallMs;
+    // The audio-level measurement is preferred, but a missed detection must not erase event timing.
+    receipt.firstAudioMs = metric.firstAudioMs ?? receipt.firstAudioMs;
+    receipt.toolCallMs = metric.toolCallMs ?? receipt.toolCallMs;
     receipt.closed = true;
     this.emit();
   }
@@ -235,7 +288,7 @@ export class VoiceReceiptBuilder {
       checkpoint: context.checkpoint,
       retrieval: null,
       adapter: null,
-      voiceUsage: { responses: 0, inputTextTokens: 0, inputAudioTokens: 0, cachedInputTokens: 0, outputTextTokens: 0, outputAudioTokens: 0, costUsd: null },
+      voiceUsage: { responses: 0, inputTextTokens: 0, inputAudioTokens: 0, cachedInputTokens: 0, outputTextTokens: 0, outputAudioTokens: 0, durationSeconds: 0, costUsd: null },
       firstAudioMs: null,
       toolCallMs: null,
       closed: false
@@ -254,7 +307,7 @@ export function voiceReceiptCost(receipt: VoiceTurnReceipt) {
   const unpriced = [
     receipt.retrieval && receipt.retrieval.costUsd == null,
     receipt.adapter && receipt.adapter.costUsd == null,
-    receipt.voiceUsage.responses > 0 && receipt.voiceUsage.costUsd == null
+    (receipt.voiceUsage.responses > 0 || (receipt.voiceUsage.durationSeconds ?? 0) > 0) && receipt.voiceUsage.costUsd == null
   ].filter(Boolean).length;
   const estimated = [receipt.retrieval, receipt.adapter].some((stage) => stage?.costKind === 'estimated') || receipt.voiceUsage.costUsd != null;
   return { total: retrieval + adapter + voice, retrieval, adapter, voice, unpriced, estimated };

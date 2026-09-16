@@ -4,6 +4,7 @@ import {
   estimateRealtimeResponseCost,
   summarizeVoiceReceipts,
   VoiceReceiptBuilder,
+  voiceReceiptCost,
   voiceReceiptLatency,
   voiceWorkflowFingerprint,
   type VoiceReceiptContext,
@@ -88,4 +89,39 @@ test('a user transcript that lands after the spoken answer labels that turn inst
   assert.equal(latest()[0].query, 'Hello there');
   assert.equal(latest()[0].voiceUsage.responses, 1);
   assert.equal(latest()[1].query, 'Do you have parking?');
+});
+
+test('event timing measures first audio when the audio-level detector misses the turn, and null metrics never erase it', () => {
+  let clock = 1000;
+  let latest: VoiceTurnReceipt[] = [];
+  const receipts = new VoiceReceiptBuilder(
+    () => ({ policyMode: 'adapter', voiceModel: 'gpt-live-1', checkpoint: null }),
+    (next) => { latest = next; },
+    () => new Date(),
+    () => clock
+  );
+  receipts.userSpeechEnded();
+  clock = 2350;
+  receipts.agentAudioStarted();
+  clock = 2600;
+  receipts.agentAudioStarted();
+  receipts.audioTurnCompleted({ firstAudioMs: null, toolCallMs: null });
+  assert.equal(latest[0].firstAudioMs, 1350);
+  assert.equal(latest[0].closed, true);
+});
+
+test('duration-billed voice models attribute session seconds to the turn that used them', () => {
+  const { receipts, latest } = builder({ voiceModel: 'gpt-live-1' });
+  receipts.voiceDuration(12);
+  receipts.userTurn('When do you open?');
+  receipts.voiceDuration(20);
+  receipts.audioTurnCompleted({ firstAudioMs: 900, toolCallMs: null });
+  receipts.userTurn('Thanks');
+  receipts.voiceDuration(26);
+  assert.equal(latest()[0].voiceUsage.durationSeconds, 20);
+  assert.equal(latest()[1].voiceUsage.durationSeconds, 6);
+  // GPT-Live bills $0.05/minute: 20s ≈ $0.01667, 6s = $0.005.
+  assert.equal(latest()[0].voiceUsage.costUsd?.toFixed(5), '0.01667');
+  assert.equal(latest()[1].voiceUsage.costUsd?.toFixed(5), '0.00500');
+  assert.equal(voiceReceiptCost(latest()[1]).unpriced, 0);
 });
