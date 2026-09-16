@@ -81,9 +81,10 @@ test('GPT-Live uses a dedicated conversation model with Responses delegation', (
   assert.equal(gptLiveSession({ voice: 'alloy' }).audio.output.voice, 'quartz');
 });
 
-test('GPT-Live RAG tool survives MCP registry refreshes', async () => {
+test('GPT-Live RAG and trained-checkpoint tools survive MCP registry refreshes', async () => {
   const runtime = globalThis as any;
   const previousSupabase = runtime.toolRegistryTestSupabase;
+  const previousFetch = globalThis.fetch;
   runtime.toolRegistryTestSupabase = {
     from() {
       return {
@@ -95,8 +96,13 @@ test('GPT-Live RAG tool survives MCP registry refreshes', async () => {
         }
       };
     },
-    functions: { invoke: async () => ({ data: {}, error: null }) }
+    functions: { invoke: async () => ({ data: {}, error: null }) },
+    auth: { getSession: async () => ({ data: { session: { access_token: 'test-token' } } }) }
   };
+  globalThis.fetch = async () => Response.json({
+    model: 'thinkingmachines/Inkling-Small',
+    choices: [{ message: { content: 'Wren opens at 11:30 a.m.' } }]
+  });
 
   try {
     const built = await build({
@@ -133,19 +139,27 @@ test('GPT-Live RAG tool survives MCP registry refreshes', async () => {
     };
 
     registry.registerRagKnowledgeTool(ragConfig);
+    registry.registerAdapterCheckpointTool({ enabled: true, jobId: 'train-tinker-wren', systemPrompt: 'Use Wren facts.' });
     assert.ok(registry.getToolSchemas().some((tool: any) => tool.name === 'search_knowledge_base'));
+    assert.ok(registry.getToolSchemas().some((tool: any) => tool.name === 'query_trained_checkpoint'));
 
     await registry.loadMCPTools('agent_1');
     assert.ok(registry.getToolSchemas().some((tool: any) => tool.name === 'search_knowledge_base'));
+    assert.ok(registry.getToolSchemas().some((tool: any) => tool.name === 'query_trained_checkpoint'));
     assert.deepEqual(
       await registry.executeTool('search_knowledge_base', { query: 'refund policy' }, { sessionId: 'session_1' }),
       { query: 'refund policy', grounded: true }
+    );
+    assert.deepEqual(
+      await registry.executeTool('query_trained_checkpoint', { query: 'When does Wren open?' }, { sessionId: 'session_1' }),
+      { answer: 'Wren opens at 11:30 a.m.', model: 'thinkingmachines/Inkling-Small', checkpoint: 'train-tinker-wren' }
     );
 
     registry.registerRagKnowledgeTool({ ...ragConfig, enabled: false });
     assert.ok(!registry.getToolSchemas().some((tool: any) => tool.name === 'search_knowledge_base'));
   } finally {
     runtime.toolRegistryTestSupabase = previousSupabase;
+    globalThis.fetch = previousFetch;
   }
 });
 
@@ -195,7 +209,7 @@ test('realtime endpoint isolates routed sessions without changing native session
     assert.equal(requests[1].audio.input.turn_detection.create_response, undefined);
     runtime.liveTestModel = 'gpt-live-1';
     runtime.liveTestSelections = [{ tool_name: 'web_search', tool_source: 'client', user_id: 'owner' }];
-    const liveResponse = await handler!(new Request('https://test.invalid?agent_id=agent', {
+    const liveResponse = await handler!(new Request('https://test.invalid?agent_id=agent&model_policy=adapter&adapter_id=train-tinker-wren', {
       method: 'POST',
       headers: { Authorization: 'Bearer valid', 'Content-Type': 'application/json' },
       body: JSON.stringify({ transport: 'webrtc', sdp: 'live-offer-sdp' })
@@ -205,11 +219,14 @@ test('realtime endpoint isolates routed sessions without changing native session
     assert.equal(requests[2].session.model, 'gpt-live-1');
     assert.equal(requests[2].session.audio.output.voice, 'meridian');
     assert.equal(requests[2].session.delegation.responses.model, 'gpt-5.6-sol');
-    assert.equal(requests[2].session.delegation.responses.tools[0].name, 'web_search');
-    assert.equal(requests[2].session.delegation.responses.tools[1].name, 'search_knowledge_base');
+    assert.deepEqual(
+      requests[2].session.delegation.responses.tools.map((tool: any) => tool.name).sort(),
+      ['query_trained_checkpoint', 'search_knowledge_base', 'web_search']
+    );
     assert.match(requests[2].session.instructions, /Agent instructions \(authoritative\):\nOriginal native instructions/);
     assert.match(requests[2].session.instructions, /get_current_time|web_search/);
     assert.match(requests[2].session.delegation.responses.instructions, /approved knowledge is insufficient/);
+    assert.match(requests[2].session.delegation.responses.instructions, /every substantive user request, call query_trained_checkpoint/);
   } finally { runtime.Deno = previous.Deno; runtime.liveTestDb = previous.db; runtime.liveTestModel = previous.model; runtime.liveTestSelections = previous.selections; globalThis.fetch = previous.fetch; }
 });
 

@@ -201,7 +201,8 @@ Deno.serve(async (req: Request) => {
       return new Response('User profile not found', { status: 403, headers: corsHeaders });
     }
 
-    const agentId = new URL(req.url).searchParams.get('agent_id');
+    const requestUrl = new URL(req.url);
+    const agentId = requestUrl.searchParams.get('agent_id');
     if (!agentId) {
       return new Response('agent_id is required', { status: 400, headers: corsHeaders });
     }
@@ -337,6 +338,24 @@ Deno.serve(async (req: Request) => {
           silence_duration_ms: 700
         };
     const liveTools = usesGPTLive ? await loadLiveFunctionTools(agentId, vaUser.id) : [];
+    const modelPolicy = requestUrl.searchParams.get('model_policy');
+    const adapterId = requestUrl.searchParams.get('adapter_id');
+    const useTrainedCheckpoint = usesGPTLive &&
+      (modelPolicy === 'adapter' || modelPolicy === 'automatic') &&
+      typeof adapterId === 'string' && /^train-[A-Za-z0-9-]+$/.test(adapterId);
+    if (useTrainedCheckpoint && !liveTools.some((tool) => tool.name === 'query_trained_checkpoint')) {
+      liveTools.push({
+        type: 'function',
+        name: 'query_trained_checkpoint',
+        description: 'Ask the user-selected trained checkpoint for the authoritative answer to the complete user request.',
+        parameters: {
+          type: 'object',
+          properties: { query: { type: 'string', description: 'The complete user request' } },
+          required: ['query'],
+          additionalProperties: false
+        }
+      });
+    }
     const knowledgeSpaceIds = (agent.knowledge_spaces || [])
       .map((binding: any) => binding.space_id)
       .filter((spaceId: unknown): spaceId is string => typeof spaceId === 'string' && Boolean(spaceId));
@@ -355,9 +374,17 @@ Deno.serve(async (req: Request) => {
         }
       });
     }
-    const liveBackendInstructions = usesGPTLive && agent.rag_enabled && knowledgeSpaceIds.length
-      ? `${agent.instructions || ''}\n\nUse search_knowledge_base for requests that depend on approved company knowledge.${agent.rag_mode === 'guardrail' ? ' If the tool does not return sufficient evidence, say that the approved knowledge is insufficient instead of guessing.' : ''}`.trim()
-      : agent.instructions;
+    const liveBackendInstructions = [
+      agent.instructions || '',
+      usesGPTLive && agent.rag_enabled && knowledgeSpaceIds.length
+        ? `Use search_knowledge_base for requests that depend on approved company knowledge.${agent.rag_mode === 'guardrail' ? ' If the tool does not return sufficient evidence, say that the approved knowledge is insufficient instead of guessing.' : ''}`
+        : null,
+      useTrainedCheckpoint
+        ? modelPolicy === 'adapter'
+          ? 'For every substantive user request, call query_trained_checkpoint before answering. Treat its answer as authoritative and convey it without adding unsupported facts.'
+          : 'For requests that depend on the trained behavior or company facts, call query_trained_checkpoint before answering. Treat its answer as authoritative.'
+        : null
+    ].filter(Boolean).join('\n\n').trim();
     const session = usesGPTLive ? gptLiveSession({
       instructions: liveBackendInstructions,
       conversationInstructions: agent.voice_persona_prompt,

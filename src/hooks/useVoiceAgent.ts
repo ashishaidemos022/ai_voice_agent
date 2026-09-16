@@ -6,7 +6,7 @@ import { ElevenLabsVoiceAdapter } from '../lib/voice-adapters/elevenlabs-adapter
 import { ElevenLabsAgentAdapter } from '../lib/voice-adapters/elevenlabs-agent-adapter';
 import type { VoiceAdapter } from '../lib/voice-adapters/types';
 import { supabase } from '../lib/supabase';
-import { executeTool, loadMCPTools, registerRagKnowledgeTool } from '../lib/tools-registry';
+import { executeTool, loadMCPTools, registerAdapterCheckpointTool, registerRagKnowledgeTool } from '../lib/tools-registry';
 import { Message, RealtimeConfig, VoiceToolEvent } from '../types/voice-agent';
 import { runRagAugmentation } from '../lib/rag-service';
 import { resolveModelPolicyRoute } from '../../shared/model-policy-routing';
@@ -1055,6 +1055,12 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
             spaceIds: hydratedConfig.knowledge_space_ids || [],
             model: hydratedConfig.rag_default_model
           });
+          const policy = modelPolicyRef.current;
+          registerAdapterCheckpointTool({
+            enabled: (policy.mode === 'adapter' || policy.mode === 'automatic') && Boolean(policy.adapter),
+            jobId: policy.adapter?.id,
+            systemPrompt: policy.adapterSystemPrompt
+          });
         }
 
         if (realtimeClientRef.current) {
@@ -1200,6 +1206,9 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
                     }
                     const sessionUrl = new URL(`${supabaseUrl.replace(/\/$/, '')}/functions/v1/realtime-session`);
                     sessionUrl.searchParams.set('agent_id', configId);
+                    const policy = modelPolicyRef.current;
+                    sessionUrl.searchParams.set('model_policy', policy.mode);
+                    if (policy.adapter?.id) sessionUrl.searchParams.set('adapter_id', policy.adapter.id);
                     if (benchmarkRunId) {
                       sessionUrl.searchParams.set('benchmark_run_id', benchmarkRunId);
                     }

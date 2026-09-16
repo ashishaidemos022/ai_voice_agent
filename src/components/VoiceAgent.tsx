@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useVoiceAgent } from '../hooks/useVoiceAgent';
+import { chooseModelPolicy, chooseTrainedAdapter } from '../../shared/model-policy-selection';
 import { RealtimeConfig, Message } from '../types/voice-agent';
 import { getAllTools, loadMCPTools } from '../lib/tools-registry';
 import { configPresetToRealtimeConfig, getAllConfigPresets, AgentConfigPreset } from '../lib/config-service';
@@ -305,7 +306,7 @@ export function VoiceAgent({
       if (jobs.length) {
         consecutiveEmptyAdapterResponsesRef.current = 0;
         setAdapterJobs(jobs);
-        setSelectedAdapterId((current) => jobs.some((job: VoiceAdapterCheckpoint) => job.id === current) ? current : jobs[0].id);
+        setSelectedAdapterId((current) => jobs.some((job: VoiceAdapterCheckpoint) => job.id === current) ? current : '');
       } else {
         consecutiveEmptyAdapterResponsesRef.current += 1;
         if (consecutiveEmptyAdapterResponsesRef.current >= 3) {
@@ -1256,7 +1257,11 @@ export function VoiceAgent({
                                     <button
                                       key={mode}
                                       type="button"
-                                      onClick={() => setModelPolicyMode(mode)}
+                                      onClick={() => {
+                                        const selection = chooseModelPolicy(mode, selectedAdapterId);
+                                        setModelPolicyMode(selection.mode);
+                                        setSelectedAdapterId(selection.adapterId);
+                                      }}
                                       disabled={mode === 'adapter' && !selectedAdapter}
                                       className={cn(
                                         'rounded-lg px-2 py-2 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-35',
@@ -1282,7 +1287,11 @@ export function VoiceAgent({
                                   </span>
                                   <select
                                     value={selectedAdapterId}
-                                    onChange={(event) => setSelectedAdapterId(event.target.value)}
+                                    onChange={(event) => {
+                                      const selection = chooseTrainedAdapter(modelPolicyMode, event.target.value);
+                                      setModelPolicyMode(selection.mode);
+                                      setSelectedAdapterId(selection.adapterId);
+                                    }}
                                     className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white focus:border-amber-300/50 focus:outline-none"
                                   >
                                     <option value="">{isAdapterRegistryLoading && !adapterJobs.length ? 'Loading trained adapters…' : adapterJobs.length ? 'Select an adapter' : 'No completed adapters'}</option>

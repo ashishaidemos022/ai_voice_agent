@@ -510,6 +510,63 @@ export function registerRagKnowledgeTool(config: {
   }
 }
 
+export function registerAdapterCheckpointTool(config: {
+  enabled: boolean;
+  jobId?: string | null;
+  systemPrompt?: string | null;
+}): void {
+  const toolName = 'query_trained_checkpoint';
+  runtimeClientTools.delete(toolName);
+  mcpTools = mcpTools.filter((tool) => tool.name !== toolName);
+  if (!config.enabled || !config.jobId) return;
+  const jobId = config.jobId;
+  const systemPrompt = config.systemPrompt?.trim() ||
+    'Answer using the behavior and facts learned during adapter training. Be concise. If the answer was not learned, say UNKNOWN.';
+  const adapterTool: Tool = {
+    name: toolName,
+    description: 'Ask the selected trained checkpoint for the authoritative answer to the user request.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'The complete user request' }
+      },
+      required: ['query'],
+      additionalProperties: false
+    },
+    executionType: 'client',
+    source: 'client',
+    execute: async (params: any) => {
+      const query = `${params?.query || ''}`.trim();
+      if (!query) throw new Error('Checkpoint query is required');
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token;
+      if (!accessToken) throw new Error('Sign in again to invoke the trained checkpoint.');
+      const response = await fetch(`/api/open-weight-training?jobId=${encodeURIComponent(jobId)}&action=completion`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: query }
+          ],
+          temperature: 0,
+          max_tokens: 256
+        })
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `Checkpoint request failed (${response.status})`);
+      const answer = `${body.choices?.[0]?.message?.content || ''}`.trim();
+      if (!answer) throw new Error('The trained checkpoint returned an empty answer.');
+      return { answer, model: body.model || null, checkpoint: jobId };
+    }
+  };
+  runtimeClientTools.set(toolName, adapterTool);
+  mcpTools.push(adapterTool);
+  if (selectedClientToolNames !== null && !selectedClientToolNames.includes(toolName)) {
+    selectedClientToolNames = [...selectedClientToolNames, toolName];
+  }
+}
+
 export function registerToolsFromServer(serialized: SerializedToolDefinition[] | null | undefined) {
   if (!Array.isArray(serialized) || serialized.length === 0) {
     console.warn('[MCP] No serialized tools provided from server payload');
