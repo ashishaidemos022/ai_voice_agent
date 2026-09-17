@@ -107,7 +107,7 @@ export class RealtimeAPIClient {
   private suppressRoutedAudio = false;
   private pendingRoutedAnswer: string | null = null;
   private outputAudioBufferStartedAt: number | null = null;
-  private readonly usesGPTLive: boolean;
+  private usesGPTLive: boolean;
   private liveSessionStarted = false;
   private liveSessionReadyResolve: (() => void) | null = null;
   private liveSessionReadyReject: ((error: Error) => void) | null = null;
@@ -347,25 +347,20 @@ export class RealtimeAPIClient {
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    const liveSessionReady = this.usesGPTLive
-      ? new Promise<void>((resolve, reject) => {
-          this.liveSessionReadyResolve = resolve;
-          this.liveSessionReadyReject = reject;
-        })
-      : null;
     const response = await fetch(this.webrtc.sessionUrl, {
       method: 'POST',
       headers: {
-        'Content-Type': this.usesGPTLive ? 'application/json' : 'application/sdp',
+        'Content-Type': 'application/json',
         ...(this.webrtc.headers || {})
       },
-      body: this.usesGPTLive
-        ? JSON.stringify({ transport: 'webrtc', sdp: offer.sdp })
-        : offer.sdp
+      body: JSON.stringify({ transport: 'webrtc', sdp: offer.sdp })
     });
+    const responseContentType = response.headers.get('content-type') || '';
+    const negotiatedGPTLive = response.ok && responseContentType.includes('application/json');
+    this.usesGPTLive = negotiatedGPTLive;
     console.log('[Realtime WebRTC] session handshake response', {
       status: response.status,
-      live: this.usesGPTLive
+      live: negotiatedGPTLive
     });
     if (!response.ok) {
       const detail = await response.text();
@@ -375,16 +370,25 @@ export class RealtimeAPIClient {
     if (this.intentionalClose || this.peerConnection !== pc) throw new Error('Voice connection canceled');
     const responseBody = await response.text();
     let answerSdp = responseBody;
-    if (this.usesGPTLive) {
+    if (negotiatedGPTLive) {
       const payload = JSON.parse(responseBody);
       answerSdp = payload?.transport?.sdp;
+      if (typeof payload?.session?.model === 'string') {
+        this.config = { ...this.config, model: payload.session.model };
+      }
       if (typeof answerSdp !== 'string' || !answerSdp.trim()) {
         this.disconnect();
         throw new Error('GPT-Live session response is missing the SDP answer');
       }
     }
+    const liveSessionReady = negotiatedGPTLive
+      ? new Promise<void>((resolve, reject) => {
+          this.liveSessionReadyResolve = resolve;
+          this.liveSessionReadyReject = reject;
+        })
+      : null;
     await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
-    console.log('[Realtime WebRTC] remote description applied', { live: this.usesGPTLive });
+    console.log('[Realtime WebRTC] remote description applied', { live: negotiatedGPTLive });
 
     const finalizeConnection = () => {
       this.reconnectAttempts = 0;

@@ -224,6 +224,13 @@ test('realtime endpoint isolates routed sessions without changing native session
     assert.equal(requests[1].instructions, 'Original native instructions');
     assert.equal(requests[1].audio.output.voice, 'marin');
     assert.equal(requests[1].audio.input.turn_detection.create_response, undefined);
+    const jsonRealtimeResponse = await handler!(new Request('https://test.invalid?agent_id=agent', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer valid', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transport: 'webrtc', sdp: 'json-realtime-offer-sdp' })
+    }));
+    assert.equal(jsonRealtimeResponse.status, 200);
+    assert.equal(requests[2].instructions, 'Original native instructions');
     runtime.liveTestModel = 'gpt-live-1';
     runtime.liveTestSelections = [{ tool_name: 'web_search', tool_source: 'client', user_id: 'owner' }];
     const liveResponse = await handler!(new Request('https://test.invalid?agent_id=agent&model_policy=adapter&adapter_id=train-tinker-wren', {
@@ -232,18 +239,18 @@ test('realtime endpoint isolates routed sessions without changing native session
       body: JSON.stringify({ transport: 'webrtc', sdp: 'live-offer-sdp' })
     }));
     assert.equal(liveResponse.status, 201);
-    assert.equal(requests[2].transport.sdp, 'live-offer-sdp');
-    assert.equal(requests[2].session.model, 'gpt-live-1');
-    assert.equal(requests[2].session.audio.output.voice, 'meridian');
-    assert.equal(requests[2].session.delegation.responses.model, 'gpt-5.6-sol');
+    assert.equal(requests[3].transport.sdp, 'live-offer-sdp');
+    assert.equal(requests[3].session.model, 'gpt-live-1');
+    assert.equal(requests[3].session.audio.output.voice, 'meridian');
+    assert.equal(requests[3].session.delegation.responses.model, 'gpt-5.6-sol');
     assert.deepEqual(
-      requests[2].session.delegation.responses.tools.map((tool: any) => tool.name).sort(),
+      requests[3].session.delegation.responses.tools.map((tool: any) => tool.name).sort(),
       ['query_trained_checkpoint', 'web_search']
     );
-    assert.match(requests[2].session.instructions, /Agent instructions \(authoritative\):\nOriginal native instructions/);
-    assert.match(requests[2].session.instructions, /get_current_time|web_search/);
-    assert.doesNotMatch(requests[2].session.delegation.responses.instructions, /search_knowledge_base/);
-    assert.match(requests[2].session.delegation.responses.instructions, /every substantive user request, call query_trained_checkpoint/);
+    assert.match(requests[3].session.instructions, /Agent instructions \(authoritative\):\nOriginal native instructions/);
+    assert.match(requests[3].session.instructions, /get_current_time|web_search/);
+    assert.doesNotMatch(requests[3].session.delegation.responses.instructions, /search_knowledge_base/);
+    assert.match(requests[3].session.delegation.responses.instructions, /every substantive user request, call query_trained_checkpoint/);
     const ragResponse = await handler!(new Request('https://test.invalid?agent_id=agent&model_policy=rag', {
       method: 'POST',
       headers: { Authorization: 'Bearer valid', 'Content-Type': 'application/json' },
@@ -251,11 +258,11 @@ test('realtime endpoint isolates routed sessions without changing native session
     }));
     assert.equal(ragResponse.status, 201);
     assert.deepEqual(
-      requests[3].session.delegation.responses.tools.map((tool: any) => tool.name).sort(),
+      requests[4].session.delegation.responses.tools.map((tool: any) => tool.name).sort(),
       ['search_knowledge_base', 'web_search']
     );
-    assert.match(requests[3].session.delegation.responses.instructions, /search_knowledge_base/);
-    assert.doesNotMatch(requests[3].session.delegation.responses.instructions, /query_trained_checkpoint/);
+    assert.match(requests[4].session.delegation.responses.instructions, /search_knowledge_base/);
+    assert.doesNotMatch(requests[4].session.delegation.responses.instructions, /query_trained_checkpoint/);
   } finally { runtime.Deno = previous.Deno; runtime.liveTestDb = previous.db; runtime.liveTestModel = previous.model; runtime.liveTestSelections = previous.selections; globalThis.fetch = previous.fetch; }
 });
 

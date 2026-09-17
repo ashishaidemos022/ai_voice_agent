@@ -217,16 +217,12 @@ export function VoiceAgent({
   const consecutiveEmptyAdapterResponsesRef = useRef(0);
   const selectedAdapter = adapterJobs.find((job) => job.id === selectedAdapterId) || null;
   const resumeSessionRef = useRef<{ config: RealtimeConfig; presetId: string | null } | null>(null);
-  const applyPreferencesToConfig = useCallback((baseConfig: RealtimeConfig) => {
-    const nextConfig = { ...baseConfig };
-    if (preferredModel) {
-      nextConfig.model = preferredModel;
-    }
-    if (preferredVoice) {
-      nextConfig.voice = preferredVoice;
-    }
-    return nextConfig;
-  }, [preferredModel, preferredVoice]);
+  const resolvePresetRuntimeConfig = useCallback((baseConfig: RealtimeConfig) => {
+    // The saved preset is also loaded by the server when it creates the
+    // provider session. Keep its transport-critical model and voice intact so
+    // the browser and server always negotiate the same protocol.
+    return { ...baseConfig };
+  }, []);
   const rememberSessionConfig = useCallback((sessionConfig: RealtimeConfig, presetId: string | null) => {
     resumeSessionRef.current = { config: sessionConfig, presetId };
   }, []);
@@ -704,7 +700,7 @@ export function VoiceAgent({
       presetId: preset.id,
       restartSession: options.restartSession
     });
-    const appliedConfig = applyPreferencesToConfig(configPresetToRealtimeConfig(preset));
+    const appliedConfig = resolvePresetRuntimeConfig(configPresetToRealtimeConfig(preset));
     setPendingConfigId(preset.id);
     persistActiveConfigId(preset.id);
     setActiveConfig(preset.id);
@@ -728,7 +724,7 @@ export function VoiceAgent({
         setIsSwitchingPreset(false);
       }
     }
-  }, [applyPreferencesToConfig, cleanup, initialize, isInitialized, persistActiveConfigId, setActiveConfig, rememberSessionConfig]);
+  }, [resolvePresetRuntimeConfig, cleanup, initialize, isInitialized, persistActiveConfigId, setActiveConfig, rememberSessionConfig]);
 
   const refreshPresets = useCallback(async () => {
     try {

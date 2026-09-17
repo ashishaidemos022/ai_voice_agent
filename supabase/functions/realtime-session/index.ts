@@ -470,7 +470,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const form = new FormData();
-    form.set('sdp', await req.text());
+    form.set('sdp', isLiveWebRTCRequest ? jsonBody.sdp : await req.text());
     form.set('session', JSON.stringify(session));
     const openAIResponse = await fetch(`${OPENAI_BASE_URL}/realtime/calls`, {
       method: 'POST',

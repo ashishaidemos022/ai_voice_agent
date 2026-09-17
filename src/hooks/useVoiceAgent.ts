@@ -456,16 +456,8 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
     };
   }, []);
 
-  const hydrateConfigWithKnowledge = useCallback(
+  const hydrateConfigFromPreset = useCallback(
     async (configId: string, baseConfig: RealtimeConfig): Promise<RealtimeConfig> => {
-      const hasKnowledgeSpaces =
-        Array.isArray(baseConfig.knowledge_space_ids) && baseConfig.knowledge_space_ids.length > 0;
-      const hasVectorStores =
-        Array.isArray(baseConfig.knowledge_vector_store_ids) && baseConfig.knowledge_vector_store_ids.length > 0;
-      const hasRagSettings = baseConfig.rag_enabled !== undefined && baseConfig.rag_mode !== undefined;
-      if (hasKnowledgeSpaces && hasVectorStores && hasRagSettings) {
-        return baseConfig;
-      }
       try {
         const preset = await getConfigPresetById(configId);
         if (!preset) {
@@ -473,8 +465,10 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
         }
         const presetConfig = configPresetToRealtimeConfig(preset);
         const merged = mergeRealtimeConfig(baseConfig, presetConfig);
-        console.log('[useVoiceAgent] Hydrated missing RAG metadata from preset', {
+        console.log('[useVoiceAgent] Hydrated authoritative runtime config from preset', {
           configId,
+          model: merged.model,
+          voiceProvider: merged.voice_provider,
           knowledgeSpaces: merged.knowledge_space_ids?.length || 0,
           vectorStores: merged.knowledge_vector_store_ids?.length || 0,
           ragEnabled: merged.rag_enabled
@@ -1173,7 +1167,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
           throw new Error('Select an agent preset before starting the voice agent.');
         }
         const baseConfig = mergeRealtimeConfig(config, initConfig);
-        const hydratedConfig = await hydrateConfigWithKnowledge(configId, baseConfig);
+        const hydratedConfig = await hydrateConfigFromPreset(configId, baseConfig);
         metricsCollectorRef.current?.reset();
         setProviderMetrics(EMPTY_PROVIDER_METRICS);
         setConfig(hydratedConfig);
@@ -1435,7 +1429,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
       attachRealtimeHandlers,
       config,
       createSession,
-      hydrateConfigWithKnowledge,
+      hydrateConfigFromPreset,
       mergeRealtimeConfig,
       resetTranscripts,
       startMetering,
