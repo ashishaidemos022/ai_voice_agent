@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { resolveModelPolicyRoute } from '../shared/model-policy-routing.ts';
 import { chooseModelPolicy, chooseTrainedAdapter } from '../shared/model-policy-selection.ts';
-import { DEFAULT_ADAPTER_SYSTEM_PROMPT, WREN_ADAPTER_SYSTEM_PROMPT, resolveAdapterSystemPrompt } from '../shared/adapter-system-prompt.ts';
+import { DEFAULT_ADAPTER_SYSTEM_PROMPT, WREN_ADAPTER_SYSTEM_PROMPT, WREN_APPROVED_FACTS, resolveAdapterSystemPrompt } from '../shared/adapter-system-prompt.ts';
 import { estimateInklingSmallCostUsd, summarizeModelRouteMetrics } from '../src/lib/model-route-metrics.ts';
 import type { ModelRouteMetric } from '../src/types/agent-model-policy.ts';
 import { trainedCheckpointId, trainedCheckpointModel, usesTrainedCheckpoint } from '../shared/model-routing.ts';
@@ -35,8 +35,10 @@ test('selecting a trained checkpoint activates adapter mode', () => {
   assert.deepEqual(chooseTrainedAdapter('adapter', ''), { mode: 'rag', adapterId: '' });
 });
 
-test('Wren voice requests use the same system prompt as the passing lab evaluation', () => {
-  assert.equal(resolveAdapterSystemPrompt({ name: 'Wren FAQ', datasetName: 'wren-faq-two-facts-v1' }), WREN_ADAPTER_SYSTEM_PROMPT);
+test('Wren voice requests combine trained behavior instructions with approved facts', () => {
+  const prompt = resolveAdapterSystemPrompt({ name: 'Wren FAQ', datasetName: 'wren-faq-two-facts-v1' });
+  assert.match(prompt, new RegExp(WREN_ADAPTER_SYSTEM_PROMPT.slice(0, 40)));
+  assert.match(prompt, new RegExp(WREN_APPROVED_FACTS.slice(0, 30)));
   assert.equal(resolveAdapterSystemPrompt({ name: 'Other adapter', datasetName: 'other-data' }), DEFAULT_ADAPTER_SYSTEM_PROMPT);
 });
 

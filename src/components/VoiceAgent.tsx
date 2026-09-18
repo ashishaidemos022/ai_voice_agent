@@ -216,6 +216,7 @@ export function VoiceAgent({
   const [adapterRegistryRefreshKey, setAdapterRegistryRefreshKey] = useState(0);
   const consecutiveEmptyAdapterResponsesRef = useRef(0);
   const selectedAdapter = adapterJobs.find((job) => job.id === selectedAdapterId) || null;
+  const selectedAdapterIsWren = /wren/i.test(`${selectedAdapter?.name || ''} ${selectedAdapter?.datasetName || ''}`);
   const resumeSessionRef = useRef<{ config: RealtimeConfig; presetId: string | null } | null>(null);
   const resolvePresetRuntimeConfig = useCallback((baseConfig: RealtimeConfig) => {
     // The saved preset is also loaded by the server when it creates the
@@ -1322,7 +1323,7 @@ export function VoiceAgent({
                                       <span className="font-medium text-emerald-100">{selectedAdapter.backend === 'tinker' ? 'Inkling-Small · Tinker' : 'Qwen · private GPU'}</span>
                                       <span className="font-mono text-[10px] text-white/35">{(selectedAdapter.artifactSha256 || selectedAdapter.id).slice(0, 12)}…</span>
                                     </div>
-                                    <p className="mt-1">Adapter mode skips document retrieval. The trained checkpoint generates the answer; the voice provider only speaks it.</p>
+                                    <p className="mt-1">{selectedAdapterIsWren ? 'Grounded adapter mode sends the approved WREN fact sheet directly with the request. Inkling’s trained weights provide the brand behavior; no vector search is performed.' : 'Adapter mode skips document retrieval. The trained checkpoint generates the answer; the voice provider only speaks it.'}</p>
                                   </div>
                                 ) : (
                                   <p className="text-xs leading-5 text-white/40">Train an adapter in Open Weight Lab to enable direct model answers. RAG remains available now.</p>
