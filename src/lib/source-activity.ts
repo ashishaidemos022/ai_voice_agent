@@ -21,18 +21,24 @@ export function sourceActivity(sources?: AnswerSources, memory?: MemoryReceipt, 
   if (writes.length) personal = { state: 'complete', label: writes.some(event => event.kind === 'updated') ? 'Memory updated' : writes.some(event => event.kind === 'forgotten') ? 'Memory forgotten' : 'Memory saved' };
   if (memoryFailed) personal = { state: 'failed', label: 'Memory operation failed' };
 
-  const sql = (sources?.tools || []).filter(tool => /execute_sql/i.test(tool.toolName));
-  const earlierSql = (sources?.carriedTools || []).some(tool => /execute_sql/i.test(tool.toolName));
+  const sql = (sources?.tools || []).filter(tool => /execute_sql|lookup_it_assets/i.test(tool.toolName));
+  const earlierSql = (sources?.carriedTools || []).some(tool => /execute_sql|lookup_it_assets/i.test(tool.toolName));
+  const policy = (sources?.tools || []).filter(tool => /search_it_policy/i.test(tool.toolName));
+  const policyPending = policy.some(tool => ['pending', 'running'].includes(tool.status));
+  const policyFailed = policy.some(tool => tool.status === 'failed');
   const pending = sql.some(tool => ['pending', 'running'].includes(tool.status));
   const failed = sql.some(tool => tool.status === 'failed');
   return {
     memory: personal,
-    knowledge: sources?.ragStatus === 'searching'
+    knowledge: policyPending && busy ? { state: 'active', label: 'Searching approved policy…' }
+      : policyFailed ? { state: 'failed', label: 'Policy retrieval failed' }
+      : policy.some(tool => tool.status === 'succeeded') ? { state: 'complete', label: `${policy.filter(tool => tool.status === 'succeeded').length} policy searches returned` }
+      : sources?.ragStatus === 'searching'
       ? { state: busy ? 'active' : 'idle', label: busy ? 'Reading product guide…' : 'Retrieval incomplete' }
       : sources?.ragStatus === 'failed' ? { state: 'failed', label: 'Document retrieval failed' }
       : sources?.ragStatus === 'retrieved' ? { state: 'complete', label: `${sources.rag?.citations.length || 0} passages retrieved` }
       : { state: 'idle', label: 'Not accessed this turn' },
-    data: pending && busy ? { state: 'active', label: 'Checking catalog…' }
+    data: pending && busy ? { state: 'active', label: 'Checking live records…' }
       : failed ? { state: 'failed', label: 'Database lookup failed' }
       : sql.some(tool => tool.status === 'succeeded') ? { state: 'complete', label: `${sql.filter(tool => tool.status === 'succeeded').length} database results returned` }
       : earlierSql ? { state: 'carried', label: 'Available from earlier in this conversation' }

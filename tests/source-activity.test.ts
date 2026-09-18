@@ -27,4 +27,7 @@ test('RAG and SQL reflect live, completed, failed, and carried states independen
   assert.equal(sourceActivity({ ...sources, tools: [{ toolName: 'execute_sql', status: 'succeeded' }] } as any).data.state, 'complete');
   assert.equal(sourceActivity({ ...sources, tools: [{ toolName: 'execute_sql', status: 'failed' }] } as any).data.state, 'failed');
   assert.equal(sourceActivity({ ...sources, carriedTools: [{ toolName: 'execute_sql', status: 'succeeded' }] } as any).data.state, 'carried');
+  assert.equal(sourceActivity({ ...sources, tools: [{ toolName: 'lookup_it_assets', status: 'succeeded' }] } as any).data.state, 'complete');
+  assert.equal(sourceActivity({ ...sources, tools: [{ toolName: 'search_it_policy', status: 'running' }] } as any, undefined, true).knowledge.state, 'active');
+  assert.equal(sourceActivity({ ...sources, tools: [{ toolName: 'search_it_policy', status: 'succeeded' }] } as any).knowledge.state, 'complete');
 });
