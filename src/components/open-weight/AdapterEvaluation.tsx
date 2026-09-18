@@ -18,7 +18,7 @@ type EvidenceRun = {
 };
 
 const wrenCases: AdapterTestCase[] = [
-  { id: 'hours-saturday', category: 'hours', messages: [{ role: 'system', content: WREN_ADAPTER_SYSTEM_PROMPT }, { role: 'user', content: 'Can we come to Wren for lunch at noon on Saturday?' }], expected: { required: [['11:30 a.m.', '11:30 am'], ['2:30 p.m.', '2:30 pm'], ['Tuesday–Sunday', 'Tuesday-Sunday', 'Tuesday through Sunday', 'Tuesday to Sunday'], ['location', 'locations'], ['holiday', 'holidays']] } },
+  { id: 'hours-saturday', category: 'hours', messages: [{ role: 'system', content: WREN_ADAPTER_SYSTEM_PROMPT }, { role: 'user', content: 'Does Wren serve lunch on Saturdays, and what time does it end?' }], expected: { required: [['11:30 a.m.', '11:30 am'], ['2:30 p.m.', '2:30 pm'], ['Tuesday–Sunday', 'Tuesday-Sunday', 'Tuesday through Sunday', 'Tuesday to Sunday'], ['location', 'locations'], ['holiday', 'holidays']], forbidden: ['3:00 p.m.', '3:00 pm', '3 p.m.', '3 pm', 'Monday'] } },
   { id: 'gift-card-cross-location', category: 'gift-cards', messages: [{ role: 'system', content: WREN_ADAPTER_SYSTEM_PROMPT }, { role: 'user', content: 'Can I purchase a $75 Wren gift card online and use it at a different Wren location?' }], expected: { required: [['online'], ['any amount'], ['any Wren location', 'all Wren locations']], forbidden: ['cannot', "can't", 'can not', 'only at the location'] } },
 ];
 const wrenJsonl = wrenCases.map((item) => JSON.stringify(item)).join('\n');
