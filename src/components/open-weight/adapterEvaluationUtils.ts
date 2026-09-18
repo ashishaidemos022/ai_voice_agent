@@ -4,7 +4,7 @@ export type AdapterTestCase = {
   id: string;
   category: string;
   messages: EvaluationMessage[];
-  expected: { required: RequiredFact[]; forbidden?: string[] };
+  expected: { required: RequiredFact[]; forbidden?: string[]; allowedNumbers?: string[] };
 };
 
 function normalizeText(value: string) {
@@ -18,6 +18,12 @@ export function gradeFacts(expected: AdapterTestCase['expected'], answer: string
     return alternatives.some((value) => normalized.includes(normalizeText(value))) ? [] : [alternatives.join(' OR ')];
   });
   const forbidden = (expected.forbidden || []).filter((value) => normalized.includes(normalizeText(value)));
+  if (expected.allowedNumbers) {
+    const allowed = new Set(expected.allowedNumbers.map(normalizeText));
+    const unexpected = Array.from(new Set(normalized.match(/\b\d+(?::\d{2})?\b/g) || []))
+      .filter((value) => !allowed.has(value));
+    forbidden.push(...unexpected.map((value) => `unexpected number: ${value}`));
+  }
   return { pass: missing.length === 0 && forbidden.length === 0, missing, forbidden };
 }
 
@@ -42,6 +48,7 @@ export function parseAdapterTests(value: string): AdapterTestCase[] {
       if (!alternatives.length || alternatives.some((value) => typeof value !== 'string' || !value.trim() || value.length > 500)) throw new Error(`Line ${index + 1} has an invalid required fact`);
     }
     if (test.expected.forbidden !== undefined && (!Array.isArray(test.expected.forbidden) || test.expected.forbidden.length > 20 || test.expected.forbidden.some((value) => typeof value !== 'string' || !value.trim() || value.length > 500))) throw new Error(`Line ${index + 1} has an invalid forbidden fact`);
+    if (test.expected.allowedNumbers !== undefined && (!Array.isArray(test.expected.allowedNumbers) || test.expected.allowedNumbers.length > 20 || test.expected.allowedNumbers.some((value) => typeof value !== 'string' || !/^\d+(?::\d{2})?$/.test(value)))) throw new Error(`Line ${index + 1} has invalid allowed numbers`);
     return test;
   });
 }

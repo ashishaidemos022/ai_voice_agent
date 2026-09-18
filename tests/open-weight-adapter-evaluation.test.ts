@@ -25,11 +25,18 @@ test('fact grader accepts phrasing alternatives and reports missing and forbidde
 test('hours gate rejects an invented closing time even when required facts are present', () => {
   const expected = {
     required: [['11:30 a.m.', '11:30 am'], ['2:30 p.m.', '2:30 pm']],
-    forbidden: ['3:00 p.m.', '3:00 pm']
+    allowedNumbers: ['11:30', '2:30']
   };
   const failed = gradeFacts(expected, 'Lunch is served from 11:30 a.m. to 2:30 p.m., but may run until 3:00 p.m.');
   assert.equal(failed.pass, false);
-  assert.deepEqual(failed.forbidden, ['3:00 p.m.']);
+  assert.deepEqual(failed.forbidden, ['unexpected number: 3:00']);
+});
+
+test('held-out parser validates optional numeric claim allowlists', () => {
+  const valid = JSON.stringify({ id: 'hours', category: 'faq', messages: [{ role: 'user', content: 'Hours?' }], expected: { required: ['11:30'], allowedNumbers: ['11:30', '2:30'] } });
+  assert.deepEqual(parseAdapterTests(valid)[0].expected.allowedNumbers, ['11:30', '2:30']);
+  const invalid = valid.replace('"2:30"', '"about two"');
+  assert.throws(() => parseAdapterTests(invalid), /allowed numbers/);
 });
 
 test('word diff highlights terms unique to each model output', () => {
