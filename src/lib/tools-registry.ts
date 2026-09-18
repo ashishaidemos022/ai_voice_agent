@@ -60,6 +60,8 @@ interface ToolSelectionState {
 }
 
 const WEB_SEARCH_TOOL_NAME = 'web_search';
+const IT_POLICY_TOOL_NAME = 'search_it_policy';
+const IT_ASSET_TOOL_NAME = 'lookup_it_assets';
 const WEB_SEARCH_DEFAULTS = {
   max_results: 5,
   time_range: 'any',
@@ -140,6 +142,56 @@ async function executeWebSearch(params: any, defaults?: Record<string, any>) {
     snippets_only: snippetsOnly,
     response: data
   };
+}
+
+function enterpriseITSupportTools(selection: ToolSelectionState | null): Tool[] {
+  const selected = new Set(selection?.clientToolNames || []);
+  const tools: Tool[] = [];
+  if (selected.has(IT_POLICY_TOOL_NAME)) {
+    tools.push({
+      name: IT_POLICY_TOOL_NAME,
+      description: 'Retrieve approved enterprise IT policy passages. Use this for security, access, identity, lost-device, and hardware procedures before recommending action.',
+      parameters: {
+        type: 'object',
+        properties: { query: { type: 'string', description: 'A short policy search such as "lost stolen corporate device".' } },
+        required: ['query'],
+        additionalProperties: false
+      },
+      executionType: 'client',
+      source: 'client',
+      metadata: { source: 'Ashish_Retail.it_policy_articles', retrieval: 'full-text' },
+      execute: async (params: any) => {
+        const query = `${params?.query || ''}`.trim();
+        if (!query) throw new Error('Policy search query is required');
+        const { data, error } = await supabase.rpc('search_it_policy', { query });
+        if (error) throw error;
+        return data;
+      }
+    });
+  }
+  if (selected.has(IT_ASSET_TOOL_NAME)) {
+    tools.push({
+      name: IT_ASSET_TOOL_NAME,
+      description: 'Look up the synthetic employee and currently assigned managed devices in the live IT asset registry. Use only an employee number or work email supplied by the user.',
+      parameters: {
+        type: 'object',
+        properties: { employee_reference: { type: 'string', description: 'Employee number such as EMP-1042, or a work email.' } },
+        required: ['employee_reference'],
+        additionalProperties: false
+      },
+      executionType: 'client',
+      source: 'client',
+      metadata: { source: 'Ashish_Retail.it_employees + it_assets', synthetic: true },
+      execute: async (params: any) => {
+        const employeeReference = `${params?.employee_reference || ''}`.trim();
+        if (!employeeReference) throw new Error('Employee reference is required');
+        const { data, error } = await supabase.rpc('lookup_it_assets', { employee_reference: employeeReference });
+        if (error) throw error;
+        return data || { employee: null, assets: [], synthetic: true };
+      }
+    });
+  }
+  return tools;
 }
 
 export interface ToolExecutionContext {
@@ -421,6 +473,7 @@ export async function loadMCPTools(configId?: string, userId?: string): Promise<
       const n8nTools = await loadN8NWebhookTools(configId, selectionState);
       registeredTools = [...registeredTools, ...n8nTools];
       applyWebhookSelection(selectionState, n8nTools);
+      registeredTools = [...registeredTools, ...enterpriseITSupportTools(selectionState)];
     } else {
       selectedWebhookToolNames = null;
     }
@@ -526,7 +579,7 @@ export function registerAdapterCheckpointTool(config: {
   const systemPrompt = config.systemPrompt?.trim() || DEFAULT_ADAPTER_SYSTEM_PROMPT;
   const adapterTool: Tool = {
     name: toolName,
-    description: 'Ask the selected trained checkpoint for the authoritative answer to the user request.',
+    description: 'Ask the selected trained checkpoint for its specialized behavior or answer. Treat its output as trained model evidence, not as proof of live external facts or completed actions.',
     parameters: {
       type: 'object',
       properties: {

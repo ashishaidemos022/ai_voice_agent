@@ -183,6 +183,8 @@ export function ChatAgent({
     fixedModel,
     setFixedModel,
     trainedCheckpoints,
+    behaviorCheckpointId,
+    setBehaviorCheckpointId,
     isCheckpointRegistryLoading,
     checkpointRegistryError,
     refreshTrainedCheckpoints,
@@ -475,12 +477,28 @@ export function ChatAgent({
                     {selectedCheckpoint && <p className="rounded-lg border border-amber-300/15 bg-amber-400/[0.04] px-3 py-2 text-[11px] text-white/50">This fixed route uses {selectedCheckpoint.backend === 'tinker' ? 'Inkling-Small on Tinker' : 'the private GPU runtime'} and records checkpoint identity, latency, tokens, and cost in the receipt.</p>}
                   </div>
                 ) : (
-                  <div className="flex flex-wrap gap-1.5 mt-3">
-                    {CHAT_ROUTING_MODELS.map((model) => (
-                      <span key={model} className="rounded-full border border-white/10 bg-black/20 px-2 py-1 text-[10px] text-white/55">
-                        {MODEL_LABELS[model].replace('GPT-', '')}
-                      </span>
-                    ))}
+                  <div className="mt-3 space-y-3">
+                    <div className="flex flex-wrap gap-1.5">
+                      {CHAT_ROUTING_MODELS.map((model) => (
+                        <span key={model} className="rounded-full border border-white/10 bg-black/20 px-2 py-1 text-[10px] text-white/55">
+                          {MODEL_LABELS[model].replace('GPT-', '')}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="rounded-xl border border-amber-300/15 bg-amber-400/[0.04] p-3">
+                      <label className="text-xs font-medium text-amber-100" htmlFor="behavior-checkpoint">Behavior adapter</label>
+                      <p className="mt-1 text-[11px] text-white/45">The router still chooses the orchestration model. This trained checkpoint supplies specialized behavior as a tool.</p>
+                      <select
+                        id="behavior-checkpoint"
+                        value={behaviorCheckpointId || ''}
+                        disabled={Boolean(session)}
+                        onChange={(event) => setBehaviorCheckpointId(event.target.value || null)}
+                        className="mt-2 w-full rounded-lg bg-slate-950 border border-white/10 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300/50 disabled:opacity-50"
+                      >
+                        <option value="">No behavior adapter</option>
+                        {trainedCheckpoints.map(checkpoint => <option key={checkpoint.id} value={checkpoint.id}>{checkpoint.name} · {checkpoint.datasetName}</option>)}
+                      </select>
+                    </div>
                   </div>
                 )}
               </div>

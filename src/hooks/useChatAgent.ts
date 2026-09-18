@@ -16,7 +16,7 @@ import {
   updateChatToolEvent
 } from '../lib/chat-session-service';
 import { ChatRealtimeClient } from '../lib/chat-realtime-client';
-import { executeTool, getAllTools, loadMCPTools, type Tool } from '../lib/tools-registry';
+import { executeTool, getAllTools, loadMCPTools, registerAdapterCheckpointTool, type Tool } from '../lib/tools-registry';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { runRagAugmentation } from '../lib/rag-service';
@@ -35,6 +35,7 @@ import { memoryRequest } from '../lib/agent-memory-service';
 
 const MAX_CONTEXT_MESSAGES = 40;
 const DEFAULT_CHAT_MODEL = OPENAI_MODELS.chat.default;
+const IT_TRIAGE_ADAPTER_PROMPT = 'You are the IT Triage Behavior Engine. Return only compact JSON with keys acknowledge, intent, priority, required_sources, next_actions, missing_information, safety_rule.';
 
 function resolveChatRealtimeModel(preset: AgentConfigPreset): string {
   return normalizeChatModel(preset.chat_model || preset.model || DEFAULT_CHAT_MODEL);
@@ -79,6 +80,7 @@ export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string 
   const [trainedCheckpoints, setTrainedCheckpoints] = useState<VoiceAdapterCheckpoint[]>([]);
   const [isCheckpointRegistryLoading, setIsCheckpointRegistryLoading] = useState(false);
   const [checkpointRegistryError, setCheckpointRegistryError] = useState<string | null>(null);
+  const [behaviorCheckpointId, setBehaviorCheckpointId] = useState<string | null>(null);
   const [currentRoute, setCurrentRoute] = useState<ChatRouteDecision | null>(null);
   const [memorySubjectId, setMemorySubjectId] = useState<string | null>(null);
   const [memoryReceipt, setMemoryReceipt] = useState<MemoryReceipt | undefined>();
@@ -182,6 +184,12 @@ export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string 
 
   useEffect(() => { void refreshTrainedCheckpoints(); }, [refreshTrainedCheckpoints]);
 
+  useEffect(() => {
+    if (behaviorCheckpointId && trainedCheckpoints.some(checkpoint => checkpoint.id === behaviorCheckpointId)) return;
+    const itCheckpoint = trainedCheckpoints.find(checkpoint => /enterprise[- _]it|it[- _]support|triage/i.test(`${checkpoint.name} ${checkpoint.datasetName}`));
+    setBehaviorCheckpointId(itCheckpoint?.id || null);
+  }, [behaviorCheckpointId, trainedCheckpoints]);
+
   const refreshHistorySessions = useCallback(async () => {
     if (!vaUser) return;
     try {
@@ -198,8 +206,17 @@ export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string 
 
   const loadToolsForPreset = useCallback(async (presetId: string): Promise<Tool[]> => {
     await loadMCPTools(presetId, vaUser?.id);
+    const checkpoint = routingStrategy === 'auto'
+      ? trainedCheckpoints.find(candidate => candidate.id === behaviorCheckpointId)
+      : null;
+    registerAdapterCheckpointTool({
+      enabled: Boolean(checkpoint),
+      jobId: checkpoint?.id,
+      backend: checkpoint?.backend,
+      systemPrompt: checkpoint ? IT_TRIAGE_ADAPTER_PROMPT : null
+    });
     return [...getAllTools()];
-  }, [vaUser?.id]);
+  }, [behaviorCheckpointId, routingStrategy, trainedCheckpoints, vaUser?.id]);
 
   const refreshTools = useCallback(async () => {
     if (!activePresetId || !vaUser) {
@@ -445,6 +462,9 @@ export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string 
             ? { id: fixedCheckpoint.id, name: fixedCheckpoint.name, backend: fixedCheckpoint.backend, dataset_name: fixedCheckpoint.datasetName, artifact_sha256: fixedCheckpoint.artifactSha256 ?? null }
             : null,
           routing_policy_version: 'chat-router-v1',
+          behavior_checkpoint: routingStrategy === 'auto' && behaviorCheckpointId
+            ? trainedCheckpoints.find(checkpoint => checkpoint.id === behaviorCheckpointId) || null
+            : null,
           memory_subject_id: memorySubjectId
         }
       });
@@ -487,7 +507,7 @@ export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string 
       setIsConnecting(false);
       refreshHistorySessions();
     }
-  }, [activePresetId, attachRealtimeHandlers, cleanupRealtime, endSession, fixedModel, loadToolsForPreset, presets, refreshHistorySessions, routingStrategy, vaUser, memorySubjectId, channel, trainedCheckpoints]);
+  }, [activePresetId, attachRealtimeHandlers, behaviorCheckpointId, cleanupRealtime, endSession, fixedModel, loadToolsForPreset, presets, refreshHistorySessions, routingStrategy, vaUser, memorySubjectId, channel, trainedCheckpoints]);
 
   const sendMessage = useCallback(async (text: string) => {
     const trimmed = text.trim();
@@ -679,6 +699,8 @@ export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string 
     fixedModel,
     setFixedModel,
     trainedCheckpoints,
+    behaviorCheckpointId,
+    setBehaviorCheckpointId,
     isCheckpointRegistryLoading,
     checkpointRegistryError,
     refreshTrainedCheckpoints,
