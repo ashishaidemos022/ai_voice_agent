@@ -34,6 +34,7 @@ training_lock = threading.Lock()
 promotion_lock = threading.Lock()
 model_load_lock = threading.Lock()
 registry_lock = threading.Lock()
+DATASET_CATALOG = Path(__file__).parent / "datasets"
 
 
 class Message(BaseModel):
@@ -78,27 +79,36 @@ class PromotionRequest(BaseModel):
     total: int = Field(ge=1, le=20)
 
 
-def public_job(job: dict) -> dict:
-    return {key: value for key, value in job.items() if key not in {"examples", "model"}}
+def public_job(job: dict, include_examples: bool = False) -> dict:
+    return {key: value for key, value in job.items() if key != "model" and (include_examples or key != "examples")}
 
 
 def persist_manifest(job: dict) -> None:
     token = os.environ.get("HF_WRITE_TOKEN")
     if not token:
         raise RuntimeError("HF_WRITE_TOKEN Space secret is required")
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as handle:
-        json.dump(public_job(job), handle, indent=2, sort_keys=True)
-        manifest_path = handle.name
-    try:
-        HfApi(token=token).upload_file(
-            path_or_fileobj=manifest_path,
-            path_in_repo=f"jobs/{job['id']}/training_manifest.json",
-            repo_id=ADAPTER_REGISTRY,
-            repo_type="model",
-            commit_message=f"Update manifest for {job['id']}",
+    with tempfile.TemporaryDirectory(prefix=f"viaana-manifest-{job['id']}-") as directory:
+        Path(directory, "training_manifest.json").write_text(json.dumps(public_job(job), indent=2, sort_keys=True))
+        if job.get("examples"):
+            Path(directory, "training_dataset.jsonl").write_text("\n".join(json.dumps(example, separators=(",", ":")) for example in job["examples"]) + "\n")
+        HfApi(token=token).upload_folder(
+            folder_path=directory, path_in_repo=f"jobs/{job['id']}", repo_id=ADAPTER_REGISTRY,
+            repo_type="model", commit_message=f"Update manifest for {job['id']}",
         )
-    finally:
-        Path(manifest_path).unlink(missing_ok=True)
+
+
+def load_dataset_snapshot(manifest: dict, filename: str, token: str) -> None:
+    candidates: list[Path] = []
+    try:
+        candidates.append(Path(hf_hub_download(ADAPTER_REGISTRY, filename.replace("training_manifest.json", "training_dataset.jsonl"), repo_type="model", token=token)))
+    except Exception:
+        candidates.extend(DATASET_CATALOG.glob("*.jsonl"))
+    for candidate in candidates:
+        examples = [json.loads(line) for line in candidate.read_text().splitlines() if line.strip()]
+        canonical = json.dumps(examples, sort_keys=True, separators=(",", ":")).encode()
+        if hashlib.sha256(canonical).hexdigest() == manifest.get("dataset_sha256"):
+            manifest["examples"] = examples
+            return
 
 
 def delete_job(job_id: str) -> dict:
@@ -195,6 +205,7 @@ def load_registry() -> None:
                 continue
             path = hf_hub_download(ADAPTER_REGISTRY, filename, repo_type="model", token=token)
             manifest = json.loads(Path(path).read_text())
+            load_dataset_snapshot(manifest, filename, token)
             state["jobs"].setdefault(manifest["id"], manifest)
     except Exception as error:
         print(f"Could not load adapter registry: {type(error).__name__}: {error}", flush=True)
@@ -287,7 +298,7 @@ def train_job(job_id: str) -> None:
             model = get_peft_model(model, config)
             model.enable_input_require_grads()
             model.train()
-            encoded = [encode_example(tokenizer, example) for example in job.pop("examples")]
+            encoded = [encode_example(tokenizer, example) for example in job["examples"]]
             optimizer = torch.optim.AdamW((p for p in model.parameters() if p.requires_grad), lr=job["learning_rate"])
             job["trainable_parameters"] = sum(p.numel() for p in model.parameters() if p.requires_grad)
             job["status"] = "training"
@@ -320,6 +331,7 @@ def train_job(job_id: str) -> None:
                 artifact_hash = hashlib.sha256(Path(directory, "adapter_model.safetensors").read_bytes()).hexdigest()
                 job.update({"status": "completed", "completed_at": int(time.time()), "progress": 100, "initial_loss": round(losses[0], 5), "final_loss": round(losses[-1], 5), "artifact_sha256": artifact_hash, "repository": ADAPTER_REGISTRY, "repository_path": f"jobs/{job_id}", "base_repository": REPOSITORIES["base"]})
                 Path(directory, "training_manifest.json").write_text(json.dumps(public_job(job), indent=2, sort_keys=True))
+                Path(directory, "training_dataset.jsonl").write_text("\n".join(json.dumps(example, separators=(",", ":")) for example in job["examples"]) + "\n")
                 write_token = os.environ.get("HF_WRITE_TOKEN")
                 if not write_token:
                     raise RuntimeError("HF_WRITE_TOKEN Space secret is required")
@@ -469,7 +481,7 @@ def get_training_job(job_id: str, x_runtime_key: str | None = Header(default=Non
     job = state["jobs"].get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Training job not found")
-    return {"job": public_job(job)}
+    return {"job": public_job(job, include_examples=True)}
 
 
 @app.delete("/v1/training/jobs/{job_id}")

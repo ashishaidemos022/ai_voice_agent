@@ -9,6 +9,7 @@ COPY requirements.txt .
 RUN pip install --break-system-packages --no-cache-dir -r requirements.txt
 COPY server.py .
 COPY tinker_server.py .
+COPY datasets ./datasets
 
 EXPOSE 7860
 CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "7860"]

@@ -19,10 +19,15 @@ const built = await build({
   } }],
 });
 const { OpenWeightLab } = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString('base64')}`);
+const trainingExamples = Array.from({ length: 6 }, (_, index) => ({ messages: [
+  { role: 'system', content: 'Follow the saved support workflow.' },
+  { role: 'user', content: `Saved training question ${index + 1}` },
+  { role: 'assistant', content: `Saved training answer ${index + 1}` },
+] }));
 const job = {
   id: 'train-tinker-example', backend: 'tinker', name: 'Example adapter', dataset_name: 'test-data',
   status: 'completed', promotion_status: 'promoted', promoted_checkpoint_path: 'tinker://checkpoint',
-  rank: 8, max_steps: 20, example_count: 12,
+  rank: 8, alpha: 16, learning_rate: 0.0001, max_steps: 20, seed: 7, example_count: 6,
 };
 const base = { id: 'base', model: 'test/base', transport: 'openai-compatible', runtimeModel: 'base' };
 const text = (node) => typeof node === 'string' ? node : (node.children || []).map(text).join('');
@@ -51,6 +56,7 @@ test('deletion removes adapter and promotion selections even when an older regis
   const { renderer, click } = await mountLab(t, async (url, options = {}) => {
     if (options.method === 'DELETE') return Response.json({ deleted: true, job_id: job.id });
     if (url === '/api/open-weight-chat') return Response.json({ models: [base] });
+    if (url.startsWith('/api/open-weight-training?jobId=')) return Response.json({ job: { ...job, examples: trainingExamples } });
     assert.equal(url, '/api/open-weight-training');
     reads++;
     // Child's initial load is read #2; hold the parent's refresh (#3).
@@ -78,10 +84,28 @@ test('deletion removes adapter and promotion selections even when an older regis
 test('a failed deletion keeps the registry entry and reports the error', async (t) => {
   const { renderer, click } = await mountLab(t, async (url, options = {}) => {
     if (options.method === 'DELETE') return Response.json({ error: 'Storage unavailable' }, { status: 502 });
+    if (url.startsWith('/api/open-weight-training?jobId=')) return Response.json({ job: { ...job, examples: trainingExamples } });
     return Response.json(url === '/api/open-weight-chat' ? { models: [base] } : { jobs: [job] });
   });
   await click('Train');
   await click(`Delete ${job.name}`);
   assert.equal(renderer.root.findAllByProps({ 'aria-label': `Delete ${job.name}` }).length, 1);
   assert.ok(JSON.stringify(renderer.toJSON()).includes('Storage unavailable'));
+});
+
+test('selecting an adapter restores its saved JSONL dataset and training configuration', async (t) => {
+  const { renderer, click } = await mountLab(t, async (url) => {
+    if (url === '/api/open-weight-chat') return Response.json({ models: [base] });
+    if (url.startsWith('/api/open-weight-training?jobId=')) return Response.json({ job: { ...job, examples: trainingExamples } });
+    return Response.json({ jobs: [job] });
+  });
+  await click('Train');
+  const row = renderer.root.findAllByType('button').find((node) => text(node).includes(job.name) && !node.props['aria-label']);
+  await act(async () => row.props.onClick());
+  const textarea = renderer.root.findByProps({ 'aria-label': 'Training dataset JSONL' });
+  assert.equal(textarea.props.value, trainingExamples.map((example) => JSON.stringify(example)).join('\n'));
+  const inputs = renderer.root.findAllByType('input');
+  assert.equal(inputs.find((node) => node.props.value === job.dataset_name)?.props.value, job.dataset_name);
+  assert.equal(inputs.find((node) => node.props.value === job.name)?.props.value, job.name);
+  assert.equal(inputs.find((node) => node.props.value === job.seed)?.props.value, job.seed);
 });

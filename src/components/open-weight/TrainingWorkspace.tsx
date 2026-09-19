@@ -8,6 +8,7 @@ type Message = { role: 'system' | 'user' | 'assistant'; content: string };
 type Example = { messages: Message[] };
 type Job = {
   id: string; name: string; dataset_name: string; dataset_sha256: string; example_count: number;
+  examples?: Example[];
   backend?: 'local' | 'tinker'; base_model?: string; tinker_run_url?: string; checkpoint_path?: string; sampler_checkpoint_path?: string; artifact_hash_kind?: string;
   rank: number; alpha: number; learning_rate: number; max_steps: number; seed: number;
   status: string; progress: number; step: number; loss?: number; initial_loss?: number; final_loss?: number;
@@ -74,6 +75,7 @@ export function TrainingWorkspace({ accessToken, localBaseModelId, tinkerBaseMod
   const [jobs, setJobs] = useState<Job[]>([]);
   const [activeJob, setActiveJob] = useState<Job | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loadingJobId, setLoadingJobId] = useState('');
   const [deletingJobId, setDeletingJobId] = useState('');
   const [error, setError] = useState('');
   const [hash, setHash] = useState('');
@@ -120,6 +122,27 @@ export function TrainingWorkspace({ accessToken, localBaseModelId, tinkerBaseMod
       setActiveJob(body.job); setJobs((current) => [body.job, ...current]);
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to launch training'); }
     setBusy(false);
+  };
+
+  const selectJob = async (job: Job) => {
+    setActiveJob(job); setLoadingJobId(job.id); setError(''); setComparison({});
+    try {
+      const body = await readJson(await fetch(`/api/open-weight-training?jobId=${encodeURIComponent(job.id)}`, { headers }));
+      const selected = body.job as Job;
+      if (!Array.isArray(selected.examples) || !selected.examples.length) throw new Error('This older job does not have a saved dataset snapshot');
+      setActiveJob(selected);
+      setJobs((current) => current.map((item) => item.id === selected.id ? { ...item, ...selected } : item));
+      setBackend(selected.backend === 'tinker' ? 'tinker' : 'local');
+      setDatasetName(selected.dataset_name);
+      setJobName(selected.name);
+      setJsonl(selected.examples.map((example) => JSON.stringify(example)).join('\n'));
+      setRank(selected.rank);
+      setAlpha(selected.alpha);
+      setLearningRate(selected.learning_rate);
+      setMaxSteps(selected.max_steps);
+      setSeed(selected.seed);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to load the training dataset'); }
+    setLoadingJobId('');
   };
 
   const compare = async () => {
@@ -173,7 +196,7 @@ export function TrainingWorkspace({ accessToken, localBaseModelId, tinkerBaseMod
     </div>
     {activeJob?.status === 'completed' && <Card className="space-y-4 border-emerald-300/15 bg-emerald-400/[0.03] p-5"><div className="flex items-center gap-2"><Cpu className="h-4 w-4 text-emerald-200" /><h3 className="font-semibold text-white">Held-out base vs trained adapter</h3></div><div className="flex flex-col gap-3 sm:flex-row"><input value={testPrompt} onChange={(event) => setTestPrompt(event.target.value)} className="min-w-0 flex-1 rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white" /><Button onClick={compare} disabled={busy || !activeBaseModelId}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Compare</Button></div>{(comparison.base !== undefined || comparison.trained !== undefined) && <div className="grid gap-3 md:grid-cols-2"><div className="rounded-xl border border-white/10 bg-slate-950/70 p-4"><p className="text-[10px] uppercase tracking-wider text-white/35">Frozen base</p><pre className="mt-3 whitespace-pre-wrap text-xs text-white/65">{comparison.base}</pre></div><div className="rounded-xl border border-emerald-300/20 bg-emerald-400/[0.04] p-4"><p className="text-[10px] uppercase tracking-wider text-emerald-200/60">New adapter</p><pre className="mt-3 whitespace-pre-wrap text-xs text-white/80">{comparison.trained}</pre></div></div>}</Card>}
     {activeJob?.status === 'completed' && <AdapterEvaluation accessToken={accessToken} baseModelId={activeJob.backend === 'tinker' ? tinkerBaseModelId : localBaseModelId} job={activeJob} onJobUpdated={(job) => { setActiveJob((current) => current ? { ...current, ...job } : current); setJobs((current) => current.map((item) => item.id === job.id ? { ...item, ...job } : item)); }} />}
-    {!!jobs.length && <Card className="overflow-hidden border-white/10 bg-white/[0.03]"><div className="flex items-center gap-2 border-b border-white/10 p-4"><FileJson className="h-4 w-4 text-white/45" /><div><h3 className="text-sm font-semibold text-white">Adapter registry</h3><p className="mt-1 text-[11px] text-white/35">Deleting a job permanently removes its adapter, fused or promoted checkpoint, evidence, and registry record.</p></div></div><div className="divide-y divide-white/5">{jobs.map((job) => <div key={job.id} className="flex items-center gap-2 pr-3 hover:bg-white/[0.03]"><button onClick={() => setActiveJob(job)} className="flex min-w-0 flex-1 items-center gap-4 p-4 text-left"><span className={`h-2 w-2 shrink-0 rounded-full ${job.status === 'completed' ? 'bg-emerald-400' : job.status === 'failed' ? 'bg-rose-400' : 'bg-amber-300'}`} /><div className="min-w-0 flex-1"><p className="truncate text-sm text-white/70">{job.name}</p><p className="mt-1 truncate text-[11px] text-white/35">{job.backend === 'tinker' ? 'Inkling-Small · Tinker' : 'Qwen3 0.6B · private T4'} · {job.dataset_name} · {job.example_count} examples · rank {job.rank} · {job.max_steps} steps{job.fused_sha256 || job.promoted_checkpoint_path ? ' · promoted' : ''}</p></div><span className="text-xs capitalize text-white/40">{job.status}</span></button><button type="button" onClick={() => deleteJob(job)} disabled={deletingJobId === job.id || ['queued', 'loading', 'training', 'saving'].includes(job.status)} className="rounded-lg border border-rose-300/15 p-2 text-rose-200/55 transition hover:border-rose-300/30 hover:bg-rose-400/10 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-25" aria-label={`Delete ${job.name}`} title="Delete adapter and all related artifacts">{deletingJobId === job.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}</button></div>)}</div></Card>}
+    {!!jobs.length && <Card className="overflow-hidden border-white/10 bg-white/[0.03]"><div className="flex items-center gap-2 border-b border-white/10 p-4"><FileJson className="h-4 w-4 text-white/45" /><div><h3 className="text-sm font-semibold text-white">Adapter registry</h3><p className="mt-1 text-[11px] text-white/35">Select a job to restore its exact dataset and training configuration. Deleting it permanently removes all artifacts and evidence.</p></div></div><div className="divide-y divide-white/5">{jobs.map((job) => <div key={job.id} className="flex items-center gap-2 pr-3 hover:bg-white/[0.03]"><button onClick={() => selectJob(job)} disabled={loadingJobId === job.id} className="flex min-w-0 flex-1 items-center gap-4 p-4 text-left disabled:opacity-60"><span className={`h-2 w-2 shrink-0 rounded-full ${job.status === 'completed' ? 'bg-emerald-400' : job.status === 'failed' ? 'bg-rose-400' : 'bg-amber-300'}`} /><div className="min-w-0 flex-1"><p className="truncate text-sm text-white/70">{job.name}</p><p className="mt-1 truncate text-[11px] text-white/35">{job.backend === 'tinker' ? 'Inkling-Small · Tinker' : 'Qwen3 0.6B · private T4'} · {job.dataset_name} · {job.example_count} examples · rank {job.rank} · {job.max_steps} steps{job.fused_sha256 || job.promoted_checkpoint_path ? ' · promoted' : ''}</p></div>{loadingJobId === job.id ? <Loader2 className="h-4 w-4 animate-spin text-amber-200" /> : <span className="text-xs capitalize text-white/40">{job.status}</span>}</button><button type="button" onClick={() => deleteJob(job)} disabled={deletingJobId === job.id || ['queued', 'loading', 'training', 'saving'].includes(job.status)} className="rounded-lg border border-rose-300/15 p-2 text-rose-200/55 transition hover:border-rose-300/30 hover:bg-rose-400/10 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-25" aria-label={`Delete ${job.name}`} title="Delete adapter and all related artifacts">{deletingJobId === job.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}</button></div>)}</div></Card>}
     {error && <p className="rounded-lg border border-rose-300/15 bg-rose-400/[0.05] p-3 text-sm text-rose-200">{error}</p>}
   </div>;
 }
