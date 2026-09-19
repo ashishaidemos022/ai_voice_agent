@@ -79,8 +79,10 @@ export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string 
   const [fixedModel, setFixedModel] = useState<ChatFixedModel>(OPENAI_MODELS.chat.frontier);
   const [trainedCheckpoints, setTrainedCheckpoints] = useState<VoiceAdapterCheckpoint[]>([]);
   const [isCheckpointRegistryLoading, setIsCheckpointRegistryLoading] = useState(false);
+  const [hasLoadedCheckpointRegistry, setHasLoadedCheckpointRegistry] = useState(false);
   const [checkpointRegistryError, setCheckpointRegistryError] = useState<string | null>(null);
   const [behaviorCheckpointId, setBehaviorCheckpointId] = useState<string | null>(null);
+  const behaviorCheckpointChoiceMadeRef = useRef(false);
   const [currentRoute, setCurrentRoute] = useState<ChatRouteDecision | null>(null);
   const [memorySubjectId, setMemorySubjectId] = useState<string | null>(null);
   const [memoryReceipt, setMemoryReceipt] = useState<MemoryReceipt | undefined>();
@@ -146,6 +148,7 @@ export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string 
   const refreshTrainedCheckpoints = useCallback(async () => {
     if (!vaUser) {
       setTrainedCheckpoints([]);
+      setHasLoadedCheckpointRegistry(false);
       return;
     }
     setIsCheckpointRegistryLoading(true);
@@ -179,16 +182,31 @@ export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string 
       setCheckpointRegistryError(err instanceof Error ? err.message : 'Unable to load trained checkpoints');
     } finally {
       setIsCheckpointRegistryLoading(false);
+      setHasLoadedCheckpointRegistry(true);
     }
   }, [vaUser]);
 
   useEffect(() => { void refreshTrainedCheckpoints(); }, [refreshTrainedCheckpoints]);
 
   useEffect(() => {
+    if (!hasLoadedCheckpointRegistry) return;
     if (behaviorCheckpointId && trainedCheckpoints.some(checkpoint => checkpoint.id === behaviorCheckpointId)) return;
+    if (behaviorCheckpointId) {
+      setBehaviorCheckpointId(null);
+      return;
+    }
+    if (behaviorCheckpointChoiceMadeRef.current) return;
     const itCheckpoint = trainedCheckpoints.find(checkpoint => /enterprise[- _]it|it[- _]support|triage/i.test(`${checkpoint.name} ${checkpoint.datasetName}`));
-    setBehaviorCheckpointId(itCheckpoint?.id || null);
-  }, [behaviorCheckpointId, trainedCheckpoints]);
+    if (itCheckpoint) {
+      behaviorCheckpointChoiceMadeRef.current = true;
+      setBehaviorCheckpointId(itCheckpoint.id);
+    }
+  }, [behaviorCheckpointId, hasLoadedCheckpointRegistry, trainedCheckpoints]);
+
+  const selectBehaviorCheckpoint = useCallback((checkpointId: string | null) => {
+    behaviorCheckpointChoiceMadeRef.current = true;
+    setBehaviorCheckpointId(checkpointId);
+  }, []);
 
   const refreshHistorySessions = useCallback(async () => {
     if (!vaUser) return;
@@ -700,7 +718,7 @@ export function useChatAgent(channel?: 'routed_voice', initialPresetId?: string 
     setFixedModel,
     trainedCheckpoints,
     behaviorCheckpointId,
-    setBehaviorCheckpointId,
+    setBehaviorCheckpointId: selectBehaviorCheckpoint,
     isCheckpointRegistryLoading,
     checkpointRegistryError,
     refreshTrainedCheckpoints,
