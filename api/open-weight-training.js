@@ -1,3 +1,4 @@
+import { recoverDatasetSnapshot } from './open-weight-dataset-snapshots.js';
 import { authenticate, getAllowedModels } from './open-weight-chat.js';
 
 export const config = { maxDuration: 300 };
@@ -168,5 +169,6 @@ export default async function handler(req, res) {
   catch (error) { console.error('[open-weight-training] runtime failed', error instanceof Error ? error.name : error); return json(res, 502, { error: 'Training runtime request failed' }); }
   const payload = await upstream.json().catch(() => ({}));
   if (!upstream.ok) return json(res, upstream.status === 409 ? 409 : upstream.status === 404 ? 404 : 502, { error: payload.detail || `Training runtime returned HTTP ${upstream.status}` });
+  if (req.method === 'GET' && jobId && payload.job) payload.job = recoverDatasetSnapshot(payload.job);
   return json(res, upstream.status, payload);
 }

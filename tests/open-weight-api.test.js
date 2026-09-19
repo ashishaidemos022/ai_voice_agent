@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fetchWithRuntimeWarmup, getAllowedModels, getGatewayToken, getUpstreamRequest, parseBearer, validateLabRequest } from '../api/open-weight-chat.js';
 import { runtimeConfig, runtimeFetch, validateCompletionRequest, validateEvaluationEvidence, validatePromotionRequest, validateTrainingJobId, validateTrainingRequest } from '../api/open-weight-training.js';
+import { recoverDatasetSnapshot } from '../api/open-weight-dataset-snapshots.js';
 
 test('API requires a strict bearer token shape', () => {
   assert.equal(parseBearer('Bearer header.payload.signature'), 'header.payload.signature');
@@ -170,4 +171,11 @@ test('training job identifiers accept local and Tinker jobs but reject path inje
   assert.equal(validateTrainingJobId('train-tinker-20260915-192757-ef9cd856'), 'train-tinker-20260915-192757-ef9cd856');
   assert.equal(validateTrainingJobId('train-good/../../secrets'), null);
   assert.equal(validateTrainingJobId(['train-safe']), null);
+});
+
+test('older adapter jobs recover their immutable dataset by SHA-256', () => {
+  const job = recoverDatasetSnapshot({ dataset_sha256: '14c99b27f2c18e4203bbf481cfe61f12ee85ad256c6c1bd18f94f6eb478ddc82' });
+  assert.equal(job.examples.length, 12);
+  assert.match(job.examples[0].messages[0].content, /IT Triage/i);
+  assert.equal(recoverDatasetSnapshot({ dataset_sha256: 'unknown' }).examples, undefined);
 });
