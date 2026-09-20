@@ -1,4 +1,5 @@
-import { CalendarCheck2, Database, ShieldCheck, Sparkles, Stethoscope } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { BrainCircuit, CalendarCheck2, Database, ShieldCheck, Sparkles, Stethoscope, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { MarkdownContent } from '../ui/MarkdownContent';
 
@@ -232,6 +233,97 @@ function HealthcareDecisionResult({ value }: { value: Record<string, any> }) {
   );
 }
 
+function HealthcareDecisionPopup({
+  value,
+  queuedCount,
+  onClose
+}: {
+  value: Record<string, any>;
+  queuedCount: number;
+  onClose: () => void;
+}) {
+  const decision = value.decision || {};
+  const intent = decision.intent || {};
+  const nextStep = decision.next_step || {};
+  const review = decision.needs_human_review || {};
+  const applied = String(nextStep.applied || nextStep.choice || value.action?.next_step || 'review');
+  const reason = String(decision.policy_reason || 'Jev evaluation complete');
+  const verified = value.verification?.verified === true;
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-start justify-center bg-slate-950/45 px-4 pt-[8vh] backdrop-blur-[2px] pointer-events-auto">
+      <div
+        role="status"
+        aria-live="assertive"
+        className="w-full max-w-xl overflow-hidden rounded-[28px] border border-cyan-300/35 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.16),transparent_38%),linear-gradient(145deg,rgba(8,20,35,0.98),rgba(15,23,42,0.98))] shadow-[0_30px_100px_rgba(6,182,212,0.24)]"
+      >
+        <div className="h-1 w-full bg-gradient-to-r from-cyan-300 via-violet-400 to-fuchsia-400" />
+        <div className="p-6 sm:p-7">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-200/30 bg-cyan-300/10 shadow-[0_0_30px_rgba(34,211,238,0.2)]">
+                <BrainCircuit className="h-6 w-6 text-cyan-200" />
+              </div>
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-cyan-200/70">Jev decision</p>
+                <h2 className="mt-1 text-xl font-semibold text-white">Patient-access policy evaluated</h2>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-full border border-white/10 bg-white/5 p-2 text-white/55 transition hover:bg-white/10 hover:text-white"
+              aria-label="Dismiss Jev decision"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border border-cyan-300/25 bg-cyan-300/[0.07] p-4">
+              <p className="text-[10px] uppercase tracking-[0.22em] text-cyan-100/55">Detected intent</p>
+              <p className="mt-2 text-lg font-semibold text-white">{toLabel(String(intent.choice || 'review'))}</p>
+              <p className="mt-1 text-xs text-white/50">Confidence {confidenceLabel(intent.confidence)}</p>
+            </div>
+            <div className="rounded-2xl border border-violet-300/25 bg-violet-300/[0.07] p-4">
+              <p className="text-[10px] uppercase tracking-[0.22em] text-violet-100/55">Applied action</p>
+              <p className="mt-2 text-lg font-semibold text-white">{toLabel(applied)}</p>
+              <p className="mt-1 text-xs text-white/50">Human review {Math.round(Number(review.noul || 0) * 100)}%</p>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-xs">
+            <span className={cn(
+              'rounded-full border px-2.5 py-1 font-medium',
+              verified
+                ? 'border-emerald-300/30 bg-emerald-300/10 text-emerald-100'
+                : 'border-amber-300/30 bg-amber-300/10 text-amber-100'
+            )}>
+              {verified ? 'Identity verified' : 'Verification required'}
+            </span>
+            <span className="text-white/45">Policy reason</span>
+            <span className="font-medium text-white/80">{toLabel(reason)}</span>
+          </div>
+
+          <div className="mt-5 flex items-center justify-between gap-4 border-t border-white/10 pt-4">
+            <p className="text-xs text-white/40">This decision is also saved in Tool executions.</p>
+            <div className="flex items-center gap-3">
+              {queuedCount > 0 && <span className="text-xs text-cyan-100/60">{queuedCount} more queued</span>}
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-xl bg-white px-4 py-2 text-xs font-semibold text-slate-950 transition hover:bg-cyan-100"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ToolExecutionFeed({
   events,
   toolSummary,
@@ -239,13 +331,60 @@ export function ToolExecutionFeed({
   emptyCopy = 'No tools called yet.',
   headerCopy = 'Every MCP + workflow call this session'
 }: ToolExecutionFeedProps) {
+  const initiallySeenIds = useRef(new Set(
+    events
+      .filter((event) => event.toolName === 'healthcare_patient_access' && event.status === 'succeeded' && event.response?.decision)
+      .map((event) => event.id)
+  ));
+  const [decisionQueue, setDecisionQueue] = useState<Array<{ id: string; value: Record<string, any> }>>([]);
+  const [activeDecision, setActiveDecision] = useState<{ id: string; value: Record<string, any> } | null>(null);
+
+  useEffect(() => {
+    const unseen = events.filter((event) => {
+      const isDecision = event.toolName === 'healthcare_patient_access'
+        && event.status === 'succeeded'
+        && event.response
+        && typeof event.response === 'object'
+        && event.response.decision;
+      if (!isDecision || initiallySeenIds.current.has(event.id)) return false;
+      initiallySeenIds.current.add(event.id);
+      return true;
+    });
+    if (unseen.length) {
+      setDecisionQueue((current) => [
+        ...current,
+        ...unseen.map((event) => ({ id: event.id, value: event.response as Record<string, any> }))
+      ]);
+    }
+  }, [events]);
+
+  useEffect(() => {
+    if (activeDecision || decisionQueue.length === 0) return;
+    setActiveDecision(decisionQueue[0]);
+    setDecisionQueue((current) => current.slice(1));
+  }, [activeDecision, decisionQueue]);
+
+  useEffect(() => {
+    if (!activeDecision) return;
+    const timer = window.setTimeout(() => setActiveDecision(null), 7000);
+    return () => window.clearTimeout(timer);
+  }, [activeDecision]);
+
   return (
-    <div
-      className={cn(
-        'rounded-xl border border-white/10 bg-slate-900/60 p-5 text-slate-100 shadow-[0_10px_30px_rgba(3,6,15,0.45)] flex flex-col gap-4',
-        className
+    <>
+      {activeDecision && (
+        <HealthcareDecisionPopup
+          value={activeDecision.value}
+          queuedCount={decisionQueue.length}
+          onClose={() => setActiveDecision(null)}
+        />
       )}
-    >
+      <div
+        className={cn(
+          'rounded-xl border border-white/10 bg-slate-900/60 p-5 text-slate-100 shadow-[0_10px_30px_rgba(3,6,15,0.45)] flex flex-col gap-4',
+          className
+        )}
+      >
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-400 to-pink-500 flex items-center justify-center">
           <Sparkles className="w-5 h-5 text-slate-950" />
@@ -336,6 +475,7 @@ export function ToolExecutionFeed({
           </>
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 }
