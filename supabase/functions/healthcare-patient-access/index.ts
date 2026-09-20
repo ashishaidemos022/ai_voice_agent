@@ -212,7 +212,14 @@ Deno.serve(async (req: Request) => {
       confirmed
     };
     const jev = await evaluateWithJev(context);
-    const policy = safeHealthcareAction({ ...context, jev });
+    const policy = safeHealthcareAction({
+      ...context,
+      jev,
+      referralSpecialty: typeof access.referral?.target_specialty === 'string'
+        ? access.referral.target_specialty
+        : undefined,
+      availableModalities: ['in_person']
+    });
     const appointment = policy.mayBook && selectedSlotId
       ? await confirmDemoAppointment({
           patient: access.patient,

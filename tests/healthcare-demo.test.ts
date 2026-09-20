@@ -83,3 +83,31 @@ test('clinical, uncertain, and emergency requests route to staff', () => {
     availableSlotCount: 3, selectedSlotProvided: true, confirmed: true
   }).reason, 'emergency_language');
 });
+
+test('a specialty or modality mismatch never offers the seeded cardiology slots', () => {
+  const base = {
+    hasOpenReferral: true,
+    availableSlotCount: 3,
+    selectedSlotProvided: false,
+    confirmed: false,
+    referralSpecialty: 'Cardiology consult',
+    availableModalities: ['in_person'],
+    jev: jev()
+  };
+
+  assert.deepEqual(
+    safeHealthcareAction({
+      ...base,
+      utterance: 'My doctor referred me to dermatology and I need an afternoon appointment.'
+    }),
+    { nextStep: 'route_to_staff', reason: 'referral_specialty_mismatch', mayBook: false }
+  );
+
+  assert.deepEqual(
+    safeHealthcareAction({
+      ...base,
+      utterance: 'Can the cardiology appointment be a video visit?'
+    }),
+    { nextStep: 'route_to_staff', reason: 'unsupported_modality', mayBook: false }
+  );
+});

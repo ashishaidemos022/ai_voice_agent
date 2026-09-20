@@ -114,9 +114,27 @@ const EMERGENCY_PHRASES = [
   'severe bleeding'
 ];
 
+const SPECIALTY_TERMS = [
+  'cardiology',
+  'dermatology',
+  'neurology',
+  'orthopedics',
+  'oncology',
+  'gastroenterology',
+  'endocrinology',
+  'pulmonology',
+  'rheumatology',
+  'urology'
+];
+
 export function hasEmergencyLanguage(value: string): boolean {
   const normalized = value.toLowerCase();
   return EMERGENCY_PHRASES.some((phrase) => normalized.includes(phrase));
+}
+
+function requestedSpecialty(value: string): string | null {
+  const normalized = value.toLowerCase();
+  return SPECIALTY_TERMS.find((specialty) => normalized.includes(specialty)) || null;
 }
 
 export function safeHealthcareAction(params: {
@@ -126,6 +144,8 @@ export function safeHealthcareAction(params: {
   availableSlotCount: number;
   selectedSlotProvided: boolean;
   confirmed: boolean;
+  referralSpecialty?: string;
+  availableModalities?: string[];
 }) {
   const intent = params.jev.answers.intent;
   const nextStep = params.jev.answers.next_step;
@@ -137,12 +157,24 @@ export function safeHealthcareAction(params: {
   const clinical = intentValue === 'clinical_question';
   const humanRequested = intentValue === 'human_help';
   const modelRequestsReview = Number(humanReview?.noul || 0) >= 0.5;
+  const specialty = requestedSpecialty(params.utterance);
+  const referralSpecialty = (params.referralSpecialty || '').toLowerCase();
+  const specialtyMismatch = Boolean(specialty && referralSpecialty && !referralSpecialty.includes(specialty));
+  const requestsVideo = /\b(video|virtual|telehealth|telemedicine)\b/i.test(params.utterance);
+  const availableModalities = params.availableModalities || ['in_person'];
+  const unsupportedModality = requestsVideo && !availableModalities.includes('video');
 
   if (emergency) {
     return { nextStep: 'route_to_staff' as const, reason: 'emergency_language', mayBook: false };
   }
   if (clinical || humanRequested || modelRequestsReview || confidence < 0.55) {
     return { nextStep: 'route_to_staff' as const, reason: clinical ? 'clinical_request' : humanRequested ? 'human_requested' : confidence < 0.55 ? 'low_confidence' : 'human_review', mayBook: false };
+  }
+  if (specialtyMismatch) {
+    return { nextStep: 'route_to_staff' as const, reason: 'referral_specialty_mismatch', mayBook: false };
+  }
+  if (unsupportedModality) {
+    return { nextStep: 'route_to_staff' as const, reason: 'unsupported_modality', mayBook: false };
   }
   if (params.selectedSlotProvided && params.confirmed && params.hasOpenReferral) {
     return { nextStep: 'confirm_selected_slot' as const, reason: 'explicit_confirmation', mayBook: true };
