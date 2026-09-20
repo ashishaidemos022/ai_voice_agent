@@ -1,4 +1,4 @@
-import { Sparkles } from 'lucide-react';
+import { CalendarCheck2, Database, ShieldCheck, Sparkles, Stethoscope } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { MarkdownContent } from '../ui/MarkdownContent';
 
@@ -154,6 +154,82 @@ function ResultBody({ result }: { result: FormattedToolResult }) {
   );
 }
 
+function confidenceLabel(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? `${Math.round(parsed * 100)}%` : '—';
+}
+
+function HealthcareDecisionResult({ value }: { value: Record<string, any> }) {
+  const decision = value.decision || {};
+  const intent = decision.intent || {};
+  const nextStep = decision.next_step || {};
+  const review = decision.needs_human_review || {};
+  const slots = Array.isArray(value.ehr?.eligible_slots) ? value.ehr.eligible_slots : [];
+  const appointment = value.appointment;
+  const formatSlot = (slot: any) => {
+    const date = new Date(slot.starts_at);
+    return Number.isNaN(date.getTime())
+      ? String(slot.starts_at || 'Unknown time')
+      : new Intl.DateTimeFormat(undefined, {
+          weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+        }).format(date);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-xl border border-cyan-300/20 bg-cyan-400/[0.06] p-3">
+          <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-cyan-100/55">
+            <Stethoscope className="h-3.5 w-3.5" /> Jev intent
+          </div>
+          <p className="mt-2 text-sm font-semibold text-white">{String(intent.choice || 'Review')}</p>
+          <p className="mt-1 text-[11px] text-white/50">Confidence {confidenceLabel(intent.confidence)}</p>
+        </div>
+        <div className="rounded-xl border border-violet-300/20 bg-violet-400/[0.06] p-3">
+          <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-violet-100/55">
+            <ShieldCheck className="h-3.5 w-3.5" /> Applied action
+          </div>
+          <p className="mt-2 text-sm font-semibold text-white">{String(nextStep.applied || nextStep.choice || value.action?.next_step || 'Review')}</p>
+          <p className="mt-1 text-[11px] text-white/50">Human review {Math.round(Number(review.noul || 0) * 100)}%</p>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+        <div className="flex items-center gap-2 text-xs font-medium text-white/75">
+          <Database className="h-4 w-4 text-emerald-300" /> Ashish_EHR evidence
+        </div>
+        <p className="mt-2 text-xs text-white/60">
+          {value.ehr?.referral
+            ? `Open ${value.ehr.referral.target_specialty || 'specialty'} referral · ${value.ehr.referral.urgency || 'routine'}`
+            : 'No eligible open referral found'}
+        </p>
+        {slots.length > 0 && (
+          <div className="mt-3 space-y-1.5">
+            {slots.slice(0, 3).map((slot: any) => (
+              <div key={slot.slot_id} className="flex items-center justify-between gap-3 rounded-lg bg-white/[0.04] px-2.5 py-2 text-xs">
+                <span className="text-white/75">{formatSlot(slot)}</span>
+                <span className="text-white/40">{slot.provider?.first_name} {slot.provider?.last_name}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {appointment && (
+        <div className="rounded-xl border border-emerald-300/30 bg-emerald-400/10 p-3">
+          <div className="flex items-center gap-2 text-xs font-semibold text-emerald-100">
+            <CalendarCheck2 className="h-4 w-4" /> Synthetic appointment scheduled
+          </div>
+          <p className="mt-2 text-sm text-white">{formatSlot(appointment)}</p>
+          <p className="mt-1 text-xs text-emerald-100/65">Confirmation {appointment.confirmation_number}</p>
+        </div>
+      )}
+
+      <p className="text-[10px] leading-4 text-white/35">Synthetic showcase data · administrative scheduling only · not for clinical use</p>
+    </div>
+  );
+}
+
 export function ToolExecutionFeed({
   events,
   toolSummary,
@@ -183,6 +259,9 @@ export function ToolExecutionFeed({
           <p className="text-sm text-white/50">{emptyCopy}</p>
         ) : events.map((event) => {
           const result = formatToolResult(event.response);
+          const healthcareResult = event.toolName === 'healthcare_patient_access' && event.response && typeof event.response === 'object'
+            ? event.response
+            : null;
 
           return (
             <div
@@ -205,7 +284,11 @@ export function ToolExecutionFeed({
                 <p className="mt-2 whitespace-pre-wrap break-words text-xs text-rose-200">{event.error}</p>
               )}
 
-              {result && (
+              {healthcareResult ? (
+                <div className="mt-3 max-h-96 overflow-y-auto">
+                  <HealthcareDecisionResult value={healthcareResult} />
+                </div>
+              ) : result && (
                 <div className="mt-3 max-h-64 overflow-y-auto">
                   <ResultBody result={result} />
                 </div>

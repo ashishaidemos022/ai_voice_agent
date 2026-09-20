@@ -2,6 +2,11 @@ import { liveVoiceSession } from '../../../shared/live-voice.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
 import { gptLiveSession } from '../../../shared/gpt-live.ts';
 import { isGPTLiveModel, OPENAI_MODELS, normalizeRealtimeModel } from '../../../shared/openai-models.ts';
+import {
+  HEALTHCARE_TOOL_DESCRIPTION,
+  HEALTHCARE_TOOL_NAME,
+  HEALTHCARE_TOOL_PARAMETERS
+} from '../../../shared/healthcare-demo.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -67,6 +72,15 @@ function webSearchTool(): LiveFunctionTool {
   };
 }
 
+function healthcarePatientAccessTool(): LiveFunctionTool {
+  return {
+    type: 'function',
+    name: HEALTHCARE_TOOL_NAME,
+    description: HEALTHCARE_TOOL_DESCRIPTION,
+    parameters: HEALTHCARE_TOOL_PARAMETERS as unknown as Record<string, unknown>
+  };
+}
+
 async function loadLiveFunctionTools(configId: string, userId: string): Promise<LiveFunctionTool[]> {
   const { data: selectionRows, error: selectionError } = await adminClient
     .from('va_agent_config_tools')
@@ -115,6 +129,11 @@ async function loadLiveFunctionTools(configId: string, userId: string): Promise<
     if (selection.tool_source === 'client' && selection.tool_name === 'web_search') {
       if (!seen.has('web_search')) tools.push(webSearchTool());
       seen.add('web_search');
+      continue;
+    }
+    if (selection.tool_source === 'client' && selection.tool_name === HEALTHCARE_TOOL_NAME) {
+      if (!seen.has(HEALTHCARE_TOOL_NAME)) tools.push(healthcarePatientAccessTool());
+      seen.add(HEALTHCARE_TOOL_NAME);
       continue;
     }
     if (selection.tool_source === 'mcp') {

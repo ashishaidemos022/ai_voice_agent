@@ -8,6 +8,11 @@ import { runRagAugmentation } from './rag-service';
 import type { RagMode } from '../types/rag';
 import { DEFAULT_ADAPTER_SYSTEM_PROMPT } from '../../shared/adapter-system-prompt';
 import { estimateInklingSmallCostUsd } from './model-route-metrics';
+import {
+  HEALTHCARE_TOOL_DESCRIPTION,
+  HEALTHCARE_TOOL_NAME,
+  HEALTHCARE_TOOL_PARAMETERS
+} from '../../shared/healthcare-demo';
 
 export interface Tool {
   name: string;
@@ -192,6 +197,31 @@ function enterpriseITSupportTools(selection: ToolSelectionState | null): Tool[] 
     });
   }
   return tools;
+}
+
+function healthcarePatientAccessTools(selection: ToolSelectionState | null): Tool[] {
+  const selected = new Set(selection?.clientToolNames || []);
+  if (!selected.has(HEALTHCARE_TOOL_NAME)) return [];
+  return [{
+    name: HEALTHCARE_TOOL_NAME,
+    description: HEALTHCARE_TOOL_DESCRIPTION,
+    parameters: HEALTHCARE_TOOL_PARAMETERS as unknown as JSONSchema,
+    executionType: 'client',
+    source: 'client',
+    metadata: {
+      source: 'Ashish_EHR epic_* tables + TypeSafe Jev',
+      synthetic: true,
+      clinical_use: false
+    },
+    execute: async (params: any) => {
+      const { data, error } = await supabase.functions.invoke('healthcare-patient-access', {
+        body: params
+      });
+      if (error) throw new Error(error.message || 'Healthcare patient-access workflow failed');
+      if (data?.error) throw new Error(data.error);
+      return data;
+    }
+  }];
 }
 
 export interface ToolExecutionContext {
@@ -474,6 +504,7 @@ export async function loadMCPTools(configId?: string, userId?: string): Promise<
       registeredTools = [...registeredTools, ...n8nTools];
       applyWebhookSelection(selectionState, n8nTools);
       registeredTools = [...registeredTools, ...enterpriseITSupportTools(selectionState)];
+      registeredTools = [...registeredTools, ...healthcarePatientAccessTools(selectionState)];
     } else {
       selectedWebhookToolNames = null;
     }
