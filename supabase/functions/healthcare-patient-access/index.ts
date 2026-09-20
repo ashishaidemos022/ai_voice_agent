@@ -289,13 +289,19 @@ Deno.serve(async (req: Request) => {
 
     const access = await loadPatientAccess();
     const verified = verifyPatient(access.patient, body.date_of_birth, body.postal_code);
+    const selectedAppointment = access.appointments.find((row) => row.id === appointmentId);
+    const eligibleSlots = action === 'reschedule_appointment'
+      ? selectedAppointment
+        ? access.slots.filter((slot) => Array.isArray(slot.visit_types_allowed) && slot.visit_types_allowed.includes(selectedAppointment.visit_type_code))
+        : []
+      : access.slots;
     const context = {
       action,
       verified,
       utterance,
       hasUpcomingAppointment: access.appointments.length > 0,
       hasOpenReferral: access.referrals.length > 0,
-      availableSlotCount: access.slots.length,
+      availableSlotCount: eligibleSlots.length,
       appointmentSelected: Boolean(appointmentId),
       selectedSlotProvided: Boolean(selectedSlotId),
       confirmed
@@ -314,7 +320,7 @@ Deno.serve(async (req: Request) => {
           patient: access.patient,
           referrals: access.referrals,
           appointments: access.appointments,
-          slots: access.slots,
+          slots: eligibleSlots,
           appointmentId,
           selectedSlotId
         })
@@ -349,7 +355,7 @@ Deno.serve(async (req: Request) => {
       ehr: {
         appointments: access.appointments.map(publicAppointment),
         referrals: access.referrals,
-        eligible_slots: access.slots.map(publicSlot)
+        eligible_slots: eligibleSlots.map(publicSlot)
       },
       change,
       action: change ? { status: 'completed', next_step: 'share_confirmation' } : { status: 'ready', next_step: policy.nextStep },

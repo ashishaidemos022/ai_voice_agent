@@ -211,11 +211,14 @@ export function safeHealthcareAction(params: {
       : { nextStep: 'ask_for_clarification' as const, reason: 'cancellation_confirmation_required', mayMutate: false };
   }
   if (params.action === 'reschedule_appointment') {
+    if (!params.appointmentSelected) {
+      return { nextStep: 'ask_for_clarification' as const, reason: 'appointment_selection_required', mayMutate: false };
+    }
     return params.appointmentSelected && params.selectedSlotProvided && params.confirmed
       ? { nextStep: 'confirm_reschedule' as const, reason: 'explicit_confirmation', mayMutate: true }
       : params.availableSlotCount > 0
         ? { nextStep: 'offer_appointments' as const, reason: 'replacement_options_found', mayMutate: false }
-        : { nextStep: 'route_to_staff' as const, reason: 'no_eligible_slots', mayMutate: false };
+        : { nextStep: 'route_to_staff' as const, reason: 'no_matching_reschedule_slots', mayMutate: false };
   }
   if (params.action === 'book_appointment') {
     if (!params.hasOpenReferral) return { nextStep: 'route_to_staff' as const, reason: 'no_open_referral', mayMutate: false };

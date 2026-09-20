@@ -60,6 +60,9 @@ test('booking, rescheduling, and cancellation require exact explicit confirmatio
     ...base, action: 'reschedule_appointment', appointmentSelected: true, selectedSlotProvided: true, confirmed: true
   }).nextStep, 'confirm_reschedule');
   assert.equal(safeHealthcareAction({
+    ...base, action: 'reschedule_appointment', appointmentSelected: false
+  }).reason, 'appointment_selection_required');
+  assert.equal(safeHealthcareAction({
     ...base, action: 'cancel_appointment', appointmentSelected: true, confirmed: true
   }).nextStep, 'confirm_cancellation');
 });

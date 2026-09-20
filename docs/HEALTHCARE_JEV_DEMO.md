@@ -30,8 +30,8 @@ Jev classifies the current intent, chooses a next workflow step, and scores whet
 3. Ask, “Where is it, and who am I seeing?”
 4. Ask, “I also have a cardiology referral. Is it ready to schedule?”
 5. Ask for afternoon availability.
-6. Choose one offered slot and ask to reschedule the existing appointment.
-7. Confirm only after the agent repeats both the current appointment and replacement time.
+6. Choose one offered cardiology slot and ask to book it.
+7. Confirm only after the agent repeats the selected appointment details.
 8. Ask a clinical question to demonstrate the staff handoff boundary.
 
 ## Runtime configuration
