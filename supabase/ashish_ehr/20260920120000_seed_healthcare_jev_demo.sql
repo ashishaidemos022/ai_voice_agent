@@ -1,4 +1,4 @@
-/* Run only in the Ashish_EHR project. All records in this file are synthetic. */
+/* Run only in the Ashish_EHR project for the patient-access showcase. */
 
 insert into public.epic_patients (
   id, mrn, first_name, last_name, email, preferred_language, mychart_active,
@@ -8,10 +8,10 @@ insert into public.epic_patients (
   'DEMO-1001',
   'Amelia',
   'Hart',
-  'amelia.hart@synthetic-patient.test',
+  'amelia.hart@patient-access.example',
   'English',
   true,
-  '{"synthetic":true,"plan":"Demo Health Plan"}'::jsonb,
+  '{"plan":"HLS Health Plan"}'::jsonb,
   now()
 )
 on conflict (id) do update set
@@ -34,7 +34,7 @@ insert into public.epic_referrals (
   'routine',
   'open',
   '2026-09-18 15:00:00+00',
-  'Synthetic patient-access showcase referral. No clinical use.',
+  'Patient-access showcase referral.',
   now()
 )
 on conflict (id) do update set

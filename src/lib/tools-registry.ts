@@ -210,8 +210,7 @@ function healthcarePatientAccessTools(selection: ToolSelectionState | null): Too
     source: 'client',
     metadata: {
       source: 'Ashish_EHR epic_* tables + TypeSafe Jev',
-      synthetic: true,
-      clinical_use: false
+      workflow: 'identity-gated patient access'
     },
     execute: async (params: any) => {
       const { data, error } = await supabase.functions.invoke('healthcare-patient-access', {

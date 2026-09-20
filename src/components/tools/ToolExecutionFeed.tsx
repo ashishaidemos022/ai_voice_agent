@@ -165,7 +165,9 @@ function HealthcareDecisionResult({ value }: { value: Record<string, any> }) {
   const nextStep = decision.next_step || {};
   const review = decision.needs_human_review || {};
   const slots = Array.isArray(value.ehr?.eligible_slots) ? value.ehr.eligible_slots : [];
-  const appointment = value.appointment;
+  const appointments = Array.isArray(value.ehr?.appointments) ? value.ehr.appointments : [];
+  const referrals = Array.isArray(value.ehr?.referrals) ? value.ehr.referrals : [];
+  const appointment = value.change?.appointment;
   const formatSlot = (slot: any) => {
     const date = new Date(slot.starts_at);
     return Number.isNaN(date.getTime())
@@ -199,9 +201,9 @@ function HealthcareDecisionResult({ value }: { value: Record<string, any> }) {
           <Database className="h-4 w-4 text-emerald-300" /> Ashish_EHR evidence
         </div>
         <p className="mt-2 text-xs text-white/60">
-          {value.ehr?.referral
-            ? `Open ${value.ehr.referral.target_specialty || 'specialty'} referral · ${value.ehr.referral.urgency || 'routine'}`
-            : 'No eligible open referral found'}
+          {value.verification?.verified
+            ? `${appointments.length} upcoming appointment${appointments.length === 1 ? '' : 's'} · ${referrals.length} open referral${referrals.length === 1 ? '' : 's'}`
+            : 'Identity verification is required before appointment details can be displayed'}
         </p>
         {slots.length > 0 && (
           <div className="mt-3 space-y-1.5">
@@ -218,14 +220,14 @@ function HealthcareDecisionResult({ value }: { value: Record<string, any> }) {
       {appointment && (
         <div className="rounded-xl border border-emerald-300/30 bg-emerald-400/10 p-3">
           <div className="flex items-center gap-2 text-xs font-semibold text-emerald-100">
-            <CalendarCheck2 className="h-4 w-4" /> Synthetic appointment scheduled
+            <CalendarCheck2 className="h-4 w-4" /> Appointment {String(value.change?.type || 'updated')}
           </div>
           <p className="mt-2 text-sm text-white">{formatSlot(appointment)}</p>
           <p className="mt-1 text-xs text-emerald-100/65">Confirmation {appointment.confirmation_number}</p>
         </div>
       )}
 
-      <p className="text-[10px] leading-4 text-white/35">Synthetic showcase data · administrative scheduling only · not for clinical use</p>
+      <p className="text-[10px] leading-4 text-white/35">Identity-gated patient access · Jev decision support · connected EHR</p>
     </div>
   );
 }
