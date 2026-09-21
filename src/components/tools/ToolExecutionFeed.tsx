@@ -6,6 +6,7 @@ import {
   Database,
   Gauge,
   ShieldCheck,
+  Siren,
   Sparkles,
   Stethoscope,
   Timer,
@@ -196,6 +197,14 @@ function formatTokens(value: unknown) {
   return Number.isFinite(parsed) ? parsed.toLocaleString() : '—';
 }
 
+function emergencyEscalationOf(value: Record<string, any>) {
+  const escalation = value?.escalation;
+  if (escalation && typeof escalation === 'object' && escalation.priority === 'emergency') {
+    return escalation as Record<string, any>;
+  }
+  return value?.decision?.urgency === 'emergency' ? ({ priority: 'emergency' } as Record<string, any>) : null;
+}
+
 function jevTelemetry(value: Record<string, any>) {
   const jev = value.jev && typeof value.jev === 'object' ? value.jev : {};
   const usage = value.jev_usage && typeof value.jev_usage === 'object' ? value.jev_usage : {};
@@ -358,8 +367,17 @@ function HealthcareDecisionResult({ value }: { value: Record<string, any> }) {
         }).format(date);
   };
 
+  const escalation = emergencyEscalationOf(value);
+
   return (
     <div className="space-y-3">
+      {escalation && (
+        <div className="flex items-center gap-2 rounded-xl border border-rose-400/45 bg-rose-500/15 px-3 py-2">
+          <Siren className="h-4 w-4 shrink-0 text-rose-200" />
+          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-rose-100">Urgent · staff escalation</span>
+        </div>
+      )}
+
       <JevMetricsRow value={value} compact />
 
       <div className="grid grid-cols-2 gap-2">
@@ -434,6 +452,8 @@ function HealthcareDecisionPopup({
   const reason = String(decision.policy_reason || 'Jev evaluation complete');
   const verified = value.verification?.verified === true;
   const emergency = decision.emergency_language_detected === true;
+  const escalation = emergencyEscalationOf(value);
+  const acuityPercent = percentValue(decision.symptom_acuity?.noul ?? answers.symptom_acuity?.noul);
   const reviewPercent = percentValue(review.noul);
   const slots = Array.isArray(value.ehr?.eligible_slots) ? value.ehr.eligible_slots : [];
   const appointments = Array.isArray(value.ehr?.appointments) ? value.ehr.appointments : [];
@@ -474,18 +494,40 @@ function HealthcareDecisionPopup({
         role="status"
         aria-live="assertive"
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-4xl overflow-hidden rounded-[32px] border border-cyan-300/35 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.18),transparent_42%),linear-gradient(145deg,rgba(8,20,35,0.98),rgba(15,23,42,0.98))] shadow-[0_40px_140px_rgba(6,182,212,0.28)]"
+        className={cn(
+          'w-full max-w-4xl overflow-hidden rounded-[32px] border',
+          escalation
+            ? 'border-rose-400/50 bg-[radial-gradient(circle_at_top_left,rgba(244,63,94,0.22),transparent_42%),linear-gradient(145deg,rgba(35,10,16,0.98),rgba(24,12,20,0.98))] shadow-[0_40px_140px_rgba(244,63,94,0.32)]'
+            : 'border-cyan-300/35 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.18),transparent_42%),linear-gradient(145deg,rgba(8,20,35,0.98),rgba(15,23,42,0.98))] shadow-[0_40px_140px_rgba(6,182,212,0.28)]'
+        )}
       >
-        <div className="h-1.5 w-full bg-gradient-to-r from-cyan-300 via-violet-400 to-fuchsia-400" />
+        <div className={cn(
+          'h-1.5 w-full bg-gradient-to-r',
+          escalation ? 'from-rose-400 via-orange-400 to-rose-500' : 'from-cyan-300 via-violet-400 to-fuchsia-400'
+        )} />
         <div className="p-7 sm:p-9">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-cyan-200/30 bg-cyan-300/10 shadow-[0_0_36px_rgba(34,211,238,0.24)]">
-                <BrainCircuit className="h-7 w-7 text-cyan-200" />
+              <div className={cn(
+                'flex h-14 w-14 items-center justify-center rounded-2xl border',
+                escalation
+                  ? 'border-rose-200/35 bg-rose-400/15 shadow-[0_0_36px_rgba(244,63,94,0.3)]'
+                  : 'border-cyan-200/30 bg-cyan-300/10 shadow-[0_0_36px_rgba(34,211,238,0.24)]'
+              )}>
+                {escalation
+                  ? <Siren className="h-7 w-7 text-rose-200" />
+                  : <BrainCircuit className="h-7 w-7 text-cyan-200" />}
               </div>
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.34em] text-cyan-200/70">Jev decision</p>
-                <h2 className="mt-1 text-2xl font-semibold text-white sm:text-[28px]">Patient-access policy evaluated</h2>
+                <p className={cn(
+                  'text-[11px] font-semibold uppercase tracking-[0.34em]',
+                  escalation ? 'text-rose-200/80' : 'text-cyan-200/70'
+                )}>
+                  {escalation ? 'Urgent · connecting to staff' : 'Jev decision'}
+                </p>
+                <h2 className="mt-1 text-2xl font-semibold text-white sm:text-[28px]">
+                  {escalation ? 'Possible medical emergency' : 'Patient-access policy evaluated'}
+                </h2>
                 <p className="mt-1 text-xs text-white/45">
                   {decision.model ? `TypeSafe ${String(decision.model)}` : 'TypeSafe Jev'} · deterministic policy applied on top
                 </p>
@@ -501,7 +543,33 @@ function HealthcareDecisionPopup({
             </button>
           </div>
 
-          <div className="mt-7">
+          {escalation && (
+            <div className="mt-6 rounded-2xl border border-rose-400/45 bg-rose-500/15 p-5">
+              <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-rose-100/80">
+                <Siren className="h-3.5 w-3.5" /> Escalation · {toLabel(String(escalation.reason || 'possible medical emergency'))}
+              </div>
+              <p className="mt-2 text-sm leading-6 text-white/90">
+                {String(escalation.instruction || 'Stop the patient-access workflow and connect the caller to clinical staff now.')}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+                <span className="rounded-full border border-rose-300/35 bg-rose-300/10 px-2.5 py-1 font-medium text-rose-50">
+                  Workflow halted · no EHR changes
+                </span>
+                {acuityPercent !== null && (
+                  <span className="rounded-full border border-rose-300/35 bg-rose-300/10 px-2.5 py-1 tabular-nums text-rose-50">
+                    Symptom acuity {acuityPercent}%
+                  </span>
+                )}
+                {escalation.callback_number && (
+                  <span className="rounded-full border border-white/15 bg-white/5 px-2.5 py-1 tabular-nums text-white/75">
+                    Callback {String(escalation.callback_number)}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-4">
             <JevMetricsRow value={value} />
           </div>
 
@@ -556,6 +624,20 @@ function HealthcareDecisionPopup({
                   ? 'Jev flagged this turn for a person before the agent answers.'
                   : 'Jev cleared this turn for the automated workflow.'}
               </p>
+              {acuityPercent !== null && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between text-[11px] text-white/45">
+                    <span>Symptom acuity</span>
+                    <span className="tabular-nums">{acuityPercent}%</span>
+                  </div>
+                  <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-white/10">
+                    <div
+                      className={cn('h-full rounded-full', acuityPercent >= 50 ? 'bg-rose-400' : 'bg-emerald-300')}
+                      style={{ width: `${Math.max(2, acuityPercent)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
               <div className="mt-auto flex flex-wrap gap-2 pt-4 text-[11px]">
                 <span
                   className={cn(
@@ -595,7 +677,11 @@ function HealthcareDecisionPopup({
           </div>
 
           <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-white/10 pt-5">
-            <p className="text-xs text-white/40">This decision is also saved in Tool executions.</p>
+            <p className="text-xs text-white/40">
+              {escalation
+                ? 'Urgent decisions stay on screen until dismissed. Also saved in Tool executions.'
+                : 'This decision is also saved in Tool executions.'}
+            </p>
             <div className="flex items-center gap-3">
               {queuedCount > 0 && <span className="text-xs text-cyan-100/60">{queuedCount} more queued</span>}
               <button
@@ -655,6 +741,8 @@ export function ToolExecutionFeed({
 
   useEffect(() => {
     if (!activeDecision) return;
+    // An emergency escalation stays up until it is dismissed on purpose.
+    if (emergencyEscalationOf(activeDecision.value)) return;
     const timer = window.setTimeout(() => setActiveDecision(null), 16000);
     return () => window.clearTimeout(timer);
   }, [activeDecision]);

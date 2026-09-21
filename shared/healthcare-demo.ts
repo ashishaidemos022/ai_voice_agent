@@ -172,14 +172,51 @@ export function healthcareJevQuestions(context: {
     needs_human_review: {
       type: 'noul',
       instructions: 'Does this turn require a human because it asks for clinical judgment, contains urgent symptom language, has a consequential ambiguity, requests unsupported work, or explicitly asks for staff?'
+    },
+    symptom_acuity: {
+      type: 'noul',
+      instructions: 'Does the caller describe symptoms that could be a medical emergency needing immediate care? Score high for chest pain, chest pressure or tightness, pain spreading to the arm or jaw, trouble breathing, stroke signs such as face droop or slurred speech, fainting, severe bleeding, or thoughts of self-harm. Score low for scheduling, billing, logistics, and routine follow-up talk.'
     }
   } as const;
 }
 
 const EMERGENCY_PHRASES = [
-  'chest pain', 'cannot breathe', "can't breathe", 'difficulty breathing', 'passed out',
-  'unconscious', 'stroke', 'suicidal', 'overdose', 'severe bleeding'
+  'chest pain', 'chest pains', 'chest hurts', 'chest tightness', 'pain in my chest',
+  'cannot breathe', "can't breathe", 'difficulty breathing', 'trouble breathing',
+  'passed out', 'passing out', 'unconscious', 'stroke', 'slurred speech',
+  'suicidal', 'overdose', 'severe bleeding', 'bleeding badly'
 ];
+
+// A Jev acuity score at or above this escalates the turn even when no phrase matches.
+export const EMERGENCY_ACUITY_THRESHOLD = 0.5;
+
+export type EmergencyEscalation = {
+  priority: 'emergency';
+  connect_to: 'staff';
+  reason: 'possible_medical_emergency';
+  instruction: string;
+  callback_number: string | null;
+  acuity_score: number | null;
+};
+
+// The voice agent reads this instruction instead of continuing the workflow.
+export function emergencyEscalation(params: {
+  acuityScore?: number | null;
+  callbackNumber?: string | null;
+}): EmergencyEscalation {
+  const acuity = Number(params.acuityScore);
+  return {
+    priority: 'emergency',
+    connect_to: 'staff',
+    reason: 'possible_medical_emergency',
+    instruction:
+      'Stop the patient-access workflow now. Do not verify identity, look anything up, or change an appointment. '
+      + 'Tell the caller calmly to hang up and call 911, or go to the nearest emergency department, if the symptoms are happening right now. '
+      + 'Say that a clinical staff member is being connected, then hand off. Do not diagnose, reassure, or explain the symptom.',
+    callback_number: params.callbackNumber || null,
+    acuity_score: Number.isFinite(acuity) ? acuity : null
+  };
+}
 
 const SPECIALTY_TERMS = [
   'cardiology', 'dermatology', 'neurology', 'orthopedics', 'oncology',
@@ -196,7 +233,7 @@ function requestedSpecialty(value: string): string | null {
   return SPECIALTY_TERMS.find((specialty) => normalized.includes(specialty)) || null;
 }
 
-export function safeHealthcareAction(params: {
+export type PatientAccessPolicyParams = {
   utterance: string;
   action: HealthcareAction;
   verified: boolean;
@@ -209,12 +246,29 @@ export function safeHealthcareAction(params: {
   confirmed: boolean;
   referralSpecialty?: string;
   availableModalities?: string[];
-}) {
+};
+
+// Emergency wording always escalates, and Jev's acuity score catches the phrasings
+// the list cannot anticipate. Either signal alone is enough.
+export function isEmergencyTurn(params: Pick<PatientAccessPolicyParams, 'utterance' | 'jev'>) {
+  const acuity = Number(params.jev.answers.symptom_acuity?.noul);
+  return hasEmergencyLanguage(params.utterance)
+    || (Number.isFinite(acuity) && acuity >= EMERGENCY_ACUITY_THRESHOLD);
+}
+
+export function safeHealthcareAction(params: PatientAccessPolicyParams) {
+  const emergency = isEmergencyTurn(params);
+  return {
+    ...patientAccessDecision(params, emergency),
+    urgency: emergency ? ('emergency' as const) : ('routine' as const)
+  };
+}
+
+function patientAccessDecision(params: PatientAccessPolicyParams, emergency: boolean) {
   const intent = params.jev.answers.intent;
   const humanReview = params.jev.answers.needs_human_review;
   const intentValue = intent?.choice as HealthcareIntent | undefined;
   const confidence = Number(intent?.confidence || 0);
-  const emergency = hasEmergencyLanguage(params.utterance);
   const clinical = intentValue === 'clinical_question';
   const humanRequested = intentValue === 'human_help' || params.action === 'request_staff';
   const modelRequestsReview = Number(humanReview?.noul || 0) >= 0.5;
@@ -224,7 +278,7 @@ export function safeHealthcareAction(params: {
   const requestsVideo = /\b(video|virtual|telehealth|telemedicine)\b/i.test(params.utterance);
   const availableModalities = params.availableModalities || ['in_person'];
 
-  if (emergency) return { nextStep: 'route_to_staff' as const, reason: 'emergency_language', mayMutate: false };
+  if (emergency) return { nextStep: 'route_to_staff' as const, reason: 'emergency_symptoms', mayMutate: false };
   if (clinical || humanRequested || modelRequestsReview || confidence < 0.55) {
     return {
       nextStep: 'route_to_staff' as const,

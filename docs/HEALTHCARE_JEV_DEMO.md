@@ -10,9 +10,22 @@ The `HLS Patient Access · Jev + GPT-Live` agent demonstrates a complete patient
 - Book, reschedule, or cancel only after an explicit confirmation of the exact appointment.
 - Answer visit-logistics questions from EHR location and department records.
 - Route clinical questions, emergencies, unsupported specialties or modalities, coverage questions, and explicit human requests to staff.
+- Escalate a possible medical emergency to staff immediately, ahead of identity verification and every other gate.
 - Ground relative dates with `get_current_time` using `America/Chicago`, and speak the EHR tool's preformatted `local_start.display` value for every appointment and slot.
 
 Jev runs inside `healthcare_patient_access`: it classifies the current intent, chooses a next workflow step, and scores whether human review is needed on each substantive turn. The tool remains visible in the preset alongside `get_current_time`, and each completed Jev evaluation appears in the live decision popup. Deterministic policy still enforces identity verification, exact-record selection, explicit confirmation, specialty matching, and emergency handling.
+
+## Urgent staff escalation
+
+Jev scores a fourth question, `symptom_acuity`, on every turn: does the caller describe symptoms that could be a medical emergency? A turn escalates when either signal fires — the deterministic phrase list (chest pain, chest tightness, trouble breathing, stroke signs, severe bleeding, self-harm) or a Jev acuity score at or above 0.5. Either alone is enough, so wording the list cannot anticipate ("there's a lot of pressure in my chest") still escalates, and a literal phrase still escalates even if Jev scores the turn low.
+
+An escalated turn returns `decision.urgency = "emergency"` and an `escalation` block carrying the priority, the acuity score, the care-team callback number (only once identity is verified), and the instruction the voice agent must follow: stop the workflow, tell the caller to hang up and call 911 or go to the nearest emergency department if symptoms are happening now, say a clinical staff member is being connected, hand off. The policy sets `mayMutate: false`, so no appointment is ever booked, moved, or cancelled on an escalated turn — and the check runs before the verification gate, so an emergency is never made to wait on a date of birth.
+
+In the UI the decision card turns red, leads with the escalation instruction, shows the acuity score beside the human-review gauge, and stays on screen until it is dismissed instead of auto-closing.
+
+## Speaking persona
+
+The concierge is prompted to sound like a real scheduler: short thinking beats ("hmm, let me take a look"), light disfluencies such as a soft sigh or an "ah", and honest reactions to good and bad news — but never filler inside a date, time, address, or confirmation number, and never on an escalated turn, where it drops every filler and speaks plainly.
 
 ## Live decision popup
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   HEALTHCARE_DEMO_PATIENT_REFERENCE,
   HEALTHCARE_TOOL_PARAMETERS,
+  emergencyEscalation,
   estimateJevCostUsd,
   hasEmergencyLanguage,
   safeHealthcareAction,
@@ -45,10 +46,10 @@ test('patient-access tool requires an action and verification inputs are optiona
 
 test('protected EHR workflows require identity verification', () => {
   assert.deepEqual(safeHealthcareAction({ ...base, verified: false }), {
-    nextStep: 'verify_identity', reason: 'identity_verification_required', mayMutate: false
+    nextStep: 'verify_identity', reason: 'identity_verification_required', mayMutate: false, urgency: 'routine'
   });
   assert.deepEqual(safeHealthcareAction(base), {
-    nextStep: 'lookup_appointments', reason: 'identity_verified', mayMutate: false
+    nextStep: 'lookup_appointments', reason: 'identity_verified', mayMutate: false, urgency: 'routine'
   });
 });
 
@@ -74,7 +75,7 @@ test('clinical, uncertain, emergency, and human requests route to staff', () => 
   const uncertain = jev({ intent: { type: 'choice', choice: 'appointment_lookup', confidence: 0.4 } });
   assert.equal(safeHealthcareAction({ ...base, jev: uncertain }).reason, 'low_confidence');
   assert.equal(hasEmergencyLanguage('I have chest pain and cannot breathe'), true);
-  assert.equal(safeHealthcareAction({ ...base, utterance: 'I have chest pain right now.' }).reason, 'emergency_language');
+  assert.equal(safeHealthcareAction({ ...base, utterance: 'I have chest pain right now.' }).reason, 'emergency_symptoms');
   assert.equal(safeHealthcareAction({ ...base, action: 'request_staff' }).reason, 'human_requested');
 });
 
@@ -97,4 +98,80 @@ test('Jev cost estimates price reported tokens and stay null without usage', () 
   assert.equal(estimateJevCostUsd(1_000, null, pricing), 0.002);
   assert.equal(estimateJevCostUsd(null, undefined, pricing), null);
   assert.equal(estimateJevCostUsd(undefined, undefined), null);
+});
+
+test('chest pain escalates to staff as an emergency before any other gate', () => {
+  const routine = jev({ symptom_acuity: { type: 'noul', noul: 0.02 } });
+  const chestPain = safeHealthcareAction({
+    ...base,
+    utterance: 'I have chest pain right now.',
+    jev: routine
+  });
+  assert.equal(chestPain.urgency, 'emergency');
+  assert.equal(chestPain.nextStep, 'route_to_staff');
+  assert.equal(chestPain.reason, 'emergency_symptoms');
+  assert.equal(chestPain.mayMutate, false);
+
+  // An unverified caller reporting chest pain is escalated, not asked for date of birth.
+  assert.equal(safeHealthcareAction({
+    ...base, verified: false, utterance: 'My chest hurts and I feel dizzy.', jev: routine
+  }).nextStep, 'route_to_staff');
+
+  // Emergency outranks an otherwise-complete confirmed booking.
+  const confirmedBooking = safeHealthcareAction({
+    ...base,
+    action: 'book_appointment',
+    utterance: 'I have chest pain but I still want to book the cardiology slot.',
+    selectedSlotProvided: true,
+    confirmed: true,
+    jev: routine
+  });
+  assert.equal(confirmedBooking.mayMutate, false);
+  assert.equal(confirmedBooking.urgency, 'emergency');
+});
+
+test('Jev symptom acuity escalates wording the keyword list misses', () => {
+  const paraphrase = 'There is a lot of pressure in my chest and my arm feels heavy.';
+  assert.equal(hasEmergencyLanguage(paraphrase), false);
+
+  const acute = safeHealthcareAction({
+    ...base,
+    utterance: paraphrase,
+    jev: jev({ symptom_acuity: { type: 'noul', noul: 0.82 } })
+  });
+  assert.equal(acute.urgency, 'emergency');
+  assert.equal(acute.reason, 'emergency_symptoms');
+  assert.equal(acute.mayMutate, false);
+
+  // Keyword language still escalates even when Jev scores the turn as low acuity.
+  assert.equal(safeHealthcareAction({
+    ...base,
+    utterance: 'I have chest pain.',
+    jev: jev({ symptom_acuity: { type: 'noul', noul: 0.01 } })
+  }).urgency, 'emergency');
+});
+
+test('a low acuity score leaves the ordinary workflow untouched', () => {
+  const calm = jev({ symptom_acuity: { type: 'noul', noul: 0.03 } });
+  const lookup = safeHealthcareAction({ ...base, jev: calm });
+  assert.equal(lookup.urgency, 'routine');
+  assert.equal(lookup.nextStep, 'lookup_appointments');
+
+  // A missing acuity answer must not escalate on its own.
+  const withoutAcuity = safeHealthcareAction(base);
+  assert.equal(withoutAcuity.urgency, 'routine');
+  assert.equal(withoutAcuity.nextStep, 'lookup_appointments');
+});
+
+test('the emergency escalation payload tells the agent to stop and hand off', () => {
+  const escalation = emergencyEscalation({ acuityScore: 0.82, callbackNumber: '+1-214-555-0143' });
+  assert.equal(escalation.priority, 'emergency');
+  assert.equal(escalation.connect_to, 'staff');
+  assert.equal(escalation.acuity_score, 0.82);
+  assert.equal(escalation.callback_number, '+1-214-555-0143');
+  assert.match(escalation.instruction, /911/);
+  assert.match(escalation.instruction, /stop/i);
+
+  // Without a verified caller there is no clinic number to read back.
+  assert.equal(emergencyEscalation({ acuityScore: 0.9 }).callback_number, null);
 });

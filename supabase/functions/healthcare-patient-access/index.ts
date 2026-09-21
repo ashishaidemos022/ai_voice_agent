@@ -3,6 +3,7 @@ import {
   HEALTHCARE_DEMO_PATIENT_REFERENCE,
   HEALTHCARE_TOOL_PARAMETERS,
   JEV_DEFAULT_PRICING,
+  emergencyEscalation,
   estimateJevCostUsd,
   healthcareJevQuestions,
   hasEmergencyLanguage,
@@ -395,6 +396,20 @@ Deno.serve(async (req: Request) => {
       availableModalities: ['in_person']
     });
 
+    const acuityScore = Number(jev.answers.symptom_acuity?.noul);
+    const escalation = policy.urgency === 'emergency'
+      ? emergencyEscalation({
+          acuityScore: Number.isFinite(acuityScore) ? acuityScore : null,
+          // The clinic callback number identifies the caller's care team, so it is
+          // only read back once identity is verified.
+          callbackNumber: verified
+            ? access.appointments[0]?.department?.phone
+              || access.appointments[0]?.department?.location?.phone
+              || null
+            : null
+        })
+      : null;
+
     const change = policy.mayMutate
       ? await executeConfirmedAction({
           action,
@@ -416,9 +431,12 @@ Deno.serve(async (req: Request) => {
           needs_human_review: jev.answers.needs_human_review,
           policy_reason: policy.reason,
           emergency_language_detected: hasEmergencyLanguage(utterance),
+          symptom_acuity: jev.answers.symptom_acuity || null,
+          urgency: policy.urgency,
           model: jev.model,
           answers: jev.answers
         },
+        escalation,
         action: { status: 'verification_required', next_step: policy.nextStep },
         jev: telemetry,
         timing: {
@@ -438,9 +456,12 @@ Deno.serve(async (req: Request) => {
         needs_human_review: jev.answers.needs_human_review,
         policy_reason: policy.reason,
         emergency_language_detected: hasEmergencyLanguage(utterance),
+        symptom_acuity: jev.answers.symptom_acuity || null,
+        urgency: policy.urgency,
         model: jev.model,
         answers: jev.answers
       },
+      escalation,
       ehr: {
         appointments: access.appointments.map(publicAppointment),
         referrals: access.referrals,
