@@ -10,8 +10,9 @@ The `HLS Patient Access · Jev + GPT-Live` agent demonstrates a complete patient
 - Book, reschedule, or cancel only after an explicit confirmation of the exact appointment.
 - Answer visit-logistics questions from EHR location and department records.
 - Route clinical questions, emergencies, unsupported specialties or modalities, coverage questions, and explicit human requests to staff.
+- Ground relative dates and every displayed appointment time with the `get_current_time` MCP tool and its returned timezone.
 
-Jev classifies the current intent, chooses a next workflow step, and scores whether human review is needed on each substantive turn. Deterministic policy still enforces identity verification, exact-record selection, explicit confirmation, specialty matching, and emergency handling.
+Jev runs inside `healthcare_patient_access`: it classifies the current intent, chooses a next workflow step, and scores whether human review is needed on each substantive turn. The tool remains visible in the preset alongside `get_current_time`, and each completed Jev evaluation appears in the live decision popup. Deterministic policy still enforces identity verification, exact-record selection, explicit confirmation, specialty matching, and emergency handling.
 
 ## Showcase patient
 
