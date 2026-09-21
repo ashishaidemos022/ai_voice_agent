@@ -10,9 +10,20 @@ The `HLS Patient Access · Jev + GPT-Live` agent demonstrates a complete patient
 - Book, reschedule, or cancel only after an explicit confirmation of the exact appointment.
 - Answer visit-logistics questions from EHR location and department records.
 - Route clinical questions, emergencies, unsupported specialties or modalities, coverage questions, and explicit human requests to staff.
-- Ground relative dates and every displayed appointment time with the `get_current_time` MCP tool and its returned timezone.
+- Ground relative dates with `get_current_time` using `America/Chicago`, and speak the EHR tool's preformatted `local_start.display` value for every appointment and slot.
 
 Jev runs inside `healthcare_patient_access`: it classifies the current intent, chooses a next workflow step, and scores whether human review is needed on each substantive turn. The tool remains visible in the preset alongside `get_current_time`, and each completed Jev evaluation appears in the live decision popup. Deterministic policy still enforces identity verification, exact-record selection, explicit confirmation, specialty matching, and emergency handling.
+
+## Live decision popup
+
+Every completed evaluation opens a full-width decision card that stays up for 16 seconds, or until it is dismissed by the close button, the Continue button, or a click outside the card. It shows:
+
+- **Jev latency**, **Jev cost**, **tokens** (input/output), and the **tool round trip** including the EHR read.
+- The **detected intent** and the **applied action**, each with its confidence and the top alternatives from the Jev probability distribution. When deterministic policy overrides Jev, the card names both the proposed and the applied step.
+- The **needs-human-review** NOUL score, the verification state, and an emergency-language flag when one fires.
+- **What the tool responded with**: tool status, the returned next step, any appointment change with its confirmation number, and the EHR evidence counts.
+
+The same latency, cost, and token chips appear on the matching row in the Tool executions feed.
 
 ## Showcase patient
 
@@ -42,5 +53,7 @@ The deployed patient-access function requires these Supabase function secrets:
 - `TYPESAFE_API_KEY`
 - `EHR_SUPABASE_URL`
 - `EHR_SUPABASE_SERVICE_ROLE_KEY`
+
+TypeSafe does not return a billed amount on `/systemone`, so the function prices each evaluation from the reported token usage and labels the figure "Estimated from token usage". Set the contracted rates with the optional secrets `TYPESAFE_JEV_INPUT_USD_PER_MTOK` and `TYPESAFE_JEV_OUTPUT_USD_PER_MTOK` (USD per million tokens); the defaults live in `shared/healthcare-demo.ts`. If TypeSafe ever returns `usage.cost_usd`, that value is used instead and the card reads "Billed by TypeSafe".
 
 The voice agent uses the purpose-built `healthcare_patient_access` tool rather than exposing unrestricted SQL to the voice model. The tool reads the same Supabase EHR records, runs Jev for every turn, and permits EHR changes only after the verification and confirmation gates pass.

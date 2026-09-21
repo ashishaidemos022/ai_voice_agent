@@ -1,5 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
-import { BrainCircuit, CalendarCheck2, Database, ShieldCheck, Sparkles, Stethoscope, X } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  BrainCircuit,
+  CalendarCheck2,
+  CircleDollarSign,
+  Database,
+  Gauge,
+  ShieldCheck,
+  Sparkles,
+  Stethoscope,
+  Timer,
+  X
+} from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { MarkdownContent } from '../ui/MarkdownContent';
 
@@ -160,6 +171,174 @@ function confidenceLabel(value: unknown) {
   return Number.isFinite(parsed) ? `${Math.round(parsed * 100)}%` : '—';
 }
 
+function percentValue(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(100, Math.round(parsed * 100))) : null;
+}
+
+function formatMs(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return '—';
+  return parsed >= 1000 ? `${(parsed / 1000).toFixed(2)}s` : `${Math.round(parsed)}ms`;
+}
+
+function formatUsd(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return '—';
+  if (parsed === 0) return '$0';
+  if (parsed >= 0.01) return `$${parsed.toFixed(4)}`;
+  if (parsed >= 0.0001) return `$${parsed.toFixed(6)}`;
+  return `$${parsed.toExponential(2)}`;
+}
+
+function formatTokens(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed.toLocaleString() : '—';
+}
+
+function jevTelemetry(value: Record<string, any>) {
+  const jev = value.jev && typeof value.jev === 'object' ? value.jev : {};
+  const usage = value.jev_usage && typeof value.jev_usage === 'object' ? value.jev_usage : {};
+  const timing = value.timing && typeof value.timing === 'object' ? value.timing : {};
+  const inputTokens = jev.input_tokens ?? usage.input_tokens ?? null;
+  const outputTokens = jev.output_tokens ?? usage.output_tokens ?? null;
+  const totalTokens = jev.total_tokens
+    ?? (inputTokens === null && outputTokens === null ? null : Number(inputTokens || 0) + Number(outputTokens || 0));
+  return {
+    model: jev.model || value.decision?.model || null,
+    latencyMs: jev.latency_ms ?? timing.jev_ms ?? null,
+    totalMs: timing.total_ms ?? null,
+    ehrMs: timing.ehr_ms ?? null,
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    costUsd: jev.cost_usd ?? usage.cost_usd ?? null,
+    costKind: (jev.cost_kind ?? (usage.cost_usd != null ? 'billed' : null)) as 'billed' | 'estimated' | null
+  };
+}
+
+function MetricTile({
+  icon,
+  label,
+  value,
+  hint,
+  tone = 'neutral'
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  hint?: string;
+  tone?: 'neutral' | 'cyan' | 'emerald' | 'amber';
+}) {
+  const tones = {
+    neutral: 'border-white/12 bg-white/[0.04]',
+    cyan: 'border-cyan-300/25 bg-cyan-300/[0.07]',
+    emerald: 'border-emerald-300/25 bg-emerald-300/[0.07]',
+    amber: 'border-amber-300/25 bg-amber-300/[0.07]'
+  } as const;
+
+  return (
+    <div className={cn('rounded-2xl border px-4 py-3', tones[tone])}>
+      <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-white/45">
+        {icon}
+        {label}
+      </div>
+      <p className="mt-2 text-[26px] font-semibold leading-8 tabular-nums text-white">{value}</p>
+      <p className="mt-1 min-h-[1rem] text-[11px] text-white/45">{hint || ''}</p>
+    </div>
+  );
+}
+
+function ProbabilityBars({ answer, limit = 3 }: { answer: Record<string, any>; limit?: number }) {
+  const probabilities = answer?.probabilities && typeof answer.probabilities === 'object'
+    ? Object.entries(answer.probabilities as Record<string, unknown>)
+        .map(([key, raw]) => ({ key, value: Number(raw) }))
+        .filter((entry) => Number.isFinite(entry.value))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, limit)
+    : [];
+
+  if (probabilities.length === 0) return null;
+
+  return (
+    <div className="mt-3 space-y-1.5">
+      {probabilities.map((entry, index) => (
+        <div key={entry.key} className="flex items-center gap-2">
+          <span className="w-36 shrink-0 truncate text-[11px] text-white/55">{toLabel(entry.key)}</span>
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
+            <div
+              className={cn('h-full rounded-full', index === 0 ? 'bg-cyan-300' : 'bg-white/30')}
+              style={{ width: `${Math.max(2, Math.round(entry.value * 100))}%` }}
+            />
+          </div>
+          <span className="w-10 shrink-0 text-right text-[11px] tabular-nums text-white/55">
+            {Math.round(entry.value * 100)}%
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function JevMetricsRow({ value, compact = false }: { value: Record<string, any>; compact?: boolean }) {
+  const telemetry = jevTelemetry(value);
+  if (telemetry.latencyMs === null && telemetry.costUsd === null && telemetry.totalTokens === null) {
+    return null;
+  }
+
+  if (compact) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+        <span className="rounded-full border border-white/12 bg-white/5 px-2.5 py-1 tabular-nums text-white/70">
+          Jev {formatMs(telemetry.latencyMs)}
+        </span>
+        <span className="rounded-full border border-white/12 bg-white/5 px-2.5 py-1 tabular-nums text-white/70">
+          {formatUsd(telemetry.costUsd)}{telemetry.costKind === 'estimated' ? ' est.' : ''}
+        </span>
+        <span className="rounded-full border border-white/12 bg-white/5 px-2.5 py-1 tabular-nums text-white/70">
+          {formatTokens(telemetry.totalTokens)} tok
+        </span>
+        {telemetry.totalMs !== null && (
+          <span className="rounded-full border border-white/12 bg-white/5 px-2.5 py-1 tabular-nums text-white/50">
+            tool {formatMs(telemetry.totalMs)}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <MetricTile
+        tone="cyan"
+        icon={<Timer className="h-3.5 w-3.5" />}
+        label="Jev latency"
+        value={formatMs(telemetry.latencyMs)}
+        hint={telemetry.model ? String(telemetry.model) : undefined}
+      />
+      <MetricTile
+        tone="emerald"
+        icon={<CircleDollarSign className="h-3.5 w-3.5" />}
+        label="Jev cost"
+        value={formatUsd(telemetry.costUsd)}
+        hint={telemetry.costKind === 'estimated' ? 'Estimated from token usage' : telemetry.costKind === 'billed' ? 'Billed by TypeSafe' : undefined}
+      />
+      <MetricTile
+        icon={<Gauge className="h-3.5 w-3.5" />}
+        label="Tokens"
+        value={formatTokens(telemetry.totalTokens)}
+        hint={`${formatTokens(telemetry.inputTokens)} in · ${formatTokens(telemetry.outputTokens)} out`}
+      />
+      <MetricTile
+        icon={<Database className="h-3.5 w-3.5" />}
+        label="Tool round trip"
+        value={formatMs(telemetry.totalMs)}
+        hint={telemetry.ehrMs !== null ? `EHR ${formatMs(telemetry.ehrMs)}` : undefined}
+      />
+    </div>
+  );
+}
+
 function HealthcareDecisionResult({ value }: { value: Record<string, any> }) {
   const decision = value.decision || {};
   const intent = decision.intent || {};
@@ -170,6 +349,7 @@ function HealthcareDecisionResult({ value }: { value: Record<string, any> }) {
   const referrals = Array.isArray(value.ehr?.referrals) ? value.ehr.referrals : [];
   const appointment = value.change?.appointment;
   const formatSlot = (slot: any) => {
+    if (slot.local_start?.display) return String(slot.local_start.display);
     const date = new Date(slot.starts_at);
     return Number.isNaN(date.getTime())
       ? String(slot.starts_at || 'Unknown time')
@@ -180,6 +360,8 @@ function HealthcareDecisionResult({ value }: { value: Record<string, any> }) {
 
   return (
     <div className="space-y-3">
+      <JevMetricsRow value={value} compact />
+
       <div className="grid grid-cols-2 gap-2">
         <div className="rounded-xl border border-cyan-300/20 bg-cyan-400/[0.06] p-3">
           <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-cyan-100/55">
@@ -243,76 +425,183 @@ function HealthcareDecisionPopup({
   onClose: () => void;
 }) {
   const decision = value.decision || {};
-  const intent = decision.intent || {};
-  const nextStep = decision.next_step || {};
-  const review = decision.needs_human_review || {};
+  const answers = decision.answers && typeof decision.answers === 'object' ? decision.answers : {};
+  const intent = decision.intent || answers.intent || {};
+  const nextStep = decision.next_step || answers.next_step || {};
+  const review = decision.needs_human_review || answers.needs_human_review || {};
   const applied = String(nextStep.applied || nextStep.choice || value.action?.next_step || 'review');
+  const recommended = String(nextStep.choice || applied);
   const reason = String(decision.policy_reason || 'Jev evaluation complete');
   const verified = value.verification?.verified === true;
+  const emergency = decision.emergency_language_detected === true;
+  const reviewPercent = percentValue(review.noul);
+  const slots = Array.isArray(value.ehr?.eligible_slots) ? value.ehr.eligible_slots : [];
+  const appointments = Array.isArray(value.ehr?.appointments) ? value.ehr.appointments : [];
+  const referrals = Array.isArray(value.ehr?.referrals) ? value.ehr.referrals : [];
+  const change = value.change && typeof value.change === 'object' ? value.change : null;
+  const changedAppointment = change?.appointment;
+  const status = String(value.action?.status || (verified ? 'ready' : 'verification_required'));
+
+  const responded: Array<{ label: string; detail: string }> = [
+    { label: 'Tool status', detail: toLabel(status) },
+    { label: 'Next step returned', detail: toLabel(applied) }
+  ];
+  if (changedAppointment) {
+    responded.push({
+      label: `Appointment ${String(change?.type || 'updated')}`,
+      detail: `${String(changedAppointment.local_start?.display || changedAppointment.starts_at || 'Updated')}${
+        changedAppointment.confirmation_number ? ` · ${changedAppointment.confirmation_number}` : ''
+      }`
+    });
+  }
+  if (verified) {
+    responded.push({
+      label: 'EHR evidence',
+      detail: `${appointments.length} upcoming appointment${appointments.length === 1 ? '' : 's'} · ${referrals.length} open referral${
+        referrals.length === 1 ? '' : 's'
+      } · ${slots.length} eligible slot${slots.length === 1 ? '' : 's'}`
+    });
+  } else {
+    responded.push({ label: 'EHR evidence', detail: 'Withheld until identity is verified' });
+  }
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-start justify-center bg-slate-950/45 px-4 pt-[8vh] backdrop-blur-[2px] pointer-events-auto">
+    <div
+      className="fixed inset-0 z-[120] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-[5vh] backdrop-blur-[3px] pointer-events-auto"
+      onClick={onClose}
+    >
       <div
         role="status"
         aria-live="assertive"
-        className="w-full max-w-xl overflow-hidden rounded-[28px] border border-cyan-300/35 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.16),transparent_38%),linear-gradient(145deg,rgba(8,20,35,0.98),rgba(15,23,42,0.98))] shadow-[0_30px_100px_rgba(6,182,212,0.24)]"
+        onClick={(event) => event.stopPropagation()}
+        className="w-full max-w-4xl overflow-hidden rounded-[32px] border border-cyan-300/35 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.18),transparent_42%),linear-gradient(145deg,rgba(8,20,35,0.98),rgba(15,23,42,0.98))] shadow-[0_40px_140px_rgba(6,182,212,0.28)]"
       >
-        <div className="h-1 w-full bg-gradient-to-r from-cyan-300 via-violet-400 to-fuchsia-400" />
-        <div className="p-6 sm:p-7">
+        <div className="h-1.5 w-full bg-gradient-to-r from-cyan-300 via-violet-400 to-fuchsia-400" />
+        <div className="p-7 sm:p-9">
           <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-200/30 bg-cyan-300/10 shadow-[0_0_30px_rgba(34,211,238,0.2)]">
-                <BrainCircuit className="h-6 w-6 text-cyan-200" />
+            <div className="flex items-center gap-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-cyan-200/30 bg-cyan-300/10 shadow-[0_0_36px_rgba(34,211,238,0.24)]">
+                <BrainCircuit className="h-7 w-7 text-cyan-200" />
               </div>
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-cyan-200/70">Jev decision</p>
-                <h2 className="mt-1 text-xl font-semibold text-white">Patient-access policy evaluated</h2>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.34em] text-cyan-200/70">Jev decision</p>
+                <h2 className="mt-1 text-2xl font-semibold text-white sm:text-[28px]">Patient-access policy evaluated</h2>
+                <p className="mt-1 text-xs text-white/45">
+                  {decision.model ? `TypeSafe ${String(decision.model)}` : 'TypeSafe Jev'} · deterministic policy applied on top
+                </p>
               </div>
             </div>
             <button
               type="button"
               onClick={onClose}
-              className="rounded-full border border-white/10 bg-white/5 p-2 text-white/55 transition hover:bg-white/10 hover:text-white"
+              className="rounded-full border border-white/10 bg-white/5 p-2.5 text-white/55 transition hover:bg-white/10 hover:text-white"
               aria-label="Dismiss Jev decision"
             >
-              <X className="h-4 w-4" />
+              <X className="h-5 w-5" />
             </button>
           </div>
 
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            <div className="rounded-2xl border border-cyan-300/25 bg-cyan-300/[0.07] p-4">
-              <p className="text-[10px] uppercase tracking-[0.22em] text-cyan-100/55">Detected intent</p>
-              <p className="mt-2 text-lg font-semibold text-white">{toLabel(String(intent.choice || 'review'))}</p>
-              <p className="mt-1 text-xs text-white/50">Confidence {confidenceLabel(intent.confidence)}</p>
+          <div className="mt-7">
+            <JevMetricsRow value={value} />
+          </div>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-cyan-300/25 bg-cyan-300/[0.07] p-5">
+              <div className="flex items-center justify-between gap-3">
+                <p className="flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-cyan-100/60">
+                  <Stethoscope className="h-3.5 w-3.5" /> Detected intent
+                </p>
+                <span className="rounded-full border border-cyan-300/30 bg-cyan-300/10 px-2.5 py-1 text-[11px] tabular-nums text-cyan-100">
+                  {confidenceLabel(intent.confidence)} confident
+                </span>
+              </div>
+              <p className="mt-3 text-[22px] font-semibold leading-7 text-white">{toLabel(String(intent.choice || 'review'))}</p>
+              <ProbabilityBars answer={intent} />
             </div>
-            <div className="rounded-2xl border border-violet-300/25 bg-violet-300/[0.07] p-4">
-              <p className="text-[10px] uppercase tracking-[0.22em] text-violet-100/55">Applied action</p>
-              <p className="mt-2 text-lg font-semibold text-white">{toLabel(applied)}</p>
-              <p className="mt-1 text-xs text-white/50">Human review {Math.round(Number(review.noul || 0) * 100)}%</p>
+
+            <div className="rounded-2xl border border-violet-300/25 bg-violet-300/[0.07] p-5">
+              <div className="flex items-center justify-between gap-3">
+                <p className="flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-violet-100/60">
+                  <ShieldCheck className="h-3.5 w-3.5" /> Applied action
+                </p>
+                <span className="rounded-full border border-violet-300/30 bg-violet-300/10 px-2.5 py-1 text-[11px] tabular-nums text-violet-100">
+                  {confidenceLabel(nextStep.confidence)} confident
+                </span>
+              </div>
+              <p className="mt-3 text-[22px] font-semibold leading-7 text-white">{toLabel(applied)}</p>
+              <p className="mt-1 text-[11px] text-white/45">
+                {recommended === applied
+                  ? 'Policy accepted the Jev recommendation'
+                  : `Jev proposed ${toLabel(recommended)} · policy applied ${toLabel(applied)}`}
+              </p>
+              <ProbabilityBars answer={nextStep} />
             </div>
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-xs">
-            <span className={cn(
-              'rounded-full border px-2.5 py-1 font-medium',
-              verified
-                ? 'border-emerald-300/30 bg-emerald-300/10 text-emerald-100'
-                : 'border-amber-300/30 bg-amber-300/10 text-amber-100'
-            )}>
-              {verified ? 'Identity verified' : 'Verification required'}
-            </span>
-            <span className="text-white/45">Policy reason</span>
-            <span className="font-medium text-white/80">{toLabel(reason)}</span>
+          <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1.25fr]">
+            <div className="flex flex-col rounded-2xl border border-white/10 bg-black/25 p-5">
+              <p className="text-[10px] uppercase tracking-[0.22em] text-white/45">Needs human review</p>
+              <div className="mt-3 flex items-baseline gap-2">
+                <span className="text-3xl font-semibold tabular-nums text-white">{reviewPercent === null ? '—' : `${reviewPercent}%`}</span>
+                <span className="text-[11px] text-white/40">NOUL score</span>
+              </div>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
+                <div
+                  className={cn('h-full rounded-full', (reviewPercent ?? 0) >= 50 ? 'bg-amber-300' : 'bg-emerald-300')}
+                  style={{ width: `${reviewPercent ?? 0}%` }}
+                />
+              </div>
+              <p className="mt-3 text-[11px] leading-5 text-white/45">
+                {(reviewPercent ?? 0) >= 50
+                  ? 'Jev flagged this turn for a person before the agent answers.'
+                  : 'Jev cleared this turn for the automated workflow.'}
+              </p>
+              <div className="mt-auto flex flex-wrap gap-2 pt-4 text-[11px]">
+                <span
+                  className={cn(
+                    'rounded-full border px-2.5 py-1 font-medium',
+                    verified
+                      ? 'border-emerald-300/30 bg-emerald-300/10 text-emerald-100'
+                      : 'border-amber-300/30 bg-amber-300/10 text-amber-100'
+                  )}
+                >
+                  {verified ? 'Identity verified' : 'Verification required'}
+                </span>
+                {emergency && (
+                  <span className="rounded-full border border-rose-300/35 bg-rose-300/10 px-2.5 py-1 font-medium text-rose-100">
+                    Emergency language
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-black/25 p-5">
+              <p className="flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-white/45">
+                <CalendarCheck2 className="h-3.5 w-3.5" /> What the tool responded with
+              </p>
+              <dl className="mt-3 grid gap-2">
+                {responded.map((entry) => (
+                  <div key={entry.label} className="flex flex-wrap items-baseline justify-between gap-2 rounded-xl bg-white/[0.04] px-3 py-2">
+                    <dt className="text-[11px] uppercase tracking-[0.12em] text-white/40">{entry.label}</dt>
+                    <dd className="text-sm font-medium text-white/85">{entry.detail}</dd>
+                  </div>
+                ))}
+              </dl>
+              <p className="mt-3 text-[11px] leading-5 text-white/45">
+                <span className="text-white/35">Policy reason · </span>
+                <span className="font-medium text-white/75">{toLabel(reason)}</span>
+              </p>
+            </div>
           </div>
 
-          <div className="mt-5 flex items-center justify-between gap-4 border-t border-white/10 pt-4">
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-white/10 pt-5">
             <p className="text-xs text-white/40">This decision is also saved in Tool executions.</p>
             <div className="flex items-center gap-3">
               {queuedCount > 0 && <span className="text-xs text-cyan-100/60">{queuedCount} more queued</span>}
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-xl bg-white px-4 py-2 text-xs font-semibold text-slate-950 transition hover:bg-cyan-100"
+                className="rounded-xl bg-white px-5 py-2.5 text-xs font-semibold text-slate-950 transition hover:bg-cyan-100"
               >
                 Continue
               </button>
@@ -366,7 +655,7 @@ export function ToolExecutionFeed({
 
   useEffect(() => {
     if (!activeDecision) return;
-    const timer = window.setTimeout(() => setActiveDecision(null), 7000);
+    const timer = window.setTimeout(() => setActiveDecision(null), 16000);
     return () => window.clearTimeout(timer);
   }, [activeDecision]);
 

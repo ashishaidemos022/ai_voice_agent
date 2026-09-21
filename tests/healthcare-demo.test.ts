@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   HEALTHCARE_DEMO_PATIENT_REFERENCE,
   HEALTHCARE_TOOL_PARAMETERS,
+  estimateJevCostUsd,
   hasEmergencyLanguage,
   safeHealthcareAction,
   type HealthcareJevResult
@@ -88,4 +89,12 @@ test('a specialty or modality mismatch never offers cardiology slots', () => {
     action: 'search_availability',
     utterance: 'Can the cardiology appointment be a video visit?'
   }).reason, 'unsupported_modality');
+});
+
+test('Jev cost estimates price reported tokens and stay null without usage', () => {
+  const pricing = { inputUsdPerMillionTokens: 2, outputUsdPerMillionTokens: 4 };
+  assert.equal(estimateJevCostUsd(1_000_000, 500_000, pricing), 4);
+  assert.equal(estimateJevCostUsd(1_000, null, pricing), 0.002);
+  assert.equal(estimateJevCostUsd(null, undefined, pricing), null);
+  assert.equal(estimateJevCostUsd(undefined, undefined), null);
 });

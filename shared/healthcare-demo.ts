@@ -79,7 +79,50 @@ export type JevAnswer = {
 export type HealthcareJevResult = {
   model: string;
   answers: Record<string, JevAnswer>;
-  usage?: { input_tokens?: number; output_tokens?: number };
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+    cost_usd?: number;
+  };
+};
+
+export type JevPricing = {
+  inputUsdPerMillionTokens: number;
+  outputUsdPerMillionTokens: number;
+};
+
+// TypeSafe does not return a billed amount on /systemone, so the demo prices the
+// evaluation locally. Override with TYPESAFE_JEV_INPUT_USD_PER_MTOK and
+// TYPESAFE_JEV_OUTPUT_USD_PER_MTOK once contracted rates are known.
+export const JEV_DEFAULT_PRICING: JevPricing = {
+  inputUsdPerMillionTokens: 0.20,
+  outputUsdPerMillionTokens: 0.80
+};
+
+export function estimateJevCostUsd(
+  inputTokens: number | null | undefined,
+  outputTokens: number | null | undefined,
+  pricing: JevPricing = JEV_DEFAULT_PRICING
+): number | null {
+  const input = inputTokens === null || inputTokens === undefined ? Number.NaN : Number(inputTokens);
+  const output = outputTokens === null || outputTokens === undefined ? Number.NaN : Number(outputTokens);
+  if (!Number.isFinite(input) && !Number.isFinite(output)) return null;
+  return (
+    ((Number.isFinite(input) ? input : 0) * pricing.inputUsdPerMillionTokens) +
+    ((Number.isFinite(output) ? output : 0) * pricing.outputUsdPerMillionTokens)
+  ) / 1_000_000;
+}
+
+export type JevTelemetry = {
+  model: string | null;
+  latency_ms: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
+  cost_usd: number | null;
+  cost_kind: 'billed' | 'estimated' | null;
+  pricing: JevPricing;
 };
 
 export function healthcareJevQuestions(context: {

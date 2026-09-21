@@ -2,11 +2,15 @@ import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
 import {
   HEALTHCARE_DEMO_PATIENT_REFERENCE,
   HEALTHCARE_TOOL_PARAMETERS,
+  JEV_DEFAULT_PRICING,
+  estimateJevCostUsd,
   healthcareJevQuestions,
   hasEmergencyLanguage,
   safeHealthcareAction,
   type HealthcareAction,
-  type HealthcareJevResult
+  type HealthcareJevResult,
+  type JevPricing,
+  type JevTelemetry
 } from '../../../shared/healthcare-demo.ts';
 
 const corsHeaders = {
@@ -22,10 +26,21 @@ const TYPESAFE_BASE_URL = Deno.env.get('TYPESAFE_BASE_URL') || 'https://api.type
 const EHR_SUPABASE_URL = Deno.env.get('EHR_SUPABASE_URL');
 const EHR_SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('EHR_SUPABASE_SERVICE_ROLE_KEY');
 
+function pricingRate(name: string, fallback: number) {
+  const parsed = Number(Deno.env.get(name));
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+const JEV_PRICING: JevPricing = {
+  inputUsdPerMillionTokens: pricingRate('TYPESAFE_JEV_INPUT_USD_PER_MTOK', JEV_DEFAULT_PRICING.inputUsdPerMillionTokens),
+  outputUsdPerMillionTokens: pricingRate('TYPESAFE_JEV_OUTPUT_USD_PER_MTOK', JEV_DEFAULT_PRICING.outputUsdPerMillionTokens)
+};
+
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) throw new Error('Supabase service role credentials are missing');
 const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 type JsonRecord = Record<string, any>;
+const PATIENT_TIME_ZONE = 'America/Chicago';
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -98,6 +113,39 @@ function verifyPatient(patient: JsonRecord, dateOfBirth: unknown, postalCode: un
   return Boolean(suppliedDob && suppliedPostal && suppliedDob === expectedDob && suppliedPostal === expectedPostal);
 }
 
+function localDateTime(value: unknown) {
+  const date = new Date(String(value || ''));
+  if (Number.isNaN(date.getTime())) return null;
+  const display = new Intl.DateTimeFormat('en-US', {
+    timeZone: PATIENT_TIME_ZONE,
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short'
+  }).format(date);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: PATIENT_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZoneName: 'short'
+  }).formatToParts(date);
+  const part = (type: string) => parts.find((item) => item.type === type)?.value || '';
+  return {
+    display,
+    local_date: `${part('year')}-${part('month')}-${part('day')}`,
+    local_time: `${part('hour')}:${part('minute')} ${part('dayPeriod')}`,
+    timezone: PATIENT_TIME_ZONE,
+    timezone_abbreviation: part('timeZoneName')
+  };
+}
+
 async function evaluateWithJev(params: {
   utterance: string;
   action: HealthcareAction;
@@ -108,8 +156,9 @@ async function evaluateWithJev(params: {
   appointmentSelected: boolean;
   selectedSlotProvided: boolean;
   confirmed: boolean;
-}): Promise<HealthcareJevResult> {
+}): Promise<{ result: HealthcareJevResult; telemetry: JevTelemetry }> {
   if (!TYPESAFE_API_KEY) throw new Error('TypeSafe connection is not configured');
+  const startedAt = Date.now();
   const response = await fetch(`${TYPESAFE_BASE_URL}/systemone`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${TYPESAFE_API_KEY}`, 'Content-Type': 'application/json' },
@@ -132,14 +181,41 @@ async function evaluateWithJev(params: {
     })
   });
   const body = await response.json();
+  const latencyMs = Date.now() - startedAt;
   if (!response.ok) throw new Error(asRecord(asRecord(body).error).message as string || `Jev request failed (${response.status})`);
-  return body as HealthcareJevResult;
+  const result = body as HealthcareJevResult;
+  return { result, telemetry: jevTelemetry(result, latencyMs) };
+}
+
+function numberOrNull(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function jevTelemetry(result: HealthcareJevResult, latencyMs: number): JevTelemetry {
+  const usage = asRecord(result.usage);
+  const inputTokens = numberOrNull(usage.input_tokens);
+  const outputTokens = numberOrNull(usage.output_tokens);
+  const billedCost = numberOrNull(usage.cost_usd);
+  const estimatedCost = estimateJevCostUsd(inputTokens, outputTokens, JEV_PRICING);
+  return {
+    model: result.model || null,
+    latency_ms: latencyMs,
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    total_tokens: numberOrNull(usage.total_tokens)
+      ?? (inputTokens === null && outputTokens === null ? null : (inputTokens || 0) + (outputTokens || 0)),
+    cost_usd: billedCost ?? estimatedCost,
+    cost_kind: billedCost !== null ? 'billed' : estimatedCost !== null ? 'estimated' : null,
+    pricing: JEV_PRICING
+  };
 }
 
 function publicAppointment(appointment: JsonRecord) {
   return {
     appointment_id: appointment.id,
     starts_at: appointment.start_at,
+    local_start: localDateTime(appointment.start_at),
     duration_min: appointment.duration_min,
     status: appointment.status,
     visit_type: appointment.visit_type,
@@ -155,6 +231,8 @@ function publicSlot(slot: JsonRecord) {
     slot_id: slot.id,
     starts_at: slot.slot_start,
     ends_at: slot.slot_end,
+    local_start: localDateTime(slot.slot_start),
+    local_end: localDateTime(slot.slot_end),
     duration_min: slot.duration_min,
     provider: slot.provider,
     department: slot.department,
@@ -266,6 +344,7 @@ async function executeConfirmedAction(params: {
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 200, headers: corsHeaders });
+  const requestStartedAt = Date.now();
   try {
     if (req.method !== 'POST') return jsonResponse({ error: 'Method not allowed' }, 405);
     const token = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
@@ -287,7 +366,9 @@ Deno.serve(async (req: Request) => {
     if (!allowedActions.has(action)) return jsonResponse({ error: 'A valid patient-access action is required' }, 400);
     if (patientReference !== HEALTHCARE_DEMO_PATIENT_REFERENCE) return jsonResponse({ error: 'Patient reference not found' }, 404);
 
+    const ehrStartedAt = Date.now();
     const access = await loadPatientAccess();
+    const ehrLatencyMs = Date.now() - ehrStartedAt;
     const verified = verifyPatient(access.patient, body.date_of_birth, body.postal_code);
     const selectedAppointment = access.appointments.find((row) => row.id === appointmentId);
     const eligibleSlots = action === 'reschedule_appointment'
@@ -306,7 +387,7 @@ Deno.serve(async (req: Request) => {
       selectedSlotProvided: Boolean(selectedSlotId),
       confirmed
     };
-    const jev = await evaluateWithJev(context);
+    const { result: jev, telemetry } = await evaluateWithJev(context);
     const policy = safeHealthcareAction({
       ...context,
       jev,
@@ -335,9 +416,16 @@ Deno.serve(async (req: Request) => {
           needs_human_review: jev.answers.needs_human_review,
           policy_reason: policy.reason,
           emergency_language_detected: hasEmergencyLanguage(utterance),
-          model: jev.model
+          model: jev.model,
+          answers: jev.answers
         },
         action: { status: 'verification_required', next_step: policy.nextStep },
+        jev: telemetry,
+        timing: {
+          jev_ms: telemetry.latency_ms,
+          ehr_ms: ehrLatencyMs,
+          total_ms: Date.now() - requestStartedAt
+        },
         jev_usage: jev.usage || null
       });
     }
@@ -350,7 +438,8 @@ Deno.serve(async (req: Request) => {
         needs_human_review: jev.answers.needs_human_review,
         policy_reason: policy.reason,
         emergency_language_detected: hasEmergencyLanguage(utterance),
-        model: jev.model
+        model: jev.model,
+        answers: jev.answers
       },
       ehr: {
         appointments: access.appointments.map(publicAppointment),
@@ -360,6 +449,12 @@ Deno.serve(async (req: Request) => {
       change,
       action: change ? { status: 'completed', next_step: 'share_confirmation' } : { status: 'ready', next_step: policy.nextStep },
       sources: ['Supabase_EHR MCP', 'epic_patients', 'epic_appointments', 'epic_referrals', 'epic_provider_schedule_slots'],
+      jev: telemetry,
+      timing: {
+        jev_ms: telemetry.latency_ms,
+        ehr_ms: ehrLatencyMs,
+        total_ms: Date.now() - requestStartedAt
+      },
       jev_usage: jev.usage || null
     });
   } catch (error) {
