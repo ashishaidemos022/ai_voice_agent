@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Card } from '../ui/Card';
 import { cn } from '../../lib/utils';
@@ -5,6 +6,7 @@ import { useVoiceEval } from '../../hooks/useVoiceEval';
 import { SCENARIOS } from '../../../shared/voice-eval/scenarios/index';
 import type { FingerprintInput } from '../../../shared/voice-eval/fingerprint';
 import type { ScoreEvalRunResponse } from '../../lib/voice-eval/api';
+import type { VoiceAdapter } from '../../lib/voice-adapters/types';
 import { Scorecard } from './Scorecard';
 
 interface EvaluatorPanelProps {
@@ -12,6 +14,8 @@ interface EvaluatorPanelProps {
   sessionId: string | null;
   agentConfigId: string | null;
   fingerprintInput: FingerprintInput;
+  getAdapter: () => VoiceAdapter | null;
+  hangUp: () => void;
 }
 
 const VERDICT_STYLE: Record<ScoreEvalRunResponse['status'], string> = {
@@ -20,10 +24,15 @@ const VERDICT_STYLE: Record<ScoreEvalRunResponse['status'], string> = {
   invalid_harness: 'border-amber-300/50 bg-amber-500/15 text-amber-100'
 };
 
-export function EvaluatorPanel({ isConnected, sessionId, agentConfigId, fingerprintInput }: EvaluatorPanelProps) {
-  const evalRun = useVoiceEval({ sessionId, agentConfigId, fingerprintInput });
+export function EvaluatorPanel({ isConnected, sessionId, agentConfigId, fingerprintInput, getAdapter, hangUp }: EvaluatorPanelProps) {
+  const evalRun = useVoiceEval({ sessionId, agentConfigId, fingerprintInput, getAdapter, hangUp });
   const { phase, scenario } = evalRun;
   const running = phase === 'live' || phase === 'arming' || phase === 'scoring';
+  const syntheticSupported = isConnected && typeof getAdapter()?.attachSyntheticInput === 'function';
+  const synthetic = evalRun.callerType === 'synthetic';
+  useEffect(() => {
+    if (isConnected && !syntheticSupported && evalRun.callerType === 'synthetic' && !running) evalRun.setCallerType('human');
+  }, [isConnected, syntheticSupported, evalRun, running]);
 
   return (
     <Card className="p-5 bg-slate-900/60 border-cyan-400/20 flex flex-col gap-4">
@@ -57,8 +66,23 @@ export function EvaluatorPanel({ isConnected, sessionId, agentConfigId, fingerpr
           {SCENARIOS.map((s) => <option key={s.id} value={s.id}>{s.id} · {s.title}</option>)}
         </select>
         <div className="grid grid-cols-2 gap-1 rounded-lg border border-white/10 bg-slate-950/60 p-1 text-xs">
-          <span className="rounded-md bg-cyan-500/20 px-3 py-1 text-center text-cyan-100">You</span>
-          <span aria-disabled="true" className="px-3 py-1 text-center text-white/30" title="Synthetic caller arrives in phase 2">Synthetic</span>
+          <button
+            type="button"
+            disabled={running}
+            onClick={() => evalRun.setCallerType('human')}
+            className={cn('rounded-md px-3 py-1 text-center', !synthetic ? 'bg-cyan-500/20 text-cyan-100' : 'text-white/50')}
+          >
+            You
+          </button>
+          <button
+            type="button"
+            disabled={running || !syntheticSupported}
+            title={syntheticSupported ? 'A scripted caller runs the scenario hands-free' : 'Connect a supported voice provider (OpenAI Realtime, xAI or ElevenLabs TTS) to use the synthetic caller'}
+            onClick={() => evalRun.setCallerType('synthetic')}
+            className={cn('rounded-md px-3 py-1 text-center disabled:opacity-40', synthetic ? 'bg-cyan-500/20 text-cyan-100' : 'text-white/50')}
+          >
+            Synthetic
+          </button>
         </div>
       </div>
 
@@ -66,18 +90,29 @@ export function EvaluatorPanel({ isConnected, sessionId, agentConfigId, fingerpr
         <div className="rounded-xl border border-white/10 bg-slate-950/50 p-3 text-xs text-white/70">
           <p className="text-white/90">{scenario.goal}</p>
           <p className="mt-1 text-white/40">{`${scenario.persona.temperament} · ${scenario.persona.accent} · noise: ${scenario.persona.noise}`}</p>
-          <p className="mt-2 text-[11px] uppercase tracking-[0.3em] text-white/40">Your details</p>
-          <ul className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
-            {Object.entries(scenario.facts).map(([key, fact]) => <li key={key}><span className="text-white/40">{key}:</span> {fact.value}</li>)}
-          </ul>
-          {scenario.beats.length > 0 && (
-            <ul className="mt-2 list-disc pl-4 text-white/60">
-              {scenario.beats.map((beat, index) => (
-                <li key={index}>
-                  {beat.kind === 'silence' ? `After turn ${beat.afterTurn}, stay silent ~${Math.round((beat.durationMs ?? 0) / 1000)}s` : beat.kind === 'barge_in' ? `Interrupt the agent's readback: "${beat.line}"` : `Around turn ${beat.afterTurn}: "${beat.line}"`}
-                </li>
-              ))}
-            </ul>
+          {!synthetic && (
+            <>
+              <p className="mt-2 text-[11px] uppercase tracking-[0.3em] text-white/40">Your details</p>
+              <ul className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
+                {Object.entries(scenario.facts).map(([key, fact]) => <li key={key}><span className="text-white/40">{key}:</span> {fact.value}</li>)}
+              </ul>
+              {scenario.beats.length > 0 && (
+                <ul className="mt-2 list-disc pl-4 text-white/60">
+                  {scenario.beats.map((beat, index) => (
+                    <li key={index}>
+                      {beat.kind === 'silence' ? `After turn ${beat.afterTurn}, stay silent ~${Math.round((beat.durationMs ?? 0) / 1000)}s` : beat.kind === 'barge_in' ? `Interrupt the agent's readback: "${beat.line}"` : `Around turn ${beat.afterTurn}: "${beat.line}"`}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+          {synthetic && (
+            <p className="mt-2 text-white/60">
+              {phase === 'live' && evalRun.callerStatus
+                ? `Caller: ${evalRun.callerStatus.replace('_', ' ')}`
+                : 'The synthetic caller plays this scenario hands-free. Your microphone is off during the run.'}
+            </p>
           )}
         </div>
       )}
@@ -100,7 +135,7 @@ export function EvaluatorPanel({ isConnected, sessionId, agentConfigId, fingerpr
         )}
       </div>
 
-      {phase === 'arming' && <p className="text-xs text-white/50">Wait until the panel shows LIVE before speaking.</p>}
+      {phase === 'arming' && <p className="text-xs text-white/50">{synthetic ? 'Preparing the synthetic caller…' : 'Wait until the panel shows LIVE before speaking.'}</p>}
 
       {evalRun.error && <p className="text-xs text-rose-300">{evalRun.error}</p>}
 

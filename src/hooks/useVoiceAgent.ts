@@ -758,6 +758,10 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
           publishVoiceEvalSignal({ kind: 'agent_audio_start', at: performance.now() });
         }
       }
+      // Leaving 'speaking' is the agent's audio stop (the synthetic caller's turn detector and barge-in scoring use it).
+      if (event.state !== 'speaking' && lastAgentStateEventRef.current === 'speaking') {
+        publishVoiceEvalSignal({ kind: 'agent_audio_stop', at: performance.now() });
+      }
       lastAgentStateEventRef.current = event.state;
       setAgentState(event.state);
       if (event.state === 'listening' && audioManager) {
@@ -1462,6 +1466,8 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
     ]
   );
 
+  const getAdapter = useCallback(() => realtimeClientRef.current, []);
+
   const cleanup = useCallback(async () => {
     if (isCleaningUpRef.current) return;
     isCleaningUpRef.current = true;
@@ -1648,6 +1654,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
     toggleRecording,
     interrupt,
     sendA2UIEvent,
-    cleanup
+    cleanup,
+    getAdapter
   };
 }

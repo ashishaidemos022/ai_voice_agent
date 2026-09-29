@@ -6,7 +6,11 @@ import { scoreRun } from '../../shared/voice-eval/scoring/index';
 import type { RunScore, Scenario } from '../../shared/voice-eval/types';
 import { abortEvalRun, flushEvidence, scoreEvalRun, setupEvalRun, type ScoreEvalRunResponse } from '../lib/voice-eval/api';
 import { setActiveEvalContext } from '../lib/voice-eval/eval-context';
-import { subscribeVoiceEvalSignals } from '../lib/voice-eval/signal-bus';
+import type { VoiceAdapter } from '../lib/voice-adapters/types';
+import { callerApi } from '../lib/voice-eval/caller-api';
+import { publishVoiceEvalSignal, subscribeVoiceEvalSignals } from '../lib/voice-eval/signal-bus';
+import { createSyntheticMic } from '../lib/voice-eval/synthetic-caller/synthetic-mic';
+import { SyntheticCaller, type CallerStatus } from '../lib/voice-eval/synthetic-caller/synthetic-caller';
 
 export type EvalPhase = 'idle' | 'arming' | 'live' | 'scoring' | 'done' | 'error';
 
@@ -14,6 +18,8 @@ export interface UseVoiceEvalOptions {
   sessionId: string | null;
   agentConfigId: string | null;
   fingerprintInput: FingerprintInput;
+  getAdapter: () => VoiceAdapter | null;
+  hangUp: () => void;
 }
 
 interface ActiveRun {
@@ -22,6 +28,7 @@ interface ActiveRun {
   recorder: EvidenceRecorder;
   unsubscribe: () => void;
   flushTimer: number;
+  caller: SyntheticCaller | null;
 }
 
 interface ArmToken {
@@ -47,6 +54,8 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
   const [result, setResult] = useState<ScoreEvalRunResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [evidenceIncomplete, setEvidenceIncomplete] = useState(false);
+  const [callerType, setCallerType] = useState<'human' | 'synthetic'>('human');
+  const [callerStatus, setCallerStatus] = useState<CallerStatus | null>(null);
   const runRef = useRef<ActiveRun | null>(null);
   const armTokenRef = useRef<ArmToken | null>(null);
   const scoreTimerRef = useRef<number | null>(null);
@@ -79,6 +88,7 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
     const run = runRef.current;
     if (!run) return;
     run.unsubscribe();
+    if (run.caller) void run.caller.stop();
     window.clearInterval(run.flushTimer);
     if (scoreTimerRef.current !== null) window.clearTimeout(scoreTimerRef.current);
     scoreTimerRef.current = null;
@@ -94,6 +104,7 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
     setError(null);
     setResult(null);
     setEvidenceIncomplete(false);
+    setCallerStatus(null);
     lastSessionIdRef.current = optionsRef.current.sessionId;
     let setupRunId: string | null = null;
     let registered: ActiveRun | null = null;
@@ -103,7 +114,7 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
       if (token.cancelled) return;
       const setup = await setupEvalRun({
         scenarioId: scenario.id,
-        callerType: 'human',
+        callerType,
         agentConfigId,
         configFingerprint: fingerprint,
         configSnapshot: { ...fingerprintInput }
@@ -115,7 +126,7 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
       }
       const recorder = new EvidenceRecorder(performance.now());
       setActiveEvalContext({ evalRunId: setup.eval_run_id, patientReference: setup.patient_reference });
-      const run: ActiveRun = { runId: setup.run_id, scenario, recorder, unsubscribe: () => undefined, flushTimer: 0 };
+      const run: ActiveRun = { runId: setup.run_id, scenario, recorder, unsubscribe: () => undefined, flushTimer: 0, caller: null };
       runRef.current = run;
       registered = run;
       run.unsubscribe = subscribeVoiceEvalSignals((signal) => {
@@ -127,11 +138,51 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
         }, LIVE_SCORE_THROTTLE_MS);
       });
       run.flushTimer = window.setInterval(() => { void enqueueFlush(run); }, FLUSH_INTERVAL_MS);
+      if (callerType === 'synthetic') {
+        const adapter = optionsRef.current.getAdapter();
+        if (!adapter?.attachSyntheticInput) throw new Error('This voice provider does not support the synthetic caller');
+        // start() resolves quietly when the caller is stopped mid-start, so track that here.
+        let callerStopped = false;
+        const caller = new SyntheticCaller({
+          runId: setup.run_id,
+          scenario,
+          adapter,
+          api: callerApi,
+          createMic: createSyntheticMic,
+          subscribe: subscribeVoiceEvalSignals,
+          publish: publishVoiceEvalSignal,
+          hangUp: () => optionsRef.current.hangUp(),
+          onStatus: (status) => {
+            if (status === 'stopped') callerStopped = true;
+            setCallerStatus(status);
+          }
+        });
+        run.caller = caller;
+        await caller.start();
+        if (token.cancelled || callerStopped || runRef.current !== run) {
+          if (runRef.current === run) {
+            stopRecording();
+            runRef.current = null;
+          } else {
+            void caller.stop();
+          }
+          discardServerRun(setup.run_id);
+          if (!token.cancelled) {
+            setPhase('idle');
+            setLiveScore(null);
+          }
+          return;
+        }
+      }
       setLiveScore(scoreRun(scenario, [], { mode: 'live', snapshot: null }));
       setPhase('live');
     } catch (armError) {
       if (token.cancelled) {
-        // A cancelled arm never owns runRef; only discard the server run it created.
+        // A synthetic caller's start() can reject after the arm was cancelled, while its run is still registered.
+        if (registered && runRef.current === registered) {
+          stopRecording();
+          runRef.current = null;
+        }
         if (setupRunId) discardServerRun(setupRunId);
         return;
       }
@@ -149,7 +200,7 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
     } finally {
       if (armTokenRef.current === token) armTokenRef.current = null;
     }
-  }, [enqueueFlush, scenarioId, stopRecording]);
+  }, [callerType, enqueueFlush, scenarioId, stopRecording]);
 
   const end = useCallback(async () => {
     const run = runRef.current;
@@ -190,6 +241,8 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
     if (armToken) {
       armToken.cancelled = true;
       armTokenRef.current = null;
+      // A synthetic caller may still be starting; stopping it makes start() resolve so arm() can clean up.
+      if (runRef.current?.caller) void runRef.current.caller.stop();
       setPhase('idle');
       setLiveScore(null);
       return;
@@ -239,6 +292,9 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
     result,
     error,
     evidenceIncomplete,
+    callerType,
+    setCallerType,
+    callerStatus,
     arm,
     end,
     abort,

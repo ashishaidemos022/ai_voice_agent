@@ -273,7 +273,8 @@ export function VoiceAgent({
     initialize,
     toggleRecording,
     sendA2UIEvent,
-    cleanup
+    cleanup,
+    getAdapter
   } = useVoiceAgent({
     mode: modelPolicyMode,
     adapter: selectedAdapter,
@@ -1281,6 +1282,8 @@ export function VoiceAgent({
                                   provider: currentConfig.voice_provider || 'openai_realtime',
                                   toolNames: getAllTools().map((tool) => tool.name)
                                 }}
+                                getAdapter={getAdapter}
+                                hangUp={() => { void handleEnd(); }}
                               />
                             </div>
                           )}
