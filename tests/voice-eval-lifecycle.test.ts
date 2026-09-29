@@ -64,3 +64,21 @@ test('sweepStale tears down runs older than an hour and leaves fresh ones', asyn
   assert.deepEqual(await sweepStale(store, now), ['old-run']);
   assert.deepEqual(store.appointments.map((a) => a.eval_run_id), ['new-run']);
 });
+
+test('setup releases the reserved slot when the seed appointment insert fails', async () => {
+  const store = new MemoryEhrStore();
+  const failure = new Error('insert failed');
+  store.insertAppointment = async () => { throw failure; };
+  await assert.rejects(setupRun(store, getScenario('hc-02') as Scenario, 'run-4', now), (err) => err === failure);
+  assert.equal(store.appointments.length, 0);
+  assert.ok(store.slots.length > 0);
+  assert.ok(store.slots.every((s) => s.status === 'open' && s.appointment_id === null));
+});
+
+test('setup rethrows the original insert error even when releasing the slot also fails', async () => {
+  const store = new MemoryEhrStore();
+  const failure = new Error('insert failed');
+  store.insertAppointment = async () => { throw failure; };
+  store.releaseSlotsForAppointments = async () => { throw new Error('release failed'); };
+  await assert.rejects(setupRun(store, getScenario('hc-02') as Scenario, 'run-5', now), (err) => err === failure);
+});

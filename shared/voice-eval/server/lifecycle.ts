@@ -77,23 +77,33 @@ export async function setupRun(store: EhrStore, scenario: Scenario, evalRunId: s
   const appointmentId = crypto.randomUUID();
   if (!(await store.reserveSlot(slot.id, appointmentId))) throw new Error('Seed slot was taken; retry setup');
   const confirmation = `HLS-${slot.id.replace(/-/g, '').slice(-4).toUpperCase()}`;
-  await store.insertAppointment({
-    id: appointmentId,
-    patient_id: patient.id,
-    provider_id: slot.provider_id,
-    department_id: slot.department_id,
-    start_at: slot.slot_start,
-    duration_min: slot.duration_min,
-    status: 'scheduled',
-    visit_type: 'Cardiology Consult',
-    visit_type_code: EVAL_VISIT_TYPE,
-    reason: 'Cardiology referral visit',
-    confirmation_number: confirmation,
-    booked_via: 'eval_setup',
-    slot_id: slot.id,
-    referral_id: referral?.id ?? null,
-    eval_run_id: evalRunId
-  });
+  try {
+    await store.insertAppointment({
+      id: appointmentId,
+      patient_id: patient.id,
+      provider_id: slot.provider_id,
+      department_id: slot.department_id,
+      start_at: slot.slot_start,
+      duration_min: slot.duration_min,
+      status: 'scheduled',
+      visit_type: 'Cardiology Consult',
+      visit_type_code: EVAL_VISIT_TYPE,
+      reason: 'Cardiology referral visit',
+      confirmation_number: confirmation,
+      booked_via: 'eval_setup',
+      slot_id: slot.id,
+      referral_id: referral?.id ?? null,
+      eval_run_id: evalRunId
+    });
+  } catch (err) {
+    // Without a tagged appointment, teardown/sweep can never find this slot again; reopen it now.
+    try {
+      await store.releaseSlotsForAppointments([appointmentId]);
+    } catch {
+      // Surface the original insert failure, not the cleanup failure.
+    }
+    throw err;
+  }
   return { seededAppointmentId: appointmentId, seededSlotId: slot.id, sensitiveStrings: [confirmation, chicagoMonthDay(slot.slot_start)] };
 }
 
