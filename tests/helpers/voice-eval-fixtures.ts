@@ -27,3 +27,15 @@ export function callerSpeech(startMs: number, stopMs: number): EvidenceEvent[] {
 export function agentAudio(atMs: number): EvidenceEvent {
   return { kind: 'agent_audio_start', atMs };
 }
+
+export function callerUtterance(atMs: number, durationMs: number, text = 'okay', source: 'brain' | 'beat' = 'brain', beatIndex: number | null = null): EvidenceEvent {
+  return { kind: 'caller_utterance', atMs, durationMs, text, source, beatIndex };
+}
+
+export function agentAudioStop(atMs: number): EvidenceEvent {
+  return { kind: 'agent_audio_stop', atMs };
+}
+
+export function beatEvent(atMs: number, beatIndex: number, beatKind: 'barge_in' | 'correction' | 'silence' | 'say'): EvidenceEvent {
+  return { kind: 'beat', atMs, beatIndex, beatKind };
+}
