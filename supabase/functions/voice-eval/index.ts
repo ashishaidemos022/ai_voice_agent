@@ -89,7 +89,7 @@ async function handleSetup(ownerId: string, body: JsonRecord) {
     .single();
   if (error || !run) {
     await teardownRun(store, evalRunId).catch(() => undefined);
-    throw error || new Error('Could not create the eval run');
+    throw new Error(error?.message || 'Could not create the eval run');
   }
   return jsonResponse({ run_id: run.id, eval_run_id: evalRunId, patient_reference: scenario.evalPatient, started_at: run.started_at });
 }
@@ -100,7 +100,7 @@ async function runJudge(scenario: Scenario, events: EvidenceEvent[], score: RunS
   if (!turns.length) return { ...judgeUnavailable('No transcript to judge'), status: 'skipped' };
   const request = buildJudgeRequest(scenario, turns, events, score);
   try {
-    const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY, maxRetries: 1 });
+    const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY, maxRetries: 1, timeout: 90_000 });
     const response = await client.beta.messages.create({
       model: JUDGE_MODEL,
       max_tokens: 16000,
@@ -127,21 +127,49 @@ async function handleScore(ownerId: string, body: JsonRecord) {
   if (run.status !== 'running') return jsonResponse({ error: `Eval run is already ${run.status}` }, 409);
   const scenario = getScenario(run.scenario_id);
   if (!scenario) return jsonResponse({ error: 'Scenario no longer exists' }, 409);
-  const sessionId = uuidOrNull(body.session_id);
-  await adminClient.from('voice_eval_runs').update({ status: 'scoring', session_id: sessionId, ended_at: new Date().toISOString() }).eq('id', run.id);
 
-  const { data: evidenceRows } = await adminClient.from('voice_eval_evidence').select('seq, at_ms, kind, payload').eq('run_id', run.id).order('seq');
+  let sessionId = uuidOrNull(body.session_id);
+  if (sessionId) {
+    const { data: session, error: sessionError } = await adminClient
+      .from('va_sessions')
+      .select('id')
+      .eq('id', sessionId)
+      .eq('user_id', ownerId)
+      .maybeSingle();
+    if (sessionError) console.warn('[voice-eval] session ownership check failed', sessionError.message);
+    if (!session) sessionId = null;
+  }
+
+  const { data: claimed, error: claimError } = await adminClient
+    .from('voice_eval_runs')
+    .update({ status: 'scoring', session_id: sessionId, ended_at: new Date().toISOString() })
+    .eq('id', run.id)
+    .eq('status', 'running')
+    .select('id');
+  if (claimError) throw new Error(`Could not start scoring: ${claimError.message}`);
+  if (!claimed || claimed.length === 0) return jsonResponse({ error: 'Eval run is already being scored' }, 409);
+
+  const harnessErrors: EvidenceEvent[] = [];
+  const { data: evidenceRows, error: evidenceError } = await adminClient
+    .from('voice_eval_evidence')
+    .select('seq, at_ms, kind, payload')
+    .eq('run_id', run.id)
+    .order('seq');
+  if (evidenceError) harnessErrors.push({ kind: 'harness_error', atMs: 0, message: `evidence load failed: ${evidenceError.message}` });
+
   let toolRows: ToolExecutionRow[] = [];
   if (sessionId) {
-    const { data } = await adminClient
+    const { data, error: toolError } = await adminClient
       .from('va_tool_executions')
-      .select('id, tool_name, input_params, output_result, execution_time_ms, status, created_at')
+      .select('id, tool_name, input_params, output_result, execution_time_ms, status, created_at:executed_at')
       .eq('session_id', sessionId)
-      .gte('created_at', run.started_at)
-      .order('created_at');
-    toolRows = (data ?? []) as ToolExecutionRow[];
+      .eq('user_id', ownerId)
+      .gte('executed_at', run.started_at)
+      .order('executed_at');
+    if (toolError) harnessErrors.push({ kind: 'harness_error', atMs: 0, message: `tool log load failed: ${toolError.message}` });
+    else toolRows = (data ?? []) as ToolExecutionRow[];
   }
-  const events = mergeToolLog((evidenceRows ?? []).map(fromEvidenceRow), toolRows, run.started_at);
+  const events = [...harnessErrors, ...mergeToolLog((evidenceRows ?? []).map(fromEvidenceRow), toolRows, run.started_at)];
 
   const store = ehrStore();
   const setup = asRecord(run.setup) as SetupResult;
@@ -152,18 +180,20 @@ async function handleScore(ownerId: string, body: JsonRecord) {
     console.error('[voice-eval] state snapshot failed', error);
   }
   const score = scoreRun(scenario, events, { mode: 'final', snapshot, sensitiveStrings: setup.sensitiveStrings ?? [] });
-  const judge = await runJudge(scenario, events, score);
   await teardownRun(store, run.eval_run_id).catch((error) => console.error('[voice-eval] teardown failed', error));
+  const judge = await runJudge(scenario, events, score);
 
   const status = score.verdict === 'pass' || score.verdict === 'invalid_harness' ? score.verdict : 'fail';
-  await adminClient.from('voice_eval_runs').update({
+  const { data: finalized, error: finalError } = await adminClient.from('voice_eval_runs').update({
     status,
     gates: score.gates,
     scores: { tools: score.tools, entities: score.entities, turnTaking: score.turnTaking, safety: score.safety },
     latency: score.latency,
     judge,
     scored_at: new Date().toISOString()
-  }).eq('id', run.id);
+  }).eq('id', run.id).eq('status', 'scoring').select('id');
+  if (finalError) throw new Error(`Could not save the eval result: ${finalError.message}`);
+  if (!finalized || finalized.length === 0) throw new Error('Eval run left the scoring state before its result was saved');
   return jsonResponse({ run_id: run.id, status, score, judge });
 }
 
@@ -171,8 +201,22 @@ async function handleTeardown(ownerId: string, body: JsonRecord) {
   const run = await loadOwnedRun(ownerId, body.run_id);
   if (!run) return jsonResponse({ error: 'Eval run not found' }, 404);
   const removed = await teardownRun(ehrStore(), run.eval_run_id);
-  const status = run.status === 'running' || run.status === 'scoring' ? 'aborted' : run.status;
-  await adminClient.from('voice_eval_runs').update({ status, ended_at: run.ended_at ?? new Date().toISOString() }).eq('id', run.id);
+  let status = run.status;
+  if (run.status === 'running') {
+    const { data: aborted, error } = await adminClient
+      .from('voice_eval_runs')
+      .update({ status: 'aborted', ended_at: run.ended_at ?? new Date().toISOString() })
+      .eq('id', run.id)
+      .eq('status', 'running')
+      .select('status');
+    if (error) throw new Error(`Could not abort the eval run: ${error.message}`);
+    if (aborted && aborted.length) {
+      status = 'aborted';
+    } else {
+      const current = await loadOwnedRun(ownerId, run.id);
+      status = current?.status ?? run.status;
+    }
+  }
   return jsonResponse({ run_id: run.id, status, removed });
 }
 

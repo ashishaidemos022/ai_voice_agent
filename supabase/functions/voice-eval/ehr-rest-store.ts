@@ -15,7 +15,13 @@ export function createEhrRestStore(baseUrl: string, serviceKey: string): EhrStor
       headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json', ...(init.headers || {}) }
     });
     const text = await response.text();
-    const body = text ? JSON.parse(text) : null;
+    let body: any = null;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      body = null;
+      if (response.ok) throw new Error(`EHR returned a non-JSON response (${response.status})`);
+    }
     if (!response.ok) throw new Error((body && typeof body === 'object' && 'message' in body ? String(body.message) : '') || `EHR request failed (${response.status})`);
     return body;
   }
