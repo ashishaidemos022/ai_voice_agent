@@ -62,3 +62,11 @@ test('eval context overrides patient reference and adds run id only when active'
     action: 'book_appointment', patient_reference: 'EVAL-0001', eval_run_id: 'r'
   });
 });
+
+test('model-supplied eval run ids are always stripped', () => {
+  const llmParams = { action: 'x', eval_run_id: 'llm', patient_reference: 'EVAL-0001' };
+  assert.deepEqual(applyEvalContext(llmParams, null), { action: 'x', patient_reference: 'EVAL-0001' });
+  assert.deepEqual(applyEvalContext(llmParams, { evalRunId: 'r', patientReference: 'EVAL-0002' }), {
+    action: 'x', patient_reference: 'EVAL-0002', eval_run_id: 'r'
+  });
+});
