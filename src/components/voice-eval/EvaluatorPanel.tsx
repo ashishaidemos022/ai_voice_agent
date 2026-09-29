@@ -93,6 +93,9 @@ export function EvaluatorPanel({ isConnected, sessionId, agentConfigId, fingerpr
           {evalRun.result.status.replace('_', ' ')}
         </div>
       )}
+      {phase === 'done' && evalRun.result && evalRun.evidenceIncomplete && (
+        <p className="text-xs text-amber-300">Some call evidence could not be saved; transcript-based scores may be incomplete.</p>
+      )}
 
       {phase === 'done' && evalRun.result
         ? <Scorecard score={evalRun.result.score} judge={evalRun.result.judge} />

@@ -26,7 +26,20 @@ export interface ScoreEvalRunResponse {
 
 async function invoke<T>(body: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.functions.invoke('voice-eval', { body });
-  if (error) throw new Error(error.message || 'Evaluator request failed');
+  if (error) {
+    const fallback = error.message || 'Evaluator request failed';
+    const context = (error as { context?: unknown }).context;
+    let message = fallback;
+    if (context && typeof (context as { json?: unknown }).json === 'function') {
+      try {
+        const errorBody = (await (context as { json: () => Promise<unknown> }).json()) as { error?: unknown } | null;
+        if (typeof errorBody?.error === 'string' && errorBody.error) message = errorBody.error;
+      } catch {
+        // Body was not JSON (or already consumed); keep the generic message.
+      }
+    }
+    throw new Error(message);
+  }
   if (data?.error) throw new Error(data.error);
   return data as T;
 }
