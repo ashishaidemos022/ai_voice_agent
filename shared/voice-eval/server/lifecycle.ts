@@ -9,7 +9,15 @@ export interface EhrStore {
   /** ISO strings (toISOString format) of every slot for the provider starting at or after fromIso. */
   listFutureSlotStarts(providerId: string, fromIso: string): Promise<string[]>;
   insertSlots(rows: SlotRow[]): Promise<void>;
-  reserveSlot(slotId: string, appointmentId: string): Promise<boolean>;
+  /**
+   * Booking follows the EHR's own protocol (check constraint + non-deferrable FK): hold -> insert appointment -> book.
+   * claimSlot atomically holds an open slot for holderId; false if someone else got it.
+   */
+  claimSlot(slotId: string, holderId: string, heldUntil: string): Promise<boolean>;
+  /** Books a slot this holder holds, pointing it at an appointment that already exists. */
+  linkSlot(slotId: string, holderId: string, appointmentId: string): Promise<boolean>;
+  /** Reopens a slot this holder holds but never booked. */
+  unclaimSlot(slotId: string, holderId: string): Promise<void>;
   insertAppointment(row: AppointmentRow): Promise<void>;
   listTaggedAppointments(evalRunId: string): Promise<AppointmentRow[]>;
   listSlotsByIds(ids: string[]): Promise<SlotRow[]>;
@@ -30,6 +38,7 @@ const SLOT_POOL_WEEKDAYS = 10;
 const SLOT_POOL_LOCAL_HOURS = [9, 11, 14];
 const SLOT_DURATION_MIN = 45;
 const SEED_MIN_LEAD_MS = 2 * 24 * 60 * 60 * 1000;
+const SEED_HOLD_MS = 60 * 1000;
 
 export function planSlotPool(now: Date, existingStarts: Set<string>, makeId: () => string = () => crypto.randomUUID()): SlotRow[] {
   const rows: SlotRow[] = [];
@@ -78,7 +87,9 @@ export async function setupRun(store: EhrStore, scenario: Scenario, evalRunId: s
   const [slot] = await store.listOpenFutureSlots(EVAL_VISIT_TYPE, new Date(now.getTime() + SEED_MIN_LEAD_MS).toISOString());
   if (!slot) throw new Error('No open slot is available to seed the scenario appointment');
   const appointmentId = crypto.randomUUID();
-  if (!(await store.reserveSlot(slot.id, appointmentId))) throw new Error('Seed slot was taken; retry setup');
+  if (!(await store.claimSlot(slot.id, patient.id, new Date(now.getTime() + SEED_HOLD_MS).toISOString()))) {
+    throw new Error('Seed slot was taken; retry setup');
+  }
   const confirmation = `HLS-${slot.id.replace(/-/g, '').slice(-4).toUpperCase()}`;
   try {
     await store.insertAppointment({
@@ -101,11 +112,16 @@ export async function setupRun(store: EhrStore, scenario: Scenario, evalRunId: s
   } catch (err) {
     // Without a tagged appointment, teardown/sweep can never find this slot again; reopen it now.
     try {
-      await store.releaseSlotsForAppointments([appointmentId]);
+      await store.unclaimSlot(slot.id, patient.id);
     } catch {
       // Surface the original insert failure, not the cleanup failure.
     }
     throw err;
+  }
+  if (!(await store.linkSlot(slot.id, patient.id, appointmentId))) {
+    await store.deleteTaggedAppointments(evalRunId).catch(() => 0);
+    await store.unclaimSlot(slot.id, patient.id).catch(() => undefined);
+    throw new Error('Could not link the seed slot to its appointment; retry setup');
   }
   return {
     seededAppointmentId: appointmentId,

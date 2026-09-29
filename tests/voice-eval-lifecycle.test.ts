@@ -80,7 +80,7 @@ test('setup rethrows the original insert error even when releasing the slot also
   const store = new MemoryEhrStore();
   const failure = new Error('insert failed');
   store.insertAppointment = async () => { throw failure; };
-  store.releaseSlotsForAppointments = async () => { throw new Error('release failed'); };
+  store.unclaimSlot = async () => { throw new Error('release failed'); };
   await assert.rejects(setupRun(store, getScenario('hc-02') as Scenario, 'run-5', now), (err) => err === failure);
 });
 

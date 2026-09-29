@@ -267,15 +267,31 @@ async function holdSlot(slot: JsonRecord, patientId: string) {
   return heldUntil;
 }
 
-async function reserveSlot(slot: JsonRecord, appointmentId: string, patientId: string) {
-  const patched = await ehrRequest(claimableSlotPath(slot.id, patientId), {
-    method: 'PATCH',
-    headers: { Prefer: 'return=representation' },
-    body: JSON.stringify({
-      status: 'booked', appointment_id: appointmentId, held_by_session_id: null, held_until: null, updated_at: new Date().toISOString()
-    })
-  });
+// Booking follows the EHR's slot protocol (check constraint + non-deferrable FK on appointment_id):
+// hold the slot for the patient -> insert the appointment -> book the slot pointing at it.
+async function claimSlot(slot: JsonRecord, patientId: string) {
+  await holdSlot(slot, patientId);
+}
+
+async function linkSlot(slotId: string, patientId: string, appointmentId: string) {
+  const patched = await ehrRequest(
+    `epic_provider_schedule_slots?id=eq.${encodeURIComponent(slotId)}&status=eq.held&held_by_session_id=eq.${encodeURIComponent(patientId)}`,
+    {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({
+        status: 'booked', appointment_id: appointmentId, held_by_session_id: null, held_until: null, updated_at: new Date().toISOString()
+      })
+    }
+  );
   if (!Array.isArray(patched) || patched.length !== 1) throw new Error('That appointment time is no longer available');
+}
+
+async function unclaimSlot(slotId: string, patientId: string) {
+  await ehrRequest(
+    `epic_provider_schedule_slots?id=eq.${encodeURIComponent(slotId)}&status=eq.held&held_by_session_id=eq.${encodeURIComponent(patientId)}`,
+    { method: 'PATCH', body: JSON.stringify({ status: 'open', held_by_session_id: null, held_until: null, updated_at: new Date().toISOString() }) }
+  ).catch(() => undefined);
 }
 
 async function releaseSlot(slotId: string, appointmentId: string) {
@@ -294,7 +310,8 @@ async function createAppointment(params: {
 }) {
   const appointmentId = crypto.randomUUID();
   const confirmationNumber = `HLS-${String(params.slot.id).slice(-4).toUpperCase()}`;
-  await reserveSlot(params.slot, appointmentId, params.patientId);
+  await claimSlot(params.slot, params.patientId);
+  let created: JsonRecord | null = null;
   try {
     const rows = await ehrRequest('epic_appointments', {
       method: 'POST',
@@ -317,11 +334,19 @@ async function createAppointment(params: {
         ...(params.evalRunId ? { eval_run_id: params.evalRunId } : {})
       })
     });
-    return Array.isArray(rows) ? rows[0] : null;
+    created = Array.isArray(rows) ? rows[0] : null;
   } catch (error) {
-    await releaseSlot(params.slot.id, appointmentId);
+    await unclaimSlot(params.slot.id, params.patientId);
     throw error;
   }
+  try {
+    await linkSlot(params.slot.id, params.patientId, appointmentId);
+  } catch (error) {
+    await ehrRequest(`epic_appointments?id=eq.${encodeURIComponent(appointmentId)}`, { method: 'DELETE' }).catch(() => undefined);
+    await unclaimSlot(params.slot.id, params.patientId);
+    throw error;
+  }
+  return created;
 }
 
 async function executeConfirmedAction(params: {
@@ -372,8 +397,9 @@ async function executeConfirmedAction(params: {
 
   if (params.action === 'reschedule_appointment') {
     if (!appointment) {
-      await ehrRequest(`epic_appointments?id=eq.${encodeURIComponent(created.id)}`, { method: 'DELETE' }).catch(() => undefined);
+      // Reopen the slot before deleting: ON DELETE SET NULL on a booked slot would violate the slot check constraint.
       await releaseSlot(slot.id, created.id);
+      await ehrRequest(`epic_appointments?id=eq.${encodeURIComponent(created.id)}`, { method: 'DELETE' }).catch(() => undefined);
       throw new Error('Select the existing appointment before confirming a new time');
     }
     await ehrRequest(`epic_appointments?id=eq.${encodeURIComponent(appointment.id)}&status=in.(scheduled,confirmed)`, {

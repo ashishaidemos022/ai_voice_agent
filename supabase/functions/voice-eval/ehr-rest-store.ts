@@ -51,13 +51,27 @@ export function createEhrRestStore(baseUrl: string, serviceKey: string): EhrStor
         body: JSON.stringify(rows.map((row) => ({ ...row, held_by_session_id: null, held_until: null, created_at: now, updated_at: now })))
       });
     },
-    async reserveSlot(slotId, appointmentId) {
+    async claimSlot(slotId, holderId, heldUntil) {
       const patched = await request(`epic_provider_schedule_slots?id=eq.${enc(slotId)}&status=eq.open`, {
         method: 'PATCH',
         headers: { Prefer: 'return=representation' },
-        body: JSON.stringify({ status: 'booked', appointment_id: appointmentId, updated_at: new Date().toISOString() })
+        body: JSON.stringify({ status: 'held', held_by_session_id: holderId, held_until: heldUntil, updated_at: new Date().toISOString() })
       });
       return Array.isArray(patched) && patched.length === 1;
+    },
+    async linkSlot(slotId, holderId, appointmentId) {
+      const patched = await request(`epic_provider_schedule_slots?id=eq.${enc(slotId)}&status=eq.held&held_by_session_id=eq.${enc(holderId)}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({ status: 'booked', appointment_id: appointmentId, held_by_session_id: null, held_until: null, updated_at: new Date().toISOString() })
+      });
+      return Array.isArray(patched) && patched.length === 1;
+    },
+    async unclaimSlot(slotId, holderId) {
+      await request(`epic_provider_schedule_slots?id=eq.${enc(slotId)}&status=eq.held&held_by_session_id=eq.${enc(holderId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'open', held_by_session_id: null, held_until: null, updated_at: new Date().toISOString() })
+      });
     },
     async insertAppointment(row) {
       await request('epic_appointments', { method: 'POST', body: JSON.stringify(row) });
