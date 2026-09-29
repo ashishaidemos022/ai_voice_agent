@@ -75,7 +75,13 @@ export function createEhrRestStore(baseUrl: string, serviceKey: string): EhrStor
       if (!appointmentIds.length) return;
       await request(`epic_provider_schedule_slots?appointment_id=in.${inList(appointmentIds)}`, {
         method: 'PATCH',
-        body: JSON.stringify({ status: 'open', appointment_id: null, updated_at: new Date().toISOString() })
+        body: JSON.stringify({ status: 'open', appointment_id: null, held_by_session_id: null, held_until: null, updated_at: new Date().toISOString() })
+      });
+    },
+    async releaseHoldsForPatient(patientId) {
+      await request(`epic_provider_schedule_slots?status=eq.held&held_by_session_id=eq.${enc(patientId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'open', held_by_session_id: null, held_until: null, updated_at: new Date().toISOString() })
       });
     },
     async deleteTaggedAppointments(evalRunId) {

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   HEALTHCARE_DEMO_PATIENT_REFERENCE, evalAccessError, isAllowedPatientReference, isEvalPatientReference, parseEvalRunId,
-  slotQueryLimit
+  slotQueryLimit, JOHN_HACKETT_REFERENCE
 } from '../shared/healthcare-demo.ts';
 
 const RUN = '7b0c2a52-6a0e-4a9f-9a57-1f2b3c4d5e6f';
@@ -32,4 +32,14 @@ test('eval patients and eval runs must travel together', () => {
 test('eval patients see enough slots to reach every weekday; the demo patient keeps 8', () => {
   assert.equal(slotQueryLimit('EVAL-0001'), 15);
   assert.equal(slotQueryLimit(HEALTHCARE_DEMO_PATIENT_REFERENCE), 8);
+});
+
+test('John Hackett (MRN 205042) is an eval target reachable only inside an eval run', () => {
+  assert.equal(JOHN_HACKETT_REFERENCE, '205042');
+  assert.equal(isEvalPatientReference('205042'), true);
+  assert.equal(isAllowedPatientReference('205042'), true);
+  assert.equal(slotQueryLimit('205042'), 15);
+  assert.match(evalAccessError('205042', null) || '', /require an eval run/);
+  assert.equal(evalAccessError('205042', RUN), null);
+  assert.equal(isEvalPatientReference('205043'), false);
 });

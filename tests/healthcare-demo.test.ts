@@ -7,6 +7,9 @@ import {
   estimateJevCostUsd,
   hasEmergencyLanguage,
   safeHealthcareAction,
+  SLOT_HOLD_MINUTES,
+  offerableSlotFilter,
+  slotHoldExpiry,
   type HealthcareJevResult
 } from '../shared/healthcare-demo.ts';
 
@@ -174,4 +177,32 @@ test('the emergency escalation payload tells the agent to stop and hand off', ()
 
   // Without a verified caller there is no clinic number to read back.
   assert.equal(emergencyEscalation({ acuityScore: 0.9 }).callback_number, null);
+});
+
+test('hold_slot holds a verified caller\'s selected slot without needing confirmation', () => {
+  const held = safeHealthcareAction({ ...base, action: 'hold_slot', selectedSlotProvided: true, confirmed: false });
+  assert.equal(held.nextStep, 'hold_selected_slot');
+  assert.equal(held.mayMutate, true);
+
+  const noSlot = safeHealthcareAction({ ...base, action: 'hold_slot', selectedSlotProvided: false });
+  assert.equal(noSlot.nextStep, 'ask_for_clarification');
+  assert.equal(noSlot.mayMutate, false);
+
+  const unverified = safeHealthcareAction({ ...base, action: 'hold_slot', selectedSlotProvided: true, verified: false });
+  assert.equal(unverified.nextStep, 'verify_identity');
+  assert.equal(unverified.mayMutate, false);
+
+  const noReferral = safeHealthcareAction({ ...base, action: 'hold_slot', selectedSlotProvided: true, hasOpenReferral: false });
+  assert.equal(noReferral.nextStep, 'route_to_staff');
+  assert.equal(noReferral.mayMutate, false);
+});
+
+test('hold helpers expire after five minutes and offer open, expired, or own-held slots', () => {
+  assert.ok(HEALTHCARE_TOOL_PARAMETERS.properties.action.enum.includes('hold_slot'));
+  assert.equal(SLOT_HOLD_MINUTES, 5);
+  assert.equal(slotHoldExpiry(new Date('2026-09-29T15:00:00Z')), '2026-09-29T15:05:00.000Z');
+  assert.equal(
+    offerableSlotFilter('p-1', '2026-09-29T15:00:00.000Z'),
+    '(status.eq.open,and(status.eq.held,held_until.lt.2026-09-29T15:00:00.000Z),and(status.eq.held,held_by_session_id.eq.p-1))'
+  );
 });

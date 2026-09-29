@@ -38,7 +38,7 @@ test('setup seeds a tagged appointment, snapshot sees it, teardown removes it an
 
   const snapshot = await snapshotRun(store, 'run-1', setup);
   assert.equal(snapshot.appointments.length, 1);
-  assert.equal(snapshot.appointments[0].referral_id, 'r-2');
+  assert.equal(snapshot.appointments[0].referral_id, 'r-john');
   assert.equal(snapshot.slots[0].status, 'booked');
 
   assert.equal(await teardownRun(store, 'run-1'), 1);
@@ -50,8 +50,9 @@ test('setup seeds a tagged appointment, snapshot sees it, teardown removes it an
 test('setup without seeding returns no seeded ids; unknown patient throws', async () => {
   const store = new MemoryEhrStore();
   const setup = await setupRun(store, getScenario('hc-01') as Scenario, 'run-2', now);
-  assert.deepEqual(setup, { seededAppointmentId: null, seededSlotId: null, sensitiveStrings: [] });
-  await assert.rejects(setupRun(store, getScenario('hc-03') as Scenario, 'run-3', now), /EVAL-0003 is not seeded/);
+  assert.deepEqual(setup, { seededAppointmentId: null, seededSlotId: null, sensitiveStrings: [], patientId: 'p-john' });
+  const unseeded = { ...(getScenario('hc-03') as Scenario), evalPatient: 'EVAL-0003' };
+  await assert.rejects(setupRun(store, unseeded, 'run-3', now), /EVAL-0003 is not seeded/);
 });
 
 test('sweepStale tears down runs older than an hour and leaves fresh ones', async () => {
@@ -81,4 +82,21 @@ test('setup rethrows the original insert error even when releasing the slot also
   store.insertAppointment = async () => { throw failure; };
   store.releaseSlotsForAppointments = async () => { throw new Error('release failed'); };
   await assert.rejects(setupRun(store, getScenario('hc-02') as Scenario, 'run-5', now), (err) => err === failure);
+});
+
+test('teardown releases slots still held for the eval patient, even with no appointments', async () => {
+  const store = new MemoryEhrStore();
+  const setup = await setupRun(store, getScenario('hc-01') as Scenario, 'run-hold', now);
+  const [slot] = store.slots;
+  slot.status = 'held';
+  slot.held_by_session_id = setup.patientId;
+  slot.held_until = '2026-09-29T15:05:00.000Z';
+  const other = store.slots[1];
+  other.status = 'held';
+  other.held_by_session_id = 'someone-else';
+  assert.equal(await teardownRun(store, 'run-hold', setup.patientId), 0);
+  assert.equal(slot.status, 'open');
+  assert.equal(slot.held_by_session_id, null);
+  assert.equal(slot.held_until, null);
+  assert.equal(other.status, 'held');
 });

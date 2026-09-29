@@ -2,8 +2,8 @@ import type { EhrStore } from '../../shared/voice-eval/server/lifecycle.ts';
 import type { AppointmentRow, SlotRow } from '../../shared/voice-eval/types.ts';
 
 export class MemoryEhrStore implements EhrStore {
-  patients = [{ id: 'p-2', mrn: 'EVAL-0002' }, { id: 'p-1', mrn: 'EVAL-0001' }];
-  referrals = [{ id: 'r-2', patient_id: 'p-2', status: 'open' }];
+  patients = [{ id: 'p-john', mrn: '205042' }, { id: 'p-2', mrn: 'EVAL-0002' }];
+  referrals = [{ id: 'r-john', patient_id: 'p-john', status: 'open' }];
   slots: SlotRow[] = [];
   appointments: AppointmentRow[] = [];
 
@@ -33,6 +33,17 @@ export class MemoryEhrStore implements EhrStore {
       if (slot.appointment_id && ids.includes(slot.appointment_id)) {
         slot.status = 'open';
         slot.appointment_id = null;
+        slot.held_by_session_id = null;
+        slot.held_until = null;
+      }
+    }
+  }
+  async releaseHoldsForPatient(patientId: string) {
+    for (const slot of this.slots) {
+      if (slot.status === 'held' && slot.held_by_session_id === patientId) {
+        slot.status = 'open';
+        slot.held_by_session_id = null;
+        slot.held_until = null;
       }
     }
   }

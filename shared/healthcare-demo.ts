@@ -2,13 +2,14 @@ export const HEALTHCARE_TOOL_NAME = 'healthcare_patient_access';
 export const HEALTHCARE_DEMO_PATIENT_REFERENCE = 'DEMO-1001';
 
 export const HEALTHCARE_TOOL_DESCRIPTION =
-  'Use the connected EHR patient-access workflow with Jev for identity verification, appointment and referral lookup, availability, appointment changes, visit logistics, and safe staff escalation. Call this on every substantive patient-access turn. This tool is administrative and must not diagnose, interpret results, recommend treatment, or provide medication advice.';
+  'Use the connected EHR patient-access workflow with Jev for identity verification, appointment and referral lookup, availability, holding a chosen slot while the caller confirms, appointment changes, visit logistics, and safe staff escalation. Call this on every substantive patient-access turn. This tool is administrative and must not diagnose, interpret results, recommend treatment, or provide medication advice.';
 
 export type HealthcareAction =
   | 'verify_patient'
   | 'lookup_appointments'
   | 'lookup_referrals'
   | 'search_availability'
+  | 'hold_slot'
   | 'book_appointment'
   | 'reschedule_appointment'
   | 'cancel_appointment'
@@ -27,7 +28,7 @@ export const HEALTHCARE_TOOL_PARAMETERS = {
       type: 'string',
       enum: [
         'verify_patient', 'lookup_appointments', 'lookup_referrals', 'search_availability',
-        'book_appointment', 'reschedule_appointment', 'cancel_appointment', 'visit_logistics', 'request_staff'
+        'hold_slot', 'book_appointment', 'reschedule_appointment', 'cancel_appointment', 'visit_logistics', 'request_staff'
       ],
       description: 'The single administrative action requested for this turn.'
     },
@@ -63,7 +64,7 @@ export type HealthcareIntent =
 
 export type HealthcareNextStep =
   | 'verify_identity' | 'lookup_appointments' | 'look_up_referral' | 'offer_appointments'
-  | 'confirm_selected_slot' | 'confirm_reschedule' | 'confirm_cancellation'
+  | 'hold_selected_slot' | 'confirm_selected_slot' | 'confirm_reschedule' | 'confirm_cancellation'
   | 'provide_visit_logistics' | 'route_to_staff' | 'ask_for_clarification';
 
 export type JevAnswer = {
@@ -161,6 +162,7 @@ export function healthcareJevQuestions(context: {
         lookup_appointments: 'Return upcoming appointment information after verification',
         look_up_referral: 'Return referral status after verification',
         offer_appointments: 'An open referral exists and eligible appointment options can be offered',
+        hold_selected_slot: 'The caller chose an exact slot; hold it while they confirm the details',
         confirm_selected_slot: 'The caller selected and explicitly confirmed an exact slot for a new appointment',
         confirm_reschedule: 'The caller selected and explicitly confirmed the existing appointment and replacement slot',
         confirm_cancellation: 'The caller explicitly confirmed cancellation of an exact appointment',
@@ -317,6 +319,13 @@ function patientAccessDecision(params: PatientAccessPolicyParams, emergency: boo
         ? { nextStep: 'offer_appointments' as const, reason: 'replacement_options_found', mayMutate: false }
         : { nextStep: 'route_to_staff' as const, reason: 'no_matching_reschedule_slots', mayMutate: false };
   }
+  if (params.action === 'hold_slot') {
+    if (!params.hasOpenReferral) return { nextStep: 'route_to_staff' as const, reason: 'no_open_referral', mayMutate: false };
+    // A hold is not a booking, so it needs a selected slot but not the caller's final yes.
+    return params.selectedSlotProvided
+      ? { nextStep: 'hold_selected_slot' as const, reason: 'slot_selected', mayMutate: true }
+      : { nextStep: 'ask_for_clarification' as const, reason: 'slot_selection_required', mayMutate: false };
+  }
   if (params.action === 'book_appointment') {
     if (!params.hasOpenReferral) return { nextStep: 'route_to_staff' as const, reason: 'no_open_referral', mayMutate: false };
     return params.selectedSlotProvided && params.confirmed
@@ -334,10 +343,12 @@ function patientAccessDecision(params: PatientAccessPolicyParams, emergency: boo
 }
 
 export const EVAL_PATIENT_REFERENCE_PATTERN = /^EVAL-\d{4}$/;
+/** John Hackett's real chart; evals target it directly and every eval write is tagged and rolled back. */
+export const JOHN_HACKETT_REFERENCE = '205042';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function isEvalPatientReference(reference: string): boolean {
-  return EVAL_PATIENT_REFERENCE_PATTERN.test(reference);
+  return reference === JOHN_HACKETT_REFERENCE || EVAL_PATIENT_REFERENCE_PATTERN.test(reference);
 }
 
 /** Eval patients get 15 slots (5 weekdays x 3) so any scenario weekday is reachable; the demo patient keeps 8. */
@@ -358,4 +369,15 @@ export function evalAccessError(reference: string, evalRunId: string | null): st
   if (isEvalPatientReference(reference) && !evalRunId) return 'Evaluation patients require an eval run';
   if (evalRunId && !isEvalPatientReference(reference)) return 'Eval runs must use an evaluation patient';
   return null;
+}
+
+export const SLOT_HOLD_MINUTES = 5;
+
+export function slotHoldExpiry(now: Date): string {
+  return new Date(now.getTime() + SLOT_HOLD_MINUTES * 60_000).toISOString();
+}
+
+/** PostgREST `or` clause for slots a patient may be offered or reserve: open, an expired hold, or their own hold. */
+export function offerableSlotFilter(patientId: string, nowIso: string): string {
+  return `(status.eq.open,and(status.eq.held,held_until.lt.${nowIso}),and(status.eq.held,held_by_session_id.eq.${patientId}))`;
 }

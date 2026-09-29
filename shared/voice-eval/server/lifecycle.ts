@@ -13,7 +13,10 @@ export interface EhrStore {
   insertAppointment(row: AppointmentRow): Promise<void>;
   listTaggedAppointments(evalRunId: string): Promise<AppointmentRow[]>;
   listSlotsByIds(ids: string[]): Promise<SlotRow[]>;
+  /** Reopens slots booked by these appointments and clears any hold fields. */
   releaseSlotsForAppointments(appointmentIds: string[]): Promise<void>;
+  /** Reopens slots still held (status 'held') for this patient. */
+  releaseHoldsForPatient(patientId: string): Promise<void>;
   deleteTaggedAppointments(evalRunId: string): Promise<number>;
   listStaleTaggedRunIds(olderThanIso: string): Promise<string[]>;
 }
@@ -69,7 +72,7 @@ export async function setupRun(store: EhrStore, scenario: Scenario, evalRunId: s
   const patient = await store.findPatientByMrn(scenario.evalPatient);
   if (!patient) throw new Error(`Eval patient ${scenario.evalPatient} is not seeded in the EHR`);
   await ensureSlotPool(store, now);
-  if (!scenario.setup.seedAppointment) return { seededAppointmentId: null, seededSlotId: null, sensitiveStrings: [] };
+  if (!scenario.setup.seedAppointment) return { seededAppointmentId: null, seededSlotId: null, sensitiveStrings: [], patientId: patient.id };
 
   const referral = await store.findOpenReferral(patient.id);
   const [slot] = await store.listOpenFutureSlots(EVAL_VISIT_TYPE, new Date(now.getTime() + SEED_MIN_LEAD_MS).toISOString());
@@ -104,7 +107,12 @@ export async function setupRun(store: EhrStore, scenario: Scenario, evalRunId: s
     }
     throw err;
   }
-  return { seededAppointmentId: appointmentId, seededSlotId: slot.id, sensitiveStrings: [confirmation, chicagoMonthDay(slot.slot_start)] };
+  return {
+    seededAppointmentId: appointmentId,
+    seededSlotId: slot.id,
+    sensitiveStrings: [confirmation, chicagoMonthDay(slot.slot_start)],
+    patientId: patient.id
+  };
 }
 
 export async function snapshotRun(store: EhrStore, evalRunId: string, setup: SetupResult): Promise<StateSnapshot> {
@@ -118,7 +126,9 @@ export async function snapshotRun(store: EhrStore, evalRunId: string, setup: Set
   };
 }
 
-export async function teardownRun(store: EhrStore, evalRunId: string): Promise<number> {
+/** Removes the run's tagged appointments, reopens their slots, and releases any slot the agent held but never booked. */
+export async function teardownRun(store: EhrStore, evalRunId: string, holdPatientId: string | null = null): Promise<number> {
+  if (holdPatientId) await store.releaseHoldsForPatient(holdPatientId);
   const appointments = await store.listTaggedAppointments(evalRunId);
   if (!appointments.length) return 0;
   await store.releaseSlotsForAppointments(appointments.map((a) => a.id));

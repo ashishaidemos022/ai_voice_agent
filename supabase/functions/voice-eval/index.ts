@@ -88,7 +88,7 @@ async function handleSetup(ownerId: string, body: JsonRecord) {
     .select('id, started_at')
     .single();
   if (error || !run) {
-    await teardownRun(store, evalRunId).catch(() => undefined);
+    await teardownRun(store, evalRunId, setup.patientId).catch(() => undefined);
     throw new Error(error?.message || 'Could not create the eval run');
   }
   return jsonResponse({ run_id: run.id, eval_run_id: evalRunId, patient_reference: scenario.evalPatient, started_at: run.started_at });
@@ -180,7 +180,7 @@ async function handleScore(ownerId: string, body: JsonRecord) {
     console.error('[voice-eval] state snapshot failed', error);
   }
   const score = scoreRun(scenario, events, { mode: 'final', snapshot, sensitiveStrings: setup.sensitiveStrings ?? [] });
-  await teardownRun(store, run.eval_run_id).catch((error) => console.error('[voice-eval] teardown failed', error));
+  await teardownRun(store, run.eval_run_id, setup.patientId ?? null).catch((error) => console.error('[voice-eval] teardown failed', error));
 
   // Persist the deterministic verdict first so a slow or failed judge can never lose it.
   const status = score.verdict === 'pass' || score.verdict === 'invalid_harness' ? score.verdict : 'fail';
@@ -205,7 +205,7 @@ async function handleTeardown(ownerId: string, body: JsonRecord) {
   if (!run) return jsonResponse({ error: 'Eval run not found' }, 404);
   // An in-flight score owns the EHR teardown (it snapshots state first); never race it.
   if (run.status === 'scoring') return jsonResponse({ run_id: run.id, status: run.status, removed: 0 });
-  const removed = await teardownRun(ehrStore(), run.eval_run_id);
+  const removed = await teardownRun(ehrStore(), run.eval_run_id, asRecord(run.setup).patientId ?? null);
   let status = run.status;
   if (run.status === 'running') {
     const { data: aborted, error } = await adminClient

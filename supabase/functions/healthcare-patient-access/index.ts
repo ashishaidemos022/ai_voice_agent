@@ -8,9 +8,12 @@ import {
   healthcareJevQuestions,
   hasEmergencyLanguage,
   isAllowedPatientReference,
+  offerableSlotFilter,
   parseEvalRunId,
   safeHealthcareAction,
+  slotHoldExpiry,
   slotQueryLimit,
+  SLOT_HOLD_MINUTES,
   type HealthcareAction,
   type HealthcareJevResult,
   type JevPricing,
@@ -74,22 +77,25 @@ async function ehrRequest(path: string, init: RequestInit = {}) {
   return body;
 }
 
-async function loadPatientAccess(patientReference: string) {
+async function loadPatientAccess(patientReference: string, evalRunId: string | null) {
   const patientRows = await ehrRequest(
     `epic_patients?select=id,mrn,first_name,last_name,dob,postal_code&mrn=eq.${encodeURIComponent(patientReference)}&limit=1`
   );
   const patient = Array.isArray(patientRows) ? patientRows[0] : null;
   if (!patient?.id) throw new Error('Configured patient record was not found');
 
+  const nowIso = new Date().toISOString();
+  // Inside an eval run the agent only sees (and can only change) that run's tagged appointments, never the real chart.
+  const appointmentScope = evalRunId ? `&eval_run_id=eq.${encodeURIComponent(evalRunId)}` : '';
   const [referralRows, appointmentRows, slotRows] = await Promise.all([
     ehrRequest(
       `epic_referrals?select=id,target_specialty,urgency,status,ordered_at&patient_id=eq.${encodeURIComponent(patient.id)}&status=eq.open&order=ordered_at.desc`
     ),
     ehrRequest(
-      `epic_appointments?select=id,start_at,duration_min,status,visit_type,visit_type_code,reason,confirmation_number,slot_id,referral_id,provider:epic_providers(first_name,last_name,specialty),department:epic_departments(name,phone,location:epic_locations(name,address,phone))&patient_id=eq.${encodeURIComponent(patient.id)}&status=in.(scheduled,confirmed)&start_at=gte.${encodeURIComponent(new Date().toISOString())}&order=start_at.asc`
+      `epic_appointments?select=id,start_at,duration_min,status,visit_type,visit_type_code,reason,confirmation_number,slot_id,referral_id,provider:epic_providers(first_name,last_name,specialty),department:epic_departments(name,phone,location:epic_locations(name,address,phone))&patient_id=eq.${encodeURIComponent(patient.id)}${appointmentScope}&status=in.(scheduled,confirmed)&start_at=gte.${encodeURIComponent(nowIso)}&order=start_at.asc`
     ),
     ehrRequest(
-      `epic_provider_schedule_slots?select=id,slot_start,slot_end,duration_min,status,provider_id,department_id,visit_types_allowed,provider:epic_providers(first_name,last_name,specialty),department:epic_departments(name,phone,location:epic_locations(name,address,phone))&status=eq.open&slot_start=gte.${encodeURIComponent(new Date().toISOString())}&visit_types_allowed=cs.${encodeURIComponent('{CARDIOLOGY_CONSULT}')}&order=slot_start.asc&limit=${slotQueryLimit(patientReference)}`
+      `epic_provider_schedule_slots?select=id,slot_start,slot_end,duration_min,status,provider_id,department_id,visit_types_allowed,provider:epic_providers(first_name,last_name,specialty),department:epic_departments(name,phone,location:epic_locations(name,address,phone))&or=${encodeURIComponent(offerableSlotFilter(patient.id, nowIso))}&slot_start=gte.${encodeURIComponent(nowIso)}&visit_types_allowed=cs.${encodeURIComponent('{CARDIOLOGY_CONSULT}')}&order=slot_start.asc&limit=${slotQueryLimit(patientReference)}`
     )
   ]);
 
@@ -245,11 +251,29 @@ function publicSlot(slot: JsonRecord) {
   };
 }
 
-async function reserveSlot(slot: JsonRecord, appointmentId: string) {
-  const patched = await ehrRequest(`epic_provider_schedule_slots?id=eq.${encodeURIComponent(slot.id)}&status=eq.open`, {
+// A slot is available to this patient when it is open, its hold has expired, or they hold it themselves.
+function claimableSlotPath(slotId: string, patientId: string) {
+  return `epic_provider_schedule_slots?id=eq.${encodeURIComponent(slotId)}&or=${encodeURIComponent(offerableSlotFilter(patientId, new Date().toISOString()))}`;
+}
+
+async function holdSlot(slot: JsonRecord, patientId: string) {
+  const heldUntil = slotHoldExpiry(new Date());
+  const patched = await ehrRequest(claimableSlotPath(slot.id, patientId), {
     method: 'PATCH',
     headers: { Prefer: 'return=representation' },
-    body: JSON.stringify({ status: 'booked', appointment_id: appointmentId, updated_at: new Date().toISOString() })
+    body: JSON.stringify({ status: 'held', held_by_session_id: patientId, held_until: heldUntil, updated_at: new Date().toISOString() })
+  });
+  if (!Array.isArray(patched) || patched.length !== 1) throw new Error('That appointment time is no longer available');
+  return heldUntil;
+}
+
+async function reserveSlot(slot: JsonRecord, appointmentId: string, patientId: string) {
+  const patched = await ehrRequest(claimableSlotPath(slot.id, patientId), {
+    method: 'PATCH',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({
+      status: 'booked', appointment_id: appointmentId, held_by_session_id: null, held_until: null, updated_at: new Date().toISOString()
+    })
   });
   if (!Array.isArray(patched) || patched.length !== 1) throw new Error('That appointment time is no longer available');
 }
@@ -257,7 +281,7 @@ async function reserveSlot(slot: JsonRecord, appointmentId: string) {
 async function releaseSlot(slotId: string, appointmentId: string) {
   await ehrRequest(`epic_provider_schedule_slots?id=eq.${encodeURIComponent(slotId)}&appointment_id=eq.${appointmentId}`, {
     method: 'PATCH',
-    body: JSON.stringify({ status: 'open', appointment_id: null, updated_at: new Date().toISOString() })
+    body: JSON.stringify({ status: 'open', appointment_id: null, held_by_session_id: null, held_until: null, updated_at: new Date().toISOString() })
   }).catch(() => undefined);
 }
 
@@ -270,7 +294,7 @@ async function createAppointment(params: {
 }) {
   const appointmentId = crypto.randomUUID();
   const confirmationNumber = `HLS-${String(params.slot.id).slice(-4).toUpperCase()}`;
-  await reserveSlot(params.slot, appointmentId);
+  await reserveSlot(params.slot, appointmentId, params.patientId);
   try {
     const rows = await ehrRequest('epic_appointments', {
       method: 'POST',
@@ -322,6 +346,18 @@ async function executeConfirmedAction(params: {
     if (!Array.isArray(changed) || changed.length !== 1) throw new Error('That appointment can no longer be cancelled');
     if (appointment.slot_id) await releaseSlot(appointment.slot_id, appointment.id);
     return { type: 'cancelled', appointment: publicAppointment({ ...appointment, status: 'cancelled' }) };
+  }
+
+  if (params.action === 'hold_slot') {
+    if (!slot) throw new Error('Select one of the currently offered appointment times');
+    const heldUntil = await holdSlot(slot, params.patient.id);
+    return {
+      type: 'held',
+      slot: publicSlot(slot),
+      held_until: heldUntil,
+      local_held_until: localDateTime(heldUntil),
+      hold_minutes: SLOT_HOLD_MINUTES
+    };
   }
 
   if (!slot) throw new Error('Select one of the currently offered appointment times');
@@ -378,7 +414,7 @@ Deno.serve(async (req: Request) => {
     if (evalError) return jsonResponse({ error: evalError }, 400);
 
     const ehrStartedAt = Date.now();
-    const access = await loadPatientAccess(patientReference);
+    const access = await loadPatientAccess(patientReference, evalRunId);
     const ehrLatencyMs = Date.now() - ehrStartedAt;
     const verified = verifyPatient(access.patient, body.date_of_birth, body.postal_code);
     const selectedAppointment = access.appointments.find((row) => row.id === appointmentId);
@@ -479,7 +515,11 @@ Deno.serve(async (req: Request) => {
         eligible_slots: eligibleSlots.map(publicSlot)
       },
       change,
-      action: change ? { status: 'completed', next_step: 'share_confirmation' } : { status: 'ready', next_step: policy.nextStep },
+      action: change
+        ? change.type === 'held'
+          ? { status: 'held', next_step: 'confirm_selected_slot' }
+          : { status: 'completed', next_step: 'share_confirmation' }
+        : { status: 'ready', next_step: policy.nextStep },
       sources: ['Supabase_EHR MCP', 'epic_patients', 'epic_appointments', 'epic_referrals', 'epic_provider_schedule_slots'],
       jev: telemetry,
       timing: {

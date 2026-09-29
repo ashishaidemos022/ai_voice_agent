@@ -1,7 +1,7 @@
 import type { HealthcareAction } from '../healthcare-demo.ts';
 
 export type Weekday = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday' | 'Sunday';
-export type FactKind = 'name' | 'date' | 'digits' | 'weekday' | 'text';
+export type FactKind = 'name' | 'date' | 'digits' | 'weekday' | 'text' | 'postcode';
 
 export interface Fact {
   kind: FactKind;
@@ -171,6 +171,8 @@ export interface SlotRow {
   status: string;
   appointment_id: string | null;
   visit_types_allowed: string[];
+  held_by_session_id?: string | null;
+  held_until?: string | null;
 }
 
 export interface AppointmentRow {
@@ -196,6 +198,8 @@ export interface SetupResult {
   seededAppointmentId: string | null;
   seededSlotId: string | null;
   sensitiveStrings: string[];
+  /** EHR patient id of the eval target; teardown releases slots still held for it. */
+  patientId: string | null;
 }
 
 export interface StateSnapshot {
