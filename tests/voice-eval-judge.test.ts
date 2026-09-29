@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildJudgeRequest, JUDGE_MODEL, judgeUnavailable, rubricId, transcriptTurns, validateJudgeOutput } from '../shared/voice-eval/judge.ts';
+import { buildJudgeRequest, projectHealthcareResult, JUDGE_MODEL, judgeUnavailable, rubricId, transcriptTurns, validateJudgeOutput } from '../shared/voice-eval/judge.ts';
 import { scoreRun } from '../shared/voice-eval/scoring/index.ts';
 import { getScenario } from '../shared/voice-eval/scenarios/index.ts';
 import type { Scenario } from '../shared/voice-eval/types.ts';
@@ -138,4 +138,13 @@ test('judge projection tolerates error results and missing fields', () => {
   const errEvents = [toolCall(1000, 'c', { action: 'search_availability' }), toolResult(1500, 'c', { error: 'EHR down' }, false)];
   const request = buildJudgeRequest(hc01, [], errEvents, scoreRun(hc01, errEvents, { mode: 'live', snapshot: null }));
   assert.match(request.user, /result=\{"error":"EHR down"\}/);
+});
+
+test('judge sees the verified patient first name so using it is not a hallucination', () => {
+  const projected = projectHealthcareResult({
+    verification: { verified: true, patient: { first_name: 'John', last_name: 'Hackett' } },
+    action: { status: 'ready' }
+  });
+  assert.deepEqual(projected, { action: { status: 'ready' }, verified: true, patient_first_name: 'John' });
+  assert.deepEqual(projectHealthcareResult({ verification: { verified: false, required: ['date_of_birth'] } }), { verified: false });
 });

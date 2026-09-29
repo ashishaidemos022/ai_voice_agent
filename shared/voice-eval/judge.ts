@@ -109,6 +109,8 @@ export function projectHealthcareResult(result: unknown): Loose | null {
   return compact({
     action: r.action,
     verified: rec(r.verification).verified,
+    // Returned only after verification; the agent may use it, so the judge must see it.
+    patient_first_name: rec(rec(r.verification).patient).first_name,
     change: r.change,
     escalation: r.escalation,
     appointments,
