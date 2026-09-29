@@ -57,3 +57,29 @@ test('only the day-correction scenario gates on the weekday; elsewhere the calle
   const withWeekdayGate = HEALTHCARE_SCENARIOS.filter((s) => s.expected.state.some((a) => a.kind === 'new_appointment_weekday'));
   assert.deepEqual(withWeekdayGate.map((s) => s.id), ['hc-05']);
 });
+
+test('hc-05 and hc-06 beats are anchored to tool results', () => {
+  const hc05 = getScenario('hc-05') as Scenario;
+  const hc06 = getScenario('hc-06') as Scenario;
+  assert.equal(hc05.version, 3);
+  assert.deepEqual(hc05.beats[0].anchor, { afterTool: 'search_availability' });
+  assert.equal(hc06.version, 4);
+  assert.deepEqual(hc06.beats[0].anchor, { afterTool: 'hold_slot' });
+});
+
+test('validator rejects unknown anchors and malformed beats', () => {
+  const base = getScenario('hc-06') as Scenario;
+  const errors = validateScenario({
+    ...base,
+    beats: [
+      { kind: 'barge_in', line: 'x', afterAgentSpeechMs: 100, anchor: { afterTool: 'teleport' as never } },
+      { kind: 'say', afterTurn: 1 },
+      { kind: 'silence', afterTurn: 1 },
+      { kind: 'barge_in', line: 'y' }
+    ]
+  });
+  assert.ok(errors.some((e) => e.includes('unknown anchor action teleport')), errors.join('\n'));
+  assert.ok(errors.some((e) => e.includes('beat 1 needs a line')), errors.join('\n'));
+  assert.ok(errors.some((e) => e.includes('beat 2 needs durationMs')), errors.join('\n'));
+  assert.ok(errors.some((e) => e.includes('beat 3 needs afterAgentSpeechMs')), errors.join('\n'));
+});

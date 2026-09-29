@@ -95,13 +95,13 @@ export const HEALTHCARE_SCENARIOS: Scenario[] = [
     }
   },
   {
-    id: 'hc-05', version: 2, title: '"Uh, wait" day correction',
+    id: 'hc-05', version: 3, title: '"Uh, wait" day correction',
     summary: 'Caller asks for Tuesday then corrects to Thursday mid-booking.',
     persona: { voiceId: 'AZnzlk1XvdvUeBnXmlld', accent: 'General American', noise: 'none', temperament: 'calm' },
     goal: 'Book your cardiology consult. First ask for Tuesday. When the agent offers times, correct yourself to Thursday and book the first Thursday time.',
     evalPatient: JOHN_HACKETT_REFERENCE,
     facts: { ...johnHackett(), preferredDay: { kind: 'weekday', value: 'Thursday', critical: false } },
-    beats: [{ kind: 'correction', afterTurn: 3, line: 'Uh, wait — actually, make that Thursday, not Tuesday.', correctedFact: 'preferredDay' }],
+    beats: [{ kind: 'correction', afterTurn: 3, anchor: { afterTool: 'search_availability' }, line: 'Uh, wait — actually, make that Thursday, not Tuesday.', correctedFact: 'preferredDay' }],
     setup: { seedAppointment: false },
     expected: {
       state: [{ kind: 'new_appointments', count: 1 }, { kind: 'new_appointment_weekday', weekday: 'Thursday' }, { kind: 'new_appointment_slot_booked' }],
@@ -110,13 +110,13 @@ export const HEALTHCARE_SCENARIOS: Scenario[] = [
     }
   },
   {
-    id: 'hc-06', version: 3, title: 'Barge-in during readback',
+    id: 'hc-06', version: 4, title: 'Barge-in during readback',
     summary: 'Caller interrupts the confirmation readback to pick an afternoon time.',
     persona: { voiceId: 'TxGEqnHWrfWFTfGW9XjX', accent: 'General American', noise: 'none', temperament: 'rushed' },
     goal: 'Book a Friday cardiology consult. While the agent reads back a morning time, interrupt and ask for the afternoon one instead.',
     evalPatient: JOHN_HACKETT_REFERENCE,
     facts: { ...johnHackett(), preferredDay: { kind: 'weekday', value: 'Friday', critical: false } },
-    beats: [{ kind: 'barge_in', afterAgentSpeechMs: 1200, line: 'Sorry — can we do the afternoon one instead?' }],
+    beats: [{ kind: 'barge_in', anchor: { afterTool: 'hold_slot' }, afterAgentSpeechMs: 1200, line: 'Sorry — can we do the afternoon one instead?' }],
     setup: { seedAppointment: false },
     expected: {
       state: [{ kind: 'new_appointments', count: 1 }, { kind: 'new_appointment_slot_booked' }],

@@ -18,9 +18,15 @@ export function validateScenario(s: Scenario): string[] {
     if (!ACTIONS.has(matcher.action)) errors.push(`${s.id}: unknown action ${matcher.action}`);
     if (!s.facts[matcher.fact]) errors.push(`${s.id}: arg matcher references missing fact ${matcher.fact}`);
   }
-  for (const beat of s.beats) {
+  s.beats.forEach((beat, index) => {
     if (beat.correctedFact && !s.facts[beat.correctedFact]) errors.push(`${s.id}: correctedFact ${beat.correctedFact} is not a fact`);
-  }
+    if (beat.anchor && !ACTIONS.has(beat.anchor.afterTool)) errors.push(`${s.id}: unknown anchor action ${beat.anchor.afterTool}`);
+    if (beat.kind !== 'silence' && !beat.line?.trim()) errors.push(`${s.id}: beat ${index} needs a line`);
+    if (beat.kind === 'silence' && !(Number(beat.durationMs) > 0)) errors.push(`${s.id}: beat ${index} needs durationMs`);
+    if (beat.kind === 'barge_in' && !(typeof beat.afterAgentSpeechMs === 'number' && beat.afterAgentSpeechMs >= 0)) {
+      errors.push(`${s.id}: beat ${index} needs afterAgentSpeechMs`);
+    }
+  });
   for (const assertion of s.expected.state) {
     if (assertion.kind === 'new_appointment_weekday' && !WEEKDAYS.has(assertion.weekday)) {
       errors.push(`${s.id}: invalid weekday ${assertion.weekday}`);

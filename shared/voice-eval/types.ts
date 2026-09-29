@@ -13,6 +13,11 @@ export interface Fact {
 
 export type BeatKind = 'barge_in' | 'correction' | 'silence' | 'say';
 
+export interface BeatAnchor {
+  /** The beat becomes eligible only after a successful result for this healthcare action. */
+  afterTool: HealthcareAction;
+}
+
 export interface Beat {
   kind: BeatKind;
   line?: string;
@@ -20,6 +25,7 @@ export interface Beat {
   afterAgentSpeechMs?: number;
   durationMs?: number;
   correctedFact?: string;
+  anchor?: BeatAnchor;
 }
 
 export type StateAssertion =
@@ -70,6 +76,10 @@ export type EvidenceEvent =
   | { kind: 'caller_transcript'; atMs: number; text: string }
   | { kind: 'agent_transcript'; atMs: number; text: string }
   | { kind: 'agent_audio_start'; atMs: number }
+  | { kind: 'agent_audio_stop'; atMs: number }
+  /** A synthetic caller line; atMs is when playback started. */
+  | { kind: 'caller_utterance'; atMs: number; durationMs: number; text: string; source: 'brain' | 'beat'; beatIndex: number | null }
+  | { kind: 'beat'; atMs: number; beatIndex: number; beatKind: BeatKind }
   | { kind: 'turn_metric'; atMs: number; firstAudioMs: number | null; bargeInMs: number | null; toolCallMs: number | null }
   | { kind: 'tool_call'; atMs: number; callId: string; name: string; args: Record<string, unknown> }
   | { kind: 'tool_result'; atMs: number; callId: string; ok: boolean; result: unknown }
