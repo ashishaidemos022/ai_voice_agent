@@ -51,8 +51,30 @@ export function generateNoiseBed(kind: NoiseBedKind, seed: string, sampleRate = 
     }
   }
 
+  return normalizeRms(out, NOISE_RMS);
+}
+
+/** About -50 dBFS: the self-noise of a real microphone. */
+export const NOISE_FLOOR_RMS = 0.003;
+
+/**
+ * A faint, continuous hiss mixed into every synthetic track. A real mic never sends digital silence;
+ * GPT-Live over WebRTC stalls its own speech mid-sentence while the caller's input is exact zeros.
+ */
+export function generateNoiseFloor(seed: string, sampleRate = 24000, seconds = 4): Float32Array {
+  const random = seededRandom(`floor:${seed}`);
+  const out = new Float32Array(Math.round(sampleRate * seconds));
+  let low = 0;
+  for (let i = 0; i < out.length; i += 1) {
+    low += 0.3 * (random() * 2 - 1 - low);
+    out[i] = low;
+  }
+  return normalizeRms(out, NOISE_FLOOR_RMS);
+}
+
+function normalizeRms(out: Float32Array, target: number): Float32Array {
   const current = Math.sqrt(out.reduce((sum, v) => sum + v * v, 0) / out.length) || 1;
-  const gain = NOISE_RMS / current;
+  const gain = target / current;
   for (let i = 0; i < out.length; i += 1) out[i] = Math.max(-1, Math.min(1, out[i] * gain));
   return out;
 }

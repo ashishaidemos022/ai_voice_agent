@@ -392,6 +392,7 @@ export class RealtimeAPIClient {
       : null;
     await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
     console.log('[Realtime WebRTC] remote description applied', { live: negotiatedGPTLive });
+    console.info('[Realtime WebRTC] negotiated audio codec', answerSdp.split(/\r?\n/).filter((line) => /^a=(rtpmap|fmtp):/.test(line)).join(' | '));
 
     const finalizeConnection = () => {
       this.reconnectAttempts = 0;
@@ -1043,6 +1044,7 @@ export class RealtimeAPIClient {
       if (!sender) throw new Error('No audio sender to attach the synthetic caller to');
       await sender.replaceTrack(track);
       this.syntheticTrack = track;
+      this.stopSyntheticPump = this.logOutboundAudio(sender);
       return;
     }
     this.syntheticTrack = track;
@@ -1052,6 +1054,28 @@ export class RealtimeAPIClient {
       this.syntheticTrack = null;
       throw error;
     }
+  }
+
+  // Synthetic-caller diagnostics: outbound audio packet rate, to show whether silence suppression thins the stream.
+  private logOutboundAudio(sender: RTCRtpSender): (() => void) | null {
+    if (typeof sender.getStats !== 'function') return null;
+    let last: { packets: number; at: number } | null = null;
+    const timer = setInterval(() => {
+      void sender.getStats().then((report) => {
+        report.forEach((stat) => {
+          if (stat.type !== 'outbound-rtp' || stat.kind !== 'audio') return;
+          const now = performance.now();
+          if (last) {
+            console.info('[SyntheticInput] outbound audio', {
+              packetsPerSec: Math.round(((stat.packetsSent - last.packets) * 1000) / (now - last.at)),
+              bytesSent: stat.bytesSent
+            });
+          }
+          last = { packets: stat.packetsSent, at: now };
+        });
+      }).catch(() => undefined);
+    }, 2000);
+    return () => clearInterval(timer);
   }
 
   async detachSyntheticInput(): Promise<void> {

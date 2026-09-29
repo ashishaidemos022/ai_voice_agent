@@ -1,5 +1,5 @@
 import type { Scenario } from '../../../../shared/voice-eval/types.ts';
-import { generateNoiseBed } from './noise.ts';
+import { generateNoiseBed, generateNoiseFloor } from './noise.ts';
 import type { MicLike } from './types.ts';
 
 const SAMPLE_RATE = 24000;
@@ -47,6 +47,16 @@ export async function createSyntheticMic(noise: Scenario['persona']['noise'], se
     voiceBus.connect(destination);
     voiceBus.connect(monitor);
   }
+
+  // Always-on mic self-noise: the agent must never receive digital silence (not sent to the monitor).
+  const floorSamples = generateNoiseFloor(seed, SAMPLE_RATE);
+  const floorBuffer = context.createBuffer(1, floorSamples.length, SAMPLE_RATE);
+  floorBuffer.getChannelData(0).set(floorSamples);
+  const floorSource = context.createBufferSource();
+  floorSource.buffer = floorBuffer;
+  floorSource.loop = true;
+  floorSource.connect(destination);
+  floorSource.start();
 
   let noiseSource: AudioBufferSourceNode | null = null;
   if (noise === 'cafe' || noise === 'car') {
@@ -98,10 +108,12 @@ export async function createSyntheticMic(noise: Scenario['persona']['noise'], se
     },
     async close() {
       mic.stopPlayback();
-      try {
-        noiseSource?.stop();
-      } catch {
-        // Already stopped.
+      for (const source of [noiseSource, floorSource]) {
+        try {
+          source?.stop();
+        } catch {
+          // Already stopped.
+        }
       }
       monitor.disconnect();
       track.stop();
