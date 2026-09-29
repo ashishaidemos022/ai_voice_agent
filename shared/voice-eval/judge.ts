@@ -68,10 +68,59 @@ function truncate(value: unknown, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
+type Loose = Record<string, unknown>;
+
+function rec(value: unknown): Loose {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Loose : {};
+}
+
+function compact(value: Loose): Loose {
+  return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined));
+}
+
+function displayOf(value: unknown): unknown {
+  return rec(value).display;
+}
+
+function nameOf(value: unknown): unknown {
+  return rec(value).name;
+}
+
+/** The facts the judge needs from a healthcare tool result, without telemetry or location bulk. */
+export function projectHealthcareResult(result: unknown): Loose | null {
+  if (result === null || result === undefined) return null;
+  const r = rec(result);
+  const ehr = rec(r.ehr);
+  const appointments = Array.isArray(ehr.appointments)
+    ? ehr.appointments.map((entry) => {
+      const a = rec(entry);
+      return compact({
+        appointment_id: a.appointment_id, local_start: displayOf(a.local_start), status: a.status,
+        confirmation_number: a.confirmation_number, provider: a.provider, department: nameOf(a.department)
+      });
+    })
+    : undefined;
+  const eligibleSlots = Array.isArray(ehr.eligible_slots)
+    ? ehr.eligible_slots.map((entry) => {
+      const s = rec(entry);
+      return compact({ slot_id: s.slot_id, local_start: displayOf(s.local_start), provider: s.provider, department: nameOf(s.department) });
+    })
+    : undefined;
+  return compact({
+    action: r.action,
+    verified: rec(r.verification).verified,
+    change: r.change,
+    escalation: r.escalation,
+    appointments,
+    eligible_slots: eligibleSlots,
+    error: r.error
+  });
+}
+
 export function buildJudgeRequest(scenario: Scenario, turns: TranscriptTurn[], events: EvidenceEvent[], score: RunScore): { system: string; user: string } {
   const calls = healthcareCalls(events).map((call, index) => {
     const args = Object.fromEntries(Object.entries(call.args).filter(([key]) => key !== 'utterance'));
-    return `#${index + 1} ${call.action} args=${truncate(args, 800)} result=${truncate(call.result, 3000)}`;
+    return `#${index + 1} ${call.action} args=${truncate(args, 800)} result=${truncate(projectHealthcareResult(call.result), 6000)}`;
   });
   const gates = score.gates.map((g) => `- ${g.label}: ${g.passed === true ? 'passed' : g.passed === false ? 'FAILED' : 'undecided'} (${g.detail})`);
   const user = [
