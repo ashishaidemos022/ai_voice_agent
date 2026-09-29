@@ -42,34 +42,38 @@ function outputText(json: Record<string, any>): string {
 
 const deps: CallerDeps = {
   async loadRun(ownerId, runId) {
-    const { data } = await adminClient
+    const { data, error } = await adminClient
       .from('voice_eval_runs')
       .select('id, scenario_id, status, agent_config_id')
       .eq('id', runId)
       .eq('owner_id', ownerId)
       .maybeSingle();
+    if (error) throw new Error(`Run lookup failed: ${error.message}`);
     return data;
   },
   async resolveElevenLabsKey(ownerId, agentConfigId) {
     if (agentConfigId) {
-      const { data: config } = await adminClient
+      const { data: config, error: configError } = await adminClient
         .from('va_agent_configs')
         .select('voice_provider_key_id')
         .eq('id', agentConfigId)
         .eq('user_id', ownerId)
         .maybeSingle();
+      if (configError) throw new Error(`Agent config lookup failed: ${configError.message}`);
       if (config?.voice_provider_key_id) {
-        const { data: key } = await adminClient
+        const { data: key, error: keyError } = await adminClient
           .from('va_provider_keys')
           .select('encrypted_key')
           .eq('id', config.voice_provider_key_id)
+          .eq('user_id', ownerId)
           .eq('provider', 'elevenlabs')
           .maybeSingle();
+        if (keyError) throw new Error(`ElevenLabs key lookup failed: ${keyError.message}`);
         const value = decodeKey(key?.encrypted_key);
         if (value) return value;
       }
     }
-    const { data: fallback } = await adminClient
+    const { data: fallback, error: fallbackError } = await adminClient
       .from('va_provider_keys')
       .select('encrypted_key')
       .eq('user_id', ownerId)
@@ -77,6 +81,7 @@ const deps: CallerDeps = {
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
+    if (fallbackError) throw new Error(`ElevenLabs key lookup failed: ${fallbackError.message}`);
     return decodeKey(fallback?.encrypted_key);
   },
   async brain(request: BrainRequest) {
@@ -120,7 +125,8 @@ Deno.serve(async (req: Request) => {
     if (!token) return jsonResponse({ error: 'Authentication required' }, 401);
     const { data: authData, error: authError } = await adminClient.auth.getUser(token);
     if (authError || !authData.user) return jsonResponse({ error: 'Invalid session' }, 401);
-    const { data: vaUser } = await adminClient.from('va_users').select('id').eq('auth_user_id', authData.user.id).maybeSingle();
+    const { data: vaUser, error: vaUserError } = await adminClient.from('va_users').select('id').eq('auth_user_id', authData.user.id).maybeSingle();
+    if (vaUserError) throw new Error(`User profile lookup failed: ${vaUserError.message}`);
     if (!vaUser) return jsonResponse({ error: 'User profile not found' }, 403);
     const body = await req.json().catch(() => ({}));
     const result = await handleCallerRequest(deps, vaUser.id, body && typeof body === 'object' ? body : {});
