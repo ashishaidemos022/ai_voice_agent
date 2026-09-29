@@ -340,6 +340,11 @@ export function isEvalPatientReference(reference: string): boolean {
   return EVAL_PATIENT_REFERENCE_PATTERN.test(reference);
 }
 
+/** Eval patients get 15 slots (5 weekdays x 3) so any scenario weekday is reachable; the demo patient keeps 8. */
+export function slotQueryLimit(reference: string): number {
+  return isEvalPatientReference(reference) ? 15 : 8;
+}
+
 export function isAllowedPatientReference(reference: string): boolean {
   return reference === HEALTHCARE_DEMO_PATIENT_REFERENCE || isEvalPatientReference(reference);
 }

@@ -10,6 +10,7 @@ import {
   isAllowedPatientReference,
   parseEvalRunId,
   safeHealthcareAction,
+  slotQueryLimit,
   type HealthcareAction,
   type HealthcareJevResult,
   type JevPricing,
@@ -88,7 +89,7 @@ async function loadPatientAccess(patientReference: string) {
       `epic_appointments?select=id,start_at,duration_min,status,visit_type,visit_type_code,reason,confirmation_number,slot_id,referral_id,provider:epic_providers(first_name,last_name,specialty),department:epic_departments(name,phone,location:epic_locations(name,address,phone))&patient_id=eq.${encodeURIComponent(patient.id)}&status=in.(scheduled,confirmed)&start_at=gte.${encodeURIComponent(new Date().toISOString())}&order=start_at.asc`
     ),
     ehrRequest(
-      `epic_provider_schedule_slots?select=id,slot_start,slot_end,duration_min,status,provider_id,department_id,visit_types_allowed,provider:epic_providers(first_name,last_name,specialty),department:epic_departments(name,phone,location:epic_locations(name,address,phone))&status=eq.open&slot_start=gte.${encodeURIComponent(new Date().toISOString())}&visit_types_allowed=cs.${encodeURIComponent('{CARDIOLOGY_CONSULT}')}&order=slot_start.asc&limit=8`
+      `epic_provider_schedule_slots?select=id,slot_start,slot_end,duration_min,status,provider_id,department_id,visit_types_allowed,provider:epic_providers(first_name,last_name,specialty),department:epic_departments(name,phone,location:epic_locations(name,address,phone))&status=eq.open&slot_start=gte.${encodeURIComponent(new Date().toISOString())}&visit_types_allowed=cs.${encodeURIComponent('{CARDIOLOGY_CONSULT}')}&order=slot_start.asc&limit=${slotQueryLimit(patientReference)}`
     )
   ]);
 
