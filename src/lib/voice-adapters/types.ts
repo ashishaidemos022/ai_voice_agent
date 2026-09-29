@@ -26,4 +26,8 @@ export interface VoiceAdapter {
   getVolume?: () => number;
   getOutputVolume?: () => number;
   injectAudio?: (encodedAudio: ArrayBuffer) => Promise<void>;
+  /** Replaces the microphone with a synthetic caller track for the whole call. */
+  attachSyntheticInput?: (track: MediaStreamTrack) => Promise<void>;
+  /** Restores the microphone. Safe to call when nothing is attached. */
+  detachSyntheticInput?: () => Promise<void>;
 }

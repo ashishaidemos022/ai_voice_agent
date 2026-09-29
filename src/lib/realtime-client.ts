@@ -15,6 +15,7 @@ import {
   recordBenchmarkWaveform
 } from './benchmark-instrumentation';
 import { saveBenchmarkOutputAudio } from './benchmark-audio-store';
+import { startPcmPump } from './voice-eval/synthetic-input';
 
 export type AgentState = 'idle' | 'listening' | 'speaking' | 'thinking' | 'interrupted';
 
@@ -74,6 +75,8 @@ export class RealtimeAPIClient {
   private peerConnection: RTCPeerConnection | null = null;
   private dataChannel: RTCDataChannel | null = null;
   private mediaStream: MediaStream | null = null;
+  private syntheticTrack: MediaStreamTrack | null = null;
+  private stopSyntheticPump: (() => void) | null = null;
   private remoteAudio: HTMLAudioElement | null = null;
   private audioContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
@@ -1012,6 +1015,12 @@ export class RealtimeAPIClient {
   }
 
   sendAudio(audioData: Int16Array): void {
+    // While a synthetic caller is attached, only its pump may send audio.
+    if (this.syntheticTrack) return;
+    this.sendAudioFrame(audioData);
+  }
+
+  private sendAudioFrame(audioData: Int16Array): void {
     if (this.webrtc) return;
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return;
@@ -1025,6 +1034,36 @@ export class RealtimeAPIClient {
       type: 'input_audio_buffer.append',
       audio: base64Audio
     });
+  }
+
+  async attachSyntheticInput(track: MediaStreamTrack): Promise<void> {
+    if (this.syntheticTrack) throw new Error('A synthetic caller is already attached');
+    if (this.webrtc) {
+      const sender = this.peerConnection?.getSenders().find((item) => item.track?.kind === 'audio');
+      if (!sender) throw new Error('No audio sender to attach the synthetic caller to');
+      await sender.replaceTrack(track);
+      this.syntheticTrack = track;
+      return;
+    }
+    this.syntheticTrack = track;
+    try {
+      this.stopSyntheticPump = await startPcmPump(track, (pcm) => this.sendAudioFrame(pcm));
+    } catch (error) {
+      this.syntheticTrack = null;
+      throw error;
+    }
+  }
+
+  async detachSyntheticInput(): Promise<void> {
+    const track = this.syntheticTrack;
+    if (!track) return;
+    this.syntheticTrack = null;
+    this.stopSyntheticPump?.();
+    this.stopSyntheticPump = null;
+    if (this.webrtc) {
+      const sender = this.peerConnection?.getSenders().find((item) => item.track === track);
+      await sender?.replaceTrack(this.mediaStream?.getAudioTracks()[0] ?? null);
+    }
   }
 
   commitAudio(): void {
@@ -1387,6 +1426,9 @@ export class RealtimeAPIClient {
       }
       this.ws = null;
     }
+    this.stopSyntheticPump?.();
+    this.stopSyntheticPump = null;
+    this.syntheticTrack = null;
     this.dataChannel?.close();
     this.dataChannel = null;
     this.peerConnection?.close();

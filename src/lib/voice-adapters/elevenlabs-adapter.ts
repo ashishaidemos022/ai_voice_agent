@@ -151,6 +151,14 @@ export class ElevenLabsVoiceAdapter implements VoiceAdapter {
     return this.realtime.injectAudio(encodedAudio);
   }
 
+  attachSyntheticInput(track: MediaStreamTrack): Promise<void> {
+    return this.realtime.attachSyntheticInput(track);
+  }
+
+  detachSyntheticInput(): Promise<void> {
+    return this.realtime.detachSyntheticInput();
+  }
+
   getOutputVolume(): number {
     return this.realtime.getOutputVolume();
   }
