@@ -55,10 +55,10 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
   const flushChainRef = useRef<Promise<void>>(Promise.resolve());
   const optionsRef = useRef(options);
   optionsRef.current = options;
-  // The voice session id goes null when the call hangs up; keep the last one seen
-  // during a run so "End & score" can still link the run to its session.
+  // The voice session id goes null when the call hangs up; lock the first one seen
+  // during a run so scoring links the run to the session it was recorded against.
   const lastSessionIdRef = useRef<string | null>(null);
-  if (options.sessionId && (runRef.current || armTokenRef.current)) lastSessionIdRef.current = options.sessionId;
+  const prevSessionIdRef = useRef<string | null>(options.sessionId);
 
   const enqueueFlush = useCallback((run: ActiveRun): Promise<void> => {
     const next = flushChainRef.current.then(async () => {
@@ -96,6 +96,7 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
     setEvidenceIncomplete(false);
     lastSessionIdRef.current = optionsRef.current.sessionId;
     let setupRunId: string | null = null;
+    let registered: ActiveRun | null = null;
     try {
       const { fingerprintInput, agentConfigId } = optionsRef.current;
       const fingerprint = await configFingerprint(fingerprintInput);
@@ -116,6 +117,7 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
       setActiveEvalContext({ evalRunId: setup.eval_run_id, patientReference: setup.patient_reference });
       const run: ActiveRun = { runId: setup.run_id, scenario, recorder, unsubscribe: () => undefined, flushTimer: 0 };
       runRef.current = run;
+      registered = run;
       run.unsubscribe = subscribeVoiceEvalSignals((signal) => {
         recorder.record(signal);
         if (scoreTimerRef.current !== null) return;
@@ -128,14 +130,20 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
       setLiveScore(scoreRun(scenario, [], { mode: 'live', snapshot: null }));
       setPhase('live');
     } catch (armError) {
-      if (runRef.current) {
-        stopRecording();
-        runRef.current = null;
+      if (token.cancelled) {
+        // A cancelled arm never owns runRef; only discard the server run it created.
+        if (setupRunId) discardServerRun(setupRunId);
+        return;
+      }
+      if (registered) {
+        if (runRef.current === registered) {
+          stopRecording();
+          runRef.current = null;
+        }
       } else {
         setActiveEvalContext(null);
       }
       if (setupRunId) discardServerRun(setupRunId);
-      if (token.cancelled) return;
       setError(armError instanceof Error ? armError.message : 'Could not start the eval');
       setPhase('error');
     } finally {
@@ -158,7 +166,7 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
     if (incomplete) console.warn('[useVoiceEval] scoring with incomplete evidence; some events could not be saved');
     setEvidenceIncomplete(incomplete);
     try {
-      setResult(await scoreEvalRun(run.runId, optionsRef.current.sessionId ?? lastSessionIdRef.current));
+      setResult(await scoreEvalRun(run.runId, lastSessionIdRef.current ?? optionsRef.current.sessionId));
       setPhase('done');
     } catch (scoreError) {
       setError(scoreError instanceof Error ? scoreError.message : 'Scoring failed');
@@ -167,6 +175,15 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
       runRef.current = null;
     }
   }, [enqueueFlush, stopRecording]);
+
+  // Lock the run to its first session, and auto-score when that live call hangs up.
+  useEffect(() => {
+    const previous = prevSessionIdRef.current;
+    const current = options.sessionId;
+    prevSessionIdRef.current = current;
+    if (current && !lastSessionIdRef.current && (runRef.current || armTokenRef.current)) lastSessionIdRef.current = current;
+    if (previous && !current && phase === 'live' && runRef.current) void end();
+  }, [options.sessionId, phase, end]);
 
   const abort = useCallback(async () => {
     const armToken = armTokenRef.current;

@@ -1267,22 +1267,25 @@ export function VoiceAgent({
                         </div>
 
                         <div className="flex flex-col gap-4 min-h-0 overflow-y-auto pr-1 pb-2">
+                          {isEvaluatorOpen && (
+                            // Stays mounted while History is shown so switching views never aborts a live run.
+                            <div hidden={viewMode !== 'current'}>
+                              <EvaluatorPanel
+                                isConnected={isConnected}
+                                sessionId={sessionId}
+                                agentConfigId={activeConfigId}
+                                fingerprintInput={{
+                                  instructions: currentConfig.instructions,
+                                  model: currentConfig.model,
+                                  voice: currentConfig.voice,
+                                  provider: currentConfig.voice_provider || 'openai_realtime',
+                                  toolNames: getAllTools().map((tool) => tool.name)
+                                }}
+                              />
+                            </div>
+                          )}
                           {viewMode === 'current' ? (
                             <>
-                              {isEvaluatorOpen && (
-                                <EvaluatorPanel
-                                  isConnected={isConnected}
-                                  sessionId={sessionId}
-                                  agentConfigId={activeConfigId}
-                                  fingerprintInput={{
-                                    instructions: currentConfig.instructions,
-                                    model: currentConfig.model,
-                                    voice: currentConfig.voice,
-                                    provider: currentConfig.voice_provider || 'openai_realtime',
-                                    toolNames: getAllTools().map((tool) => tool.name)
-                                  }}
-                                />
-                              )}
                               <Card className="p-5 bg-slate-900/60 border-white/5 flex flex-col gap-4">
                                 <div className="flex items-center gap-3">
                                   <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-300 to-orange-500">

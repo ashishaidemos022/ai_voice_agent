@@ -33,6 +33,9 @@ export function EvaluatorPanel({ isConnected, sessionId, agentConfigId, fingerpr
           <p className="text-xs text-white/50">Scores this call against a scenario. Backend state decides pass/fail.</p>
         </div>
         {phase === 'arming' && <Loader2 className="h-4 w-4 animate-spin text-white/70" />}
+        {phase === 'live' && (
+          <span className="rounded-full border border-emerald-300/40 bg-emerald-500/15 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-100">Live</span>
+        )}
         {phase === 'scoring' && (
           <span className="flex items-center gap-2 text-xs text-white/70">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -96,6 +99,8 @@ export function EvaluatorPanel({ isConnected, sessionId, agentConfigId, fingerpr
           </>
         )}
       </div>
+
+      {phase === 'arming' && <p className="text-xs text-white/50">Wait until the panel shows LIVE before speaking.</p>}
 
       {evalRun.error && <p className="text-xs text-rose-300">{evalRun.error}</p>}
 
