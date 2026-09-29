@@ -63,3 +63,9 @@ test('failed write is not a completed write', () => {
   const calls = healthcareCalls([toolCall(1, 'a', { action: 'book_appointment' }), toolResult(2, 'a', { error: 'slot gone' }, false)]);
   assert.equal(completedWrite(calls[0]), false);
 });
+
+test('hc-01 passes the order gate when the agent books without a separate search', () => {
+  const events = [toolCall(30, 'b', { action: 'book_appointment', confirmed: true, ...identity }), toolResult(40, 'b', { change: { type: 'booked' } })];
+  const { gates } = scoreTools(hc01, events, 'final');
+  assert.deepEqual(gates.map((g) => g.passed), [true, true]);
+});

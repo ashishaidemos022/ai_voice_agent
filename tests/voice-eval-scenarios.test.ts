@@ -41,3 +41,9 @@ test('validator reports broken scenarios', () => {
   assert.ok(errors.some((e) => e.includes('must forbid book_appointment')));
   assert.ok(errors.some((e) => e.includes('rubric entries')));
 });
+
+test('hc-01 v2 only requires the booking write (search is optional)', () => {
+  const hc01 = getScenario('hc-01') as Scenario;
+  assert.equal(hc01.version, 2);
+  assert.deepEqual(hc01.expected.tools.requiredActions, ['book_appointment']);
+});

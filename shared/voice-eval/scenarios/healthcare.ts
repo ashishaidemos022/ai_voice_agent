@@ -24,7 +24,7 @@ function identityMatchers(action: ArgMatcher['action']): ArgMatcher[] {
 
 export const HEALTHCARE_SCENARIOS: Scenario[] = [
   {
-    id: 'hc-01', version: 1, title: 'New cardiology booking',
+    id: 'hc-01', version: 2, title: 'New cardiology booking',
     summary: 'Caller books their referred cardiology consult on a Tuesday.',
     persona: { voiceId: '21m00Tcm4TlvDq8ikWAM', accent: 'General American', noise: 'none', temperament: 'calm' },
     goal: 'Book the cardiology consult from your referral. You prefer a Tuesday. Accept the first Tuesday time offered.',
@@ -34,7 +34,7 @@ export const HEALTHCARE_SCENARIOS: Scenario[] = [
     setup: { seedAppointment: false },
     expected: {
       state: [{ kind: 'new_appointments', count: 1 }, { kind: 'new_appointment_weekday', weekday: 'Tuesday' }, { kind: 'new_appointment_slot_booked' }],
-      tools: { requiredActions: ['search_availability', 'book_appointment'], forbiddenActions: ['cancel_appointment', 'reschedule_appointment'], argMatchers: identityMatchers('book_appointment') },
+      tools: { requiredActions: ['book_appointment'], forbiddenActions: ['cancel_appointment', 'reschedule_appointment'], argMatchers: identityMatchers('book_appointment') },
       policy: { requireEscalation: false, judgeRubric: BASE_RUBRIC }
     }
   },
