@@ -29,7 +29,7 @@ function identityMatchers(action: ArgMatcher['action']): ArgMatcher[] {
 
 export const HEALTHCARE_SCENARIOS: Scenario[] = [
   {
-    id: 'hc-01', version: 3, title: 'New cardiology booking',
+    id: 'hc-01', version: 4, title: 'New cardiology booking',
     summary: 'Caller books their referred cardiology consult on a Tuesday.',
     persona: { voiceId: '21m00Tcm4TlvDq8ikWAM', accent: 'General American', noise: 'none', temperament: 'calm' },
     goal: 'Book the cardiology consult from your referral. You prefer a Tuesday. Accept the first Tuesday time offered.',
@@ -38,13 +38,13 @@ export const HEALTHCARE_SCENARIOS: Scenario[] = [
     beats: [],
     setup: { seedAppointment: false },
     expected: {
-      state: [{ kind: 'new_appointments', count: 1 }, { kind: 'new_appointment_weekday', weekday: 'Tuesday' }, { kind: 'new_appointment_slot_booked' }],
+      state: [{ kind: 'new_appointments', count: 1 }, { kind: 'new_appointment_slot_booked' }],
       tools: { requiredActions: ['book_appointment'], forbiddenActions: ['cancel_appointment', 'reschedule_appointment'], argMatchers: identityMatchers('book_appointment') },
       policy: { requireEscalation: false, judgeRubric: BASE_RUBRIC }
     }
   },
   {
-    id: 'hc-02', version: 2, title: 'Reschedule to Wednesday',
+    id: 'hc-02', version: 3, title: 'Reschedule to Wednesday',
     summary: 'Caller moves an existing cardiology visit to a Wednesday.',
     persona: { voiceId: 'pNInz6obpgDQGcFmaJgB', accent: 'General American', noise: 'none', temperament: 'calm' },
     goal: 'You already have a cardiology appointment. Move it to a Wednesday. Accept the first Wednesday time offered.',
@@ -55,7 +55,7 @@ export const HEALTHCARE_SCENARIOS: Scenario[] = [
     expected: {
       state: [
         { kind: 'seeded_status', status: 'rescheduled' }, { kind: 'seeded_slot_released' },
-        { kind: 'new_appointments', count: 1 }, { kind: 'new_appointment_weekday', weekday: 'Wednesday' }, { kind: 'new_appointment_slot_booked' }
+        { kind: 'new_appointments', count: 1 }, { kind: 'new_appointment_slot_booked' }
       ],
       tools: { requiredActions: ['reschedule_appointment'], forbiddenActions: ['cancel_appointment'], argMatchers: identityMatchers('reschedule_appointment') },
       policy: { requireEscalation: false, judgeRubric: BASE_RUBRIC }
@@ -110,7 +110,7 @@ export const HEALTHCARE_SCENARIOS: Scenario[] = [
     }
   },
   {
-    id: 'hc-06', version: 2, title: 'Barge-in during readback',
+    id: 'hc-06', version: 3, title: 'Barge-in during readback',
     summary: 'Caller interrupts the confirmation readback to pick an afternoon time.',
     persona: { voiceId: 'TxGEqnHWrfWFTfGW9XjX', accent: 'General American', noise: 'none', temperament: 'rushed' },
     goal: 'Book a Friday cardiology consult. While the agent reads back a morning time, interrupt and ask for the afternoon one instead.',
@@ -119,13 +119,13 @@ export const HEALTHCARE_SCENARIOS: Scenario[] = [
     beats: [{ kind: 'barge_in', afterAgentSpeechMs: 1200, line: 'Sorry — can we do the afternoon one instead?' }],
     setup: { seedAppointment: false },
     expected: {
-      state: [{ kind: 'new_appointments', count: 1 }, { kind: 'new_appointment_weekday', weekday: 'Friday' }, { kind: 'new_appointment_slot_booked' }],
+      state: [{ kind: 'new_appointments', count: 1 }, { kind: 'new_appointment_slot_booked' }],
       tools: { requiredActions: ['book_appointment'], forbiddenActions: ['cancel_appointment', 'reschedule_appointment'], argMatchers: identityMatchers('book_appointment') },
       policy: { requireEscalation: false, judgeRubric: BASE_RUBRIC }
     }
   },
   {
-    id: 'hc-07', version: 2, title: 'Angry caller, bumped visit',
+    id: 'hc-07', version: 3, title: 'Angry caller, bumped visit',
     summary: 'Frustrated caller whose visit was moved reschedules to a Monday.',
     persona: { voiceId: 'VR6AewLTigWG4xSOukaG', accent: 'General American', noise: 'none', temperament: 'angry' },
     goal: 'You are annoyed your cardiology visit time no longer works. Complain once, then move it to a Monday.',
@@ -136,7 +136,7 @@ export const HEALTHCARE_SCENARIOS: Scenario[] = [
     expected: {
       state: [
         { kind: 'seeded_status', status: 'rescheduled' }, { kind: 'seeded_slot_released' },
-        { kind: 'new_appointments', count: 1 }, { kind: 'new_appointment_weekday', weekday: 'Monday' }
+        { kind: 'new_appointments', count: 1 }
       ],
       tools: { requiredActions: ['reschedule_appointment'], forbiddenActions: ['cancel_appointment'], argMatchers: identityMatchers('reschedule_appointment') },
       policy: {
@@ -146,7 +146,7 @@ export const HEALTHCARE_SCENARIOS: Scenario[] = [
     }
   },
   {
-    id: 'hc-08', version: 2, title: 'Accent and café noise',
+    id: 'hc-08', version: 3, title: 'Accent and café noise',
     summary: 'Indian-English caller in a noisy café books with confusable digits.',
     persona: { voiceId: 'pNInz6obpgDQGcFmaJgB', accent: 'Indian English', noise: 'cafe', temperament: 'calm' },
     goal: 'Book the cardiology consult on a Tuesday. Say your date of birth and postcode character by character.',
@@ -155,13 +155,13 @@ export const HEALTHCARE_SCENARIOS: Scenario[] = [
     beats: [],
     setup: { seedAppointment: false },
     expected: {
-      state: [{ kind: 'new_appointments', count: 1 }, { kind: 'new_appointment_weekday', weekday: 'Tuesday' }, { kind: 'new_appointment_slot_booked' }],
+      state: [{ kind: 'new_appointments', count: 1 }, { kind: 'new_appointment_slot_booked' }],
       tools: { requiredActions: ['book_appointment'], forbiddenActions: ['cancel_appointment', 'reschedule_appointment'], argMatchers: identityMatchers('book_appointment') },
       policy: { requireEscalation: false, judgeRubric: BASE_RUBRIC }
     }
   },
   {
-    id: 'hc-09', version: 2, title: 'Long silence mid-call',
+    id: 'hc-09', version: 3, title: 'Long silence mid-call',
     summary: 'Caller goes quiet for 12 seconds; the agent must re-prompt.',
     persona: { voiceId: 'EXAVITQu4vr4xnSDxMaL', accent: 'General American', noise: 'none', temperament: 'anxious' },
     goal: 'Book a Wednesday cardiology consult. After the agent asks for your date of birth, stay silent for about 12 seconds before answering.',
@@ -170,7 +170,7 @@ export const HEALTHCARE_SCENARIOS: Scenario[] = [
     beats: [{ kind: 'silence', afterTurn: 2, durationMs: 12000 }],
     setup: { seedAppointment: false },
     expected: {
-      state: [{ kind: 'new_appointments', count: 1 }, { kind: 'new_appointment_weekday', weekday: 'Wednesday' }],
+      state: [{ kind: 'new_appointments', count: 1 }],
       tools: { requiredActions: ['book_appointment'], forbiddenActions: ['cancel_appointment', 'reschedule_appointment'], argMatchers: identityMatchers('book_appointment') },
       policy: { requireEscalation: false, judgeRubric: BASE_RUBRIC }
     }

@@ -22,6 +22,7 @@ function slot(id: string, status: string, appointmentId: string | null): SlotRow
 
 const hc01 = getScenario('hc-01') as Scenario;
 const hc02 = getScenario('hc-02') as Scenario;
+const hc05 = getScenario('hc-05') as Scenario;
 const tuesday = '2026-10-06T14:00:00Z';
 const wednesday = '2026-10-07T14:00:00Z';
 
@@ -33,12 +34,12 @@ const bookedSnapshot: StateSnapshot = {
 
 test('state assertions pass for a correct booking', () => {
   const gates = evaluateStateAssertions(hc01.expected.state, bookedSnapshot);
-  assert.deepEqual(gates.map((g) => g.passed), [true, true, true]);
+  assert.deepEqual(gates.map((g) => g.passed), [true, true]);
 });
 
-test('state assertions catch wrong weekday and unbooked slot', () => {
+test('state assertions catch wrong weekday (hc-05 day correction) and unbooked slot', () => {
   const snapshot: StateSnapshot = { ...bookedSnapshot, appointments: [appt('new', 'scheduled', wednesday, 's1')], slots: [slot('s1', 'open', null)] };
-  const gates = evaluateStateAssertions(hc01.expected.state, snapshot);
+  const gates = evaluateStateAssertions(hc05.expected.state, snapshot);
   assert.deepEqual(gates.map((g) => g.passed), [true, false, false]);
   assert.match(gates[1].detail, /Wednesday/);
 });

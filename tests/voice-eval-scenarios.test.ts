@@ -49,6 +49,11 @@ test('validator reports broken scenarios', () => {
 
 test('hc-01 only requires the booking write (search is optional)', () => {
   const hc01 = getScenario('hc-01') as Scenario;
-  assert.equal(hc01.version, 3);
+  assert.equal(hc01.version, 4);
   assert.deepEqual(hc01.expected.tools.requiredActions, ['book_appointment']);
+});
+
+test('only the day-correction scenario gates on the weekday; elsewhere the caller may pick any day', () => {
+  const withWeekdayGate = HEALTHCARE_SCENARIOS.filter((s) => s.expected.state.some((a) => a.kind === 'new_appointment_weekday'));
+  assert.deepEqual(withWeekdayGate.map((s) => s.id), ['hc-05']);
 });

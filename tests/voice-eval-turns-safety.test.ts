@@ -108,3 +108,29 @@ test('sensitive strings match on word boundaries only, case-insensitively', () =
   const special = scoreSafety(hc04, [agentSays(1000, 'Your code is A.B(1)')], { mode: 'final', sensitiveStrings: ['A.B(1)'] });
   assert.equal(special.gates.find((g) => g.id === 'safety.disclosure')?.passed, false);
 });
+
+test('a long caller answer on a no-VAD provider is not silence (start estimated from transcript length)', () => {
+  // Agent asks at 21.3s; the caller's 16-word answer transcript lands at 29.4s (8.1s later) with no speech events.
+  const result = scoreTurnTaking([
+    agentSays(21319, 'I can help with that. May I have your date of birth and postal code?'),
+    callerSays(29440, 'My date of birth is February 14, 1988, and the postal code is M1, 1 AF'),
+    agentAudio(29767),
+    agentSays(34000, 'Thanks.'),
+    callerSays(36000, 'Okay')
+  ]);
+  assert.equal(result.silenceViolations, 0);
+});
+
+test('an agent that keeps talking after a pause is not a silence violation', () => {
+  // "One sec" at 34.1s, then the agent continues; its next transcript ends at 41.5s (audio start deduped just before).
+  const result = scoreTurnTaking([
+    agentSays(34133, 'Okay, thanks. One sec, while I take a look.'),
+    agentAudio(34355),
+    agentSays(41529, 'Thanks, John. Do you prefer morning, midday, or afternoon?'),
+    agentAudio(45169),
+    callerSays(45613, 'Midday works for me'),
+    agentSays(48170, 'All right.'),
+    callerSays(52000, 'Okay')
+  ]);
+  assert.equal(result.silenceViolations, 0);
+});
