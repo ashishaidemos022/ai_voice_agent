@@ -37,6 +37,10 @@ test('facts match transcript text by kind', () => {
   assert.equal(factMatchesText(dob, 'my birthday is March 4th, 1979'), false);
   assert.equal(factMatchesText(zip, 'zip is seven five two oh four'), true);
   assert.equal(factMatchesText(zip, 'zip is 75240'), false);
+  assert.equal(factMatchesText(zip, 'zip is 75204.'), true);
+  assert.equal(factMatchesText(zip, '7 5 2 0 4'), true);
+  assert.equal(factMatchesText(zip, 'call me at 214 752 0411'), false);
+  assert.equal(factMatchesText(zip, 'Oh, the one on seven five two oh four'), true);
   assert.equal(factMatchesText(name, 'this is maya patel'), true);
   assert.equal(factMatchesText(name, 'this is mayan'), false);
   assert.equal(factMatchesText(day, 'Thursday works'), true);
@@ -55,7 +59,9 @@ test('edit distance and best window', () => {
   assert.equal(wordEditDistance(['a', 'b', 'c'], ['a', 'x', 'c']), 1);
   assert.equal(wordEditDistance([], ['a']), 1);
   assert.equal(bestWindowDistance(['7', '5', '2', '0', '4'], '197975204'.split('')), 0);
-  assert.equal(bestWindowDistance(factTokens(zip), transcriptTokensFor(zip, 'zip 75240')), 2);
+  assert.equal(bestWindowDistance(factTokens(zip), transcriptTokensFor(zip, 'zip 75240')), 1);
+  assert.equal(bestWindowDistance(['7', '5', '2', '0', '4'], '7529049'.split('')), 1);
+  assert.equal(bestWindowDistance([], ['a']), 0);
   assert.deepEqual(factTokens(dob), ['1979', '03', '14']);
   assert.deepEqual(transcriptTokensFor(dob, 'March 14, 1979'), ['1979', '03', '14']);
 });

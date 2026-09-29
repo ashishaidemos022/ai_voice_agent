@@ -59,6 +59,39 @@ export function normalizeWeekday(value: string): string | null {
   return WEEKDAYS.find((day) => tokens.includes(day.toLowerCase())) ?? null;
 }
 
+function digitToken(token: string): string | null {
+  return /^\d+$/.test(token) ? token : DIGIT_WORDS[token] ?? null;
+}
+
+// Maximal runs of consecutive digit tokens (numerals or digit words); any other token breaks a run.
+function digitRuns(text: string): string[][] {
+  const runs: string[][] = [];
+  let current: string[] = [];
+  for (const token of tokenize(text)) {
+    const digits = digitToken(token);
+    if (digits === null) {
+      if (current.length > 0) runs.push(current);
+      current = [];
+    } else {
+      current.push(digits);
+    }
+  }
+  if (current.length > 0) runs.push(current);
+  return runs;
+}
+
+// True when some contiguous slice of whole tokens in the run concatenates to exactly the needle.
+function runContains(run: string[], needle: string): boolean {
+  for (let start = 0; start < run.length; start += 1) {
+    let joined = '';
+    for (let end = start; end < run.length && joined.length < needle.length; end += 1) {
+      joined += run[end];
+      if (joined === needle) return true;
+    }
+  }
+  return false;
+}
+
 export function factMatchesText(fact: Fact, text: string): boolean {
   switch (fact.kind) {
     case 'name':
@@ -72,7 +105,7 @@ export function factMatchesText(fact: Fact, text: string): boolean {
     }
     case 'digits': {
       const needle = normalizeDigits(fact.value);
-      return needle.length > 0 && normalizeDigits(text).includes(needle);
+      return needle.length > 0 && digitRuns(text).some((run) => runContains(run, needle));
     }
     case 'weekday': {
       const day = normalizeWeekday(fact.value);
@@ -129,12 +162,22 @@ export function transcriptTokensFor(fact: Fact, text: string): string[] {
   return tokenize(text);
 }
 
+// Semi-global alignment: the reference may start and end anywhere in the hypothesis
+// (leading/trailing hypothesis tokens are free), so insertions inside the entity cost 1 each.
 export function bestWindowDistance(reference: string[], hypothesis: string[]): number {
   if (reference.length === 0) return 0;
-  if (hypothesis.length <= reference.length) return wordEditDistance(reference, hypothesis);
-  let best = Number.POSITIVE_INFINITY;
-  for (let start = 0; start + reference.length <= hypothesis.length; start += 1) {
-    best = Math.min(best, wordEditDistance(reference, hypothesis.slice(start, start + reference.length)));
+  let previous = new Array<number>(hypothesis.length + 1).fill(0);
+  for (let i = 1; i <= reference.length; i += 1) {
+    const current = new Array<number>(hypothesis.length + 1);
+    current[0] = i;
+    for (let j = 1; j <= hypothesis.length; j += 1) {
+      current[j] = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + (reference[i - 1] === hypothesis[j - 1] ? 0 : 1)
+      );
+    }
+    previous = current;
   }
-  return best;
+  return previous.reduce((best, value) => Math.min(best, value), Number.POSITIVE_INFINITY);
 }
