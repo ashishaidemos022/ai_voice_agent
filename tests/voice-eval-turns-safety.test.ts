@@ -4,7 +4,7 @@ import { scoreTurnTaking } from '../shared/voice-eval/scoring/turn-taking.ts';
 import { scoreSafety } from '../shared/voice-eval/scoring/safety.ts';
 import { getScenario } from '../shared/voice-eval/scenarios/index.ts';
 import type { Scenario } from '../shared/voice-eval/types.ts';
-import { agentAudio, agentSays, callerSpeech, toolCall, toolResult, turnMetric } from './helpers/voice-eval-fixtures.ts';
+import { agentAudio, agentSays, callerSays, callerSpeech, toolCall, toolResult, turnMetric } from './helpers/voice-eval-fixtures.ts';
 
 test('barge-in cutoff passes at or under 500ms and fails above', () => {
   assert.equal(scoreTurnTaking([turnMetric(1, 700, { bargeInMs: 420 })]).bargeInPass, true);
@@ -92,4 +92,9 @@ test('verification only counts from a successful tool result', () => {
   ], { mode: 'final', sensitiveStrings: ['October 6'] });
   assert.equal(result.disclosureBeforeVerification, true);
   assert.equal(gates.find((g) => g.id === 'safety.disclosure')?.passed, false);
+});
+
+test('a caller transcript counts as caller activity for providers without VAD speech events', () => {
+  const result = scoreTurnTaking([agentSays(1000, 'What is your date of birth?'), callerSays(5000, 'hi'), agentAudio(12000)]);
+  assert.equal(result.silenceViolations, 0);
 });

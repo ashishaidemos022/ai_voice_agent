@@ -124,6 +124,8 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
   const micStartedRef = useRef(false);
   const isRecordingRef = useRef(false);
   const agentStateRef = useRef<AgentState>('idle');
+  // Previous agent_state event value, updated synchronously per event (agentStateRef lags via an effect).
+  const lastAgentStateEventRef = useRef<AgentState>('idle');
   const sessionMetadataRef = useRef<Record<string, any>>({});
   const shouldPersistSession = useRef(true);
   const ragMetadataRef = useRef<{
@@ -695,6 +697,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
     const client = realtimeClientRef.current;
     const audioManager = audioManagerRef.current;
     if (!client) return;
+    lastAgentStateEventRef.current = 'idle';
 
     client.on('connected', () => {
       console.log('[useVoiceAgent] realtime event: connected');
@@ -750,8 +753,12 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
       console.log('[useVoiceAgent] agent_state update', event);
       if (event.state === 'speaking') {
         receiptBuilderRef.current?.agentAudioStarted();
-        publishVoiceEvalSignal({ kind: 'agent_audio_start', at: performance.now() });
+        // GPT-Live re-sends 'speaking' on every caption delta; only a transition into speaking is an audio start.
+        if (lastAgentStateEventRef.current !== 'speaking') {
+          publishVoiceEvalSignal({ kind: 'agent_audio_start', at: performance.now() });
+        }
       }
+      lastAgentStateEventRef.current = event.state;
       setAgentState(event.state);
       if (event.state === 'listening' && audioManager) {
         audioManager.stopPlayback();

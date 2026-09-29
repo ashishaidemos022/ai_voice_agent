@@ -22,8 +22,13 @@ export function scoreTurnTaking(events: EvidenceEvent[]): TurnTakingResult {
   for (const event of sorted) {
     if (event.kind !== 'agent_transcript') continue;
     const windowEnd = event.atMs + SILENCE_REPROMPT_MS;
-    const nextCallerStart = sorted.find((e) => e.kind === 'caller_speech_start' && e.atMs > event.atMs);
-    const callerStayedSilent = !nextCallerStart || nextCallerStart.atMs > windowEnd;
+    // Providers without VAD (GPT-Live, ElevenLabs agent) emit no caller_speech_start, so a
+    // caller transcript also counts as caller activity. VAD providers are unaffected: their
+    // speech start precedes the transcript.
+    const nextCallerActivity = sorted.find(
+      (e) => (e.kind === 'caller_speech_start' || e.kind === 'caller_transcript') && e.atMs > event.atMs
+    );
+    const callerStayedSilent = !nextCallerActivity || nextCallerActivity.atMs > windowEnd;
     const callContinued = lastEventAt > windowEnd + REPROMPT_GRACE_MS;
     if (!callerStayedSilent || !callContinued) continue;
     const reprompted = sorted.some((e) => e.kind === 'agent_audio_start' && e.atMs > event.atMs + 250 && e.atMs <= windowEnd);
