@@ -26,7 +26,7 @@ export function scoreTurnTaking(events: EvidenceEvent[]): TurnTakingResult {
     const callerStayedSilent = !nextCallerStart || nextCallerStart.atMs > windowEnd;
     const callContinued = lastEventAt > windowEnd + REPROMPT_GRACE_MS;
     if (!callerStayedSilent || !callContinued) continue;
-    const reprompted = sorted.some((e) => e.kind === 'agent_audio_start' && e.atMs > event.atMs + 250 && e.atMs <= windowEnd + REPROMPT_GRACE_MS);
+    const reprompted = sorted.some((e) => e.kind === 'agent_audio_start' && e.atMs > event.atMs + 250 && e.atMs <= windowEnd);
     if (!reprompted) silenceViolations += 1;
   }
 
