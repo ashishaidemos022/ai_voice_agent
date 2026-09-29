@@ -158,6 +158,7 @@ export interface JudgeResult {
   notes: string;
   model: string | null;
   error?: string;
+  missingItems?: string[];
 }
 
 export interface SlotRow {
