@@ -29,6 +29,10 @@ interface ActiveRun {
   unsubscribe: () => void;
   flushTimer: number;
   caller: SyntheticCaller | null;
+  /** Set once the run has gone live; a caller self-stop after this must release the run. */
+  live: boolean;
+  /** Set by stopRecording, so our own caller stops are told apart from self-stops, and end() runs once. */
+  closing: boolean;
 }
 
 interface ArmToken {
@@ -86,7 +90,8 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
 
   const stopRecording = useCallback(() => {
     const run = runRef.current;
-    if (!run) return;
+    if (!run || run.closing) return;
+    run.closing = true;
     run.unsubscribe();
     if (run.caller) void run.caller.stop();
     window.clearInterval(run.flushTimer);
@@ -126,7 +131,7 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
       }
       const recorder = new EvidenceRecorder(performance.now());
       setActiveEvalContext({ evalRunId: setup.eval_run_id, patientReference: setup.patient_reference });
-      const run: ActiveRun = { runId: setup.run_id, scenario, recorder, unsubscribe: () => undefined, flushTimer: 0, caller: null };
+      const run: ActiveRun = { runId: setup.run_id, scenario, recorder, unsubscribe: () => undefined, flushTimer: 0, caller: null, live: false, closing: false };
       runRef.current = run;
       registered = run;
       run.unsubscribe = subscribeVoiceEvalSignals((signal) => {
@@ -143,6 +148,7 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
         if (!adapter?.attachSyntheticInput) throw new Error('This voice provider does not support the synthetic caller');
         // start() resolves quietly when the caller is stopped mid-start, so track that here.
         let callerStopped = false;
+        let lastStatus: CallerStatus | null = null;
         const caller = new SyntheticCaller({
           runId: setup.run_id,
           scenario,
@@ -153,13 +159,30 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
           publish: publishVoiceEvalSignal,
           hangUp: () => optionsRef.current.hangUp(),
           onStatus: (status) => {
-            if (status === 'stopped') callerStopped = true;
+            const previous = lastStatus;
+            lastStatus = status;
             setCallerStatus(status);
+            if (status !== 'stopped') return;
+            callerStopped = true;
+            // Our own stops (end, abort, unmount) go through stopRecording, and a normal finish stops
+            // from 'hanging_up' and then hangs up, which scores the run through end().
+            if (run.closing || previous === 'hanging_up') return;
+            // The caller stopped itself (the server closed the run): release it the way abort() does.
+            if (run.live && runRef.current === run) {
+              stopRecording();
+              runRef.current = null;
+              setPhase('idle');
+              setLiveScore(null);
+              setError('The eval run was closed on the server');
+              discardServerRun(run.runId);
+            }
           }
         });
         run.caller = caller;
         await caller.start();
-        if (token.cancelled || callerStopped || runRef.current !== run) {
+        // The voice session hanging up during a synthetic arm cancels it too: never go live against a dead session.
+        const sessionGone = lastSessionIdRef.current !== null && !optionsRef.current.sessionId;
+        if (token.cancelled || callerStopped || sessionGone || runRef.current !== run) {
           if (runRef.current === run) {
             stopRecording();
             runRef.current = null;
@@ -174,6 +197,7 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
           return;
         }
       }
+      run.live = true;
       setLiveScore(scoreRun(scenario, [], { mode: 'live', snapshot: null }));
       setPhase('live');
     } catch (armError) {
@@ -204,7 +228,8 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
 
   const end = useCallback(async () => {
     const run = runRef.current;
-    if (!run) return;
+    // stopRecording marks the run closing synchronously, so a second concurrent end() never scores it twice.
+    if (!run || run.closing) return;
     stopRecording();
     setPhase('scoring');
     // Awaiting the chain tail waits for any in-flight interval flush, then flushes the rest.
