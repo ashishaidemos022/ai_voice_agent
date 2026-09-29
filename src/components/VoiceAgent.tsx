@@ -21,6 +21,7 @@ import type { VoiceTurnReceipt } from '../../shared/voice-receipts';
 import { ConversationThread } from './conversation/ConversationThread';
 import { ToolsList } from './tools/ToolsList';
 import { ToolExecutionFeed } from './tools/ToolExecutionFeed';
+import { EvaluatorPanel } from './voice-eval/EvaluatorPanel';
 import { Button } from './ui/Button';
 import { SessionHistory } from './session/SessionHistory';
 import { WebSearchSkillCard } from './settings/WebSearchSkillCard';
@@ -200,6 +201,10 @@ export function VoiceAgent({
   const [isWorkspaceView, setIsWorkspaceView] = useState(() => {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem('va-workspace-view') === 'true';
+  });
+  const [isEvaluatorOpen, setIsEvaluatorOpen] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem('va-evaluator-enabled') === 'true';
   });
   const [mcpConnectionSummary, setMcpConnectionSummary] = useState<MCPConnectionSummary[]>([]);
   const [isMcpSummaryLoading, setIsMcpSummaryLoading] = useState(false);
@@ -652,6 +657,12 @@ export function VoiceAgent({
       window.localStorage.removeItem('va-mcp-panel-open');
     }
   }, [isMCPPanelOpen]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (isEvaluatorOpen) window.localStorage.setItem('va-evaluator-enabled', 'true');
+    else window.localStorage.removeItem('va-evaluator-enabled');
+  }, [isEvaluatorOpen]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1135,6 +1146,14 @@ export function VoiceAgent({
                                   {isRecording ? 'Mute' : 'Unmute'}
                                 </button>
                               )}
+                              <button
+                                type="button"
+                                onClick={() => setIsEvaluatorOpen((open) => !open)}
+                                aria-pressed={isEvaluatorOpen}
+                                className={cn('rounded-lg border px-3 py-2 text-xs', isEvaluatorOpen ? 'border-cyan-300/60 bg-cyan-400/20 text-cyan-50' : 'border-white/15 bg-white/5 text-white/70')}
+                              >
+                                Evaluator {isEvaluatorOpen ? 'on' : 'off'}
+                              </button>
                               {onNavigateRoutedVoice && <button type="button" disabled={isConnected || isInitializing} onClick={() => onNavigateRoutedVoice(selectedPresetId)} className="rounded-lg border border-cyan-300/40 bg-cyan-400/10 px-3 py-2 text-xs text-cyan-100 disabled:opacity-40">Live voice + memory</button>}
                               <span className="text-[11px] uppercase tracking-[0.2em] text-cyan-200 border border-cyan-400/30 bg-cyan-500/10 px-2 py-1 rounded-full">
                                 Voice
@@ -1250,6 +1269,20 @@ export function VoiceAgent({
                         <div className="flex flex-col gap-4 min-h-0 overflow-y-auto pr-1 pb-2">
                           {viewMode === 'current' ? (
                             <>
+                              {isEvaluatorOpen && (
+                                <EvaluatorPanel
+                                  isConnected={isConnected}
+                                  sessionId={sessionId}
+                                  agentConfigId={activeConfigId}
+                                  fingerprintInput={{
+                                    instructions: currentConfig.instructions,
+                                    model: currentConfig.model,
+                                    voice: currentConfig.voice,
+                                    provider: currentConfig.voice_provider || 'openai_realtime',
+                                    toolNames: getAllTools().map((tool) => tool.name)
+                                  }}
+                                />
+                              )}
                               <Card className="p-5 bg-slate-900/60 border-white/5 flex flex-col gap-4">
                                 <div className="flex items-center gap-3">
                                   <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-300 to-orange-500">
