@@ -100,7 +100,7 @@ async function runJudge(scenario: Scenario, events: EvidenceEvent[], score: RunS
   if (!turns.length) return { ...judgeUnavailable('No transcript to judge'), status: 'skipped' };
   const request = buildJudgeRequest(scenario, turns, events, score);
   try {
-    const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY, maxRetries: 1, timeout: 90_000 });
+    const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY, timeout: 90_000, maxRetries: 0 });
     const response = await client.beta.messages.create({
       model: JUDGE_MODEL,
       max_tokens: 16000,
@@ -181,25 +181,30 @@ async function handleScore(ownerId: string, body: JsonRecord) {
   }
   const score = scoreRun(scenario, events, { mode: 'final', snapshot, sensitiveStrings: setup.sensitiveStrings ?? [] });
   await teardownRun(store, run.eval_run_id).catch((error) => console.error('[voice-eval] teardown failed', error));
-  const judge = await runJudge(scenario, events, score);
 
+  // Persist the deterministic verdict first so a slow or failed judge can never lose it.
   const status = score.verdict === 'pass' || score.verdict === 'invalid_harness' ? score.verdict : 'fail';
   const { data: finalized, error: finalError } = await adminClient.from('voice_eval_runs').update({
     status,
     gates: score.gates,
     scores: { tools: score.tools, entities: score.entities, turnTaking: score.turnTaking, safety: score.safety },
     latency: score.latency,
-    judge,
     scored_at: new Date().toISOString()
   }).eq('id', run.id).eq('status', 'scoring').select('id');
   if (finalError) throw new Error(`Could not save the eval result: ${finalError.message}`);
   if (!finalized || finalized.length === 0) throw new Error('Eval run left the scoring state before its result was saved');
+
+  const judge = await runJudge(scenario, events, score);
+  const { error: judgeError } = await adminClient.from('voice_eval_runs').update({ judge }).eq('id', run.id);
+  if (judgeError) console.error('[voice-eval] could not save the judge result', judgeError.message);
   return jsonResponse({ run_id: run.id, status, score, judge });
 }
 
 async function handleTeardown(ownerId: string, body: JsonRecord) {
   const run = await loadOwnedRun(ownerId, body.run_id);
   if (!run) return jsonResponse({ error: 'Eval run not found' }, 404);
+  // An in-flight score owns the EHR teardown (it snapshots state first); never race it.
+  if (run.status === 'scoring') return jsonResponse({ run_id: run.id, status: run.status, removed: 0 });
   const removed = await teardownRun(ehrStore(), run.eval_run_id);
   let status = run.status;
   if (run.status === 'running') {
