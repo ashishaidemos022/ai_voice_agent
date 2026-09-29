@@ -49,7 +49,8 @@ test('validator reports broken scenarios', () => {
 
 test('hc-01 only requires the booking write (search is optional)', () => {
   const hc01 = getScenario('hc-01') as Scenario;
-  assert.equal(hc01.version, 4);
+  assert.equal(hc01.version, 5);
+  assert.equal(hc01.persona.voiceId, 'pNInz6obpgDQGcFmaJgB', 'hc-01 uses Adam');
   assert.deepEqual(hc01.expected.tools.requiredActions, ['book_appointment']);
 });
 

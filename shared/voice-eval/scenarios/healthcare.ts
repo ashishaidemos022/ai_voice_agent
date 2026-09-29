@@ -29,9 +29,9 @@ function identityMatchers(action: ArgMatcher['action']): ArgMatcher[] {
 
 export const HEALTHCARE_SCENARIOS: Scenario[] = [
   {
-    id: 'hc-01', version: 4, title: 'New cardiology booking',
+    id: 'hc-01', version: 5, title: 'New cardiology booking',
     summary: 'Caller books their referred cardiology consult on a Tuesday.',
-    persona: { voiceId: '21m00Tcm4TlvDq8ikWAM', accent: 'General American', noise: 'none', temperament: 'calm' },
+    persona: { voiceId: 'pNInz6obpgDQGcFmaJgB', accent: 'General American', noise: 'none', temperament: 'calm' },
     goal: 'Book the cardiology consult from your referral. You prefer a Tuesday. Accept the first Tuesday time offered.',
     evalPatient: JOHN_HACKETT_REFERENCE,
     facts: { ...johnHackett(), preferredDay: { kind: 'weekday', value: 'Tuesday', critical: false } },
