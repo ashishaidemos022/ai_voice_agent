@@ -76,6 +76,8 @@ export async function handleCallerRequest(deps: CallerDeps, ownerId: string, bod
     const audio = decision.text ? bytesToBase64(await deps.tts(apiKey, voiceId, decision.text)) : null;
     return { status: 200, body: { action: decision.action, text: decision.text, audio_b64: audio } };
   } catch (error) {
+    // A farewell that can't be voiced still ends the call cleanly.
+    if (decision.action === 'hang_up') return { status: 200, body: { action: 'hang_up', text: decision.text, audio_b64: null } };
     return { status: 502, body: { error: `Caller TTS failed: ${errorMessage(error)}` } };
   }
 }

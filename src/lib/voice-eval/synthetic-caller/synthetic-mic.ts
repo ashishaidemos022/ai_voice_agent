@@ -4,6 +4,7 @@ import type { MicLike } from './types.ts';
 
 const SAMPLE_RATE = 24000;
 const START_LEAD_S = 0.05;
+const MONITOR_GAIN = 0.5;
 
 function distortionCurve(amount: number): Float32Array<ArrayBuffer> {
   const curve = new Float32Array(1024);
@@ -24,6 +25,11 @@ export async function createSyntheticMic(noise: Scenario['persona']['noise'], se
   }
   const destination = context.createMediaStreamDestination();
   const voiceBus = context.createGain();
+  // The owner watches runs hands-free, so they also hear the caller through the speakers. There is no
+  // echo risk: the real mic is replaced for the whole call.
+  const monitor = context.createGain();
+  monitor.gain.value = MONITOR_GAIN;
+  monitor.connect(context.destination);
 
   if (noise === 'speakerphone') {
     const highPass = context.createBiquadFilter();
@@ -34,9 +40,12 @@ export async function createSyntheticMic(noise: Scenario['persona']['noise'], se
     lowPass.frequency.value = 3400;
     const shaper = context.createWaveShaper();
     shaper.curve = distortionCurve(4);
-    voiceBus.connect(highPass).connect(lowPass).connect(shaper).connect(destination);
+    voiceBus.connect(highPass).connect(lowPass).connect(shaper);
+    shaper.connect(destination);
+    shaper.connect(monitor);
   } else {
     voiceBus.connect(destination);
+    voiceBus.connect(monitor);
   }
 
   let noiseSource: AudioBufferSourceNode | null = null;
@@ -48,6 +57,7 @@ export async function createSyntheticMic(noise: Scenario['persona']['noise'], se
     noiseSource.buffer = buffer;
     noiseSource.loop = true;
     noiseSource.connect(destination);
+    noiseSource.connect(monitor);
     noiseSource.start();
   }
 
@@ -93,6 +103,7 @@ export async function createSyntheticMic(noise: Scenario['persona']['noise'], se
       } catch {
         // Already stopped.
       }
+      monitor.disconnect();
       track.stop();
       await context.close().catch(() => undefined);
     }

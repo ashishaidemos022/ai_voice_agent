@@ -70,3 +70,14 @@ test('every scenario fires all its turn beats once anchors are met', () => {
     assert.deepEqual(s.firedBeats(), expected, sc.id);
   }
 });
+
+test('an unverified tool reply does not arm hc-06 barge-in; a later verified success does', () => {
+  const s = new BeatScheduler(scenario('hc-06').beats);
+  toolOk(s, 'u', 'hold_slot', { verification: { verified: false }, action: { status: 'verification_required' } });
+  s.observe({ kind: 'agent_audio_start', at: 1000 });
+  assert.equal(s.pollBargeIn(5000), null, 'unverified hold is not the anchor');
+  s.observe({ kind: 'agent_audio_stop', at: 5000 });
+  toolOk(s, 'v', 'hold_slot', { verification: { verified: true }, action: { status: 'held' } });
+  s.observe({ kind: 'agent_audio_start', at: 6000 });
+  assert.equal(s.pollBargeIn(7200)?.beatIndex, 0);
+});

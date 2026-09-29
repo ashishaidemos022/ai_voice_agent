@@ -35,7 +35,11 @@ export function buildBrainRequest(scenario: Scenario, transcript: TranscriptTurn
     '- Say dates the way a person would (for example "February 14th, 1988").',
     "- Never invent details that are not listed above. If asked for something you don't have, say so.",
     '- Choose action "hang_up" once your goal is done and the agent has wrapped up, when the agent says goodbye, or when the agent hands you to staff. Put a short goodbye in text, or leave it empty.',
-    '- Otherwise choose action "say" and put your next line in text.'
+    '- Otherwise choose action "say" and put your next line in text.',
+    ...(scenario.beats.length
+      ? ['- Some moments in this call are scripted and will be spoken for you (for example a correction, an interruption, a pause, or mentioning a symptom). Never perform those yourself; just continue naturally after they happen.']
+      : []),
+    ...hiddenFacts.map((fact) => `- You have not changed your mind yet: do not mention or ask for any alternative to your first stated preference (${fact}) until you have said so in the conversation.`)
   ].join('\n');
 
   const lines = transcript

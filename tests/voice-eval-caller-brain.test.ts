@@ -38,3 +38,21 @@ test('parseBrainDecision accepts say and hang_up, rejects bad output, clamps lon
   assert.throws(() => parseBrainDecision('not json'), /JSON/);
   assert.equal(parseBrainDecision(JSON.stringify({ action: 'say', text: 'y'.repeat(900) })).text.length, MAX_LINE_CHARS);
 });
+
+test('scenarios with beats forbid acting out scripted moments; a hidden correction fact pins the first preference', () => {
+  const hidden = buildBrainRequest(hc05, [], ['preferredDay']);
+  assert.match(hidden.instructions, /Some moments in this call are scripted and will be spoken for you/);
+  assert.match(hidden.instructions, /Never perform those yourself; just continue naturally after they happen\./);
+  assert.match(hidden.instructions, /You have not changed your mind yet: do not mention or ask for any alternative to your first stated preference \(preferredDay\) until you have said so in the conversation\./);
+});
+
+test('once the correction fact is shown, the not-changed-your-mind rule is gone', () => {
+  const shown = buildBrainRequest(hc05, [], []);
+  assert.match(shown.instructions, /Some moments in this call are scripted/);
+  assert.doesNotMatch(shown.instructions, /You have not changed your mind yet/);
+});
+
+test('a scenario without beats has no scripted-moments rule', () => {
+  const hc01 = getScenario('hc-01') as Scenario;
+  assert.doesNotMatch(buildBrainRequest(hc01, [], []).instructions, /scripted/);
+});

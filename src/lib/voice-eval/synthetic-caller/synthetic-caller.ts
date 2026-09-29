@@ -215,7 +215,8 @@ export class SyntheticCaller implements CallerSource {
     if (this.stopped || !mic || !this.detector) return;
     // Once the call is ending (cap or hang-up), only a hang-up farewell may still play.
     if (this.finishing && !allowWhileFinishing) return;
-    this.setStatus('speaking');
+    // Once finishing, the only status left to report is 'stopped'.
+    if (!this.finishing) this.setStatus('speaking');
     this.detector.callerStarted(this.now());
     const timing = await mic.play(samples);
     this.detector.callerEnded(timing.endedAt);

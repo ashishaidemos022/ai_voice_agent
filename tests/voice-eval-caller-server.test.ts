@@ -69,3 +69,12 @@ test('hang_up with no text skips TTS; brain or TTS failures are 502', async () =
   assert.equal((await handleCallerRequest(deps({ brain: async () => 'garbage' }).deps, 'owner', { action: 'next_turn', run_id: RUN_ID })).status, 502);
   assert.equal((await handleCallerRequest(deps({ tts: async () => { throw new Error('quota'); } }).deps, 'owner', { action: 'next_turn', run_id: RUN_ID })).status, 502);
 });
+
+test('a farewell TTS failure still hangs up (no audio); a say TTS failure stays 502', async () => {
+  const bye = deps({ brain: async () => '{"action":"hang_up","text":"Thanks, bye."}', tts: async () => { throw new Error('quota'); } });
+  const response = await handleCallerRequest(bye.deps, 'owner', { action: 'next_turn', run_id: RUN_ID, transcript: [] });
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body, { action: 'hang_up', text: 'Thanks, bye.', audio_b64: null });
+  const failing = deps({ tts: async () => { throw new Error('quota'); } });
+  assert.equal((await handleCallerRequest(failing.deps, 'owner', { action: 'next_turn', run_id: RUN_ID, transcript: [] })).status, 502);
+});

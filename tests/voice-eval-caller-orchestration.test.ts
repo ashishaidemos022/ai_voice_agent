@@ -274,3 +274,26 @@ test('a brain line that arrives after the call cap fired is not spoken', async (
   await settle();
   assert.equal(h.hangUps, 1);
 });
+
+test('a hang_up farewell after the call cap fired emits no status after hanging_up and hangs up once', async () => {
+  const hangUpGate = deferred();
+  const firstAttempt = deferred<NextTurnResult>();
+  const statuses: string[] = [];
+  const h = harness('hc-01', [firstAttempt.promise], {
+    limits: { maxCallMs: 5000 },
+    onStatus: (status) => statuses.push(status),
+    sleep: async (ms) => { if (ms === 1500) await hangUpGate.promise; else h.passTime(ms); }
+  });
+  await h.caller.start();
+  await h.advance(4000);
+  await h.advance(1000);
+  assert.ok(statuses.includes('hanging_up'), 'cap fired');
+  firstAttempt.resolve({ action: 'hang_up', text: 'Okay, bye.', audioB64: AUDIO });
+  await settle();
+  hangUpGate.resolve();
+  await settle();
+  const after = statuses.slice(statuses.indexOf('hanging_up') + 1);
+  assert.ok(!after.includes('speaking') && !after.includes('waiting'), `statuses after hanging_up: ${after.join(',')}`);
+  assert.equal(statuses.at(-1), 'stopped');
+  assert.equal(h.hangUps, 1);
+});

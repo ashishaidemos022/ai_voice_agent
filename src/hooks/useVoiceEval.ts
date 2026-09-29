@@ -148,7 +148,7 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
         if (!adapter?.attachSyntheticInput) throw new Error('This voice provider does not support the synthetic caller');
         // start() resolves quietly when the caller is stopped mid-start, so track that here.
         let callerStopped = false;
-        let lastStatus: CallerStatus | null = null;
+        let reportedHangingUp = false;
         const caller = new SyntheticCaller({
           runId: setup.run_id,
           scenario,
@@ -159,14 +159,13 @@ export function useVoiceEval(options: UseVoiceEvalOptions) {
           publish: publishVoiceEvalSignal,
           hangUp: () => optionsRef.current.hangUp(),
           onStatus: (status) => {
-            const previous = lastStatus;
-            lastStatus = status;
+            if (status === 'hanging_up') reportedHangingUp = true;
             setCallerStatus(status);
             if (status !== 'stopped') return;
             callerStopped = true;
-            // Our own stops (end, abort, unmount) go through stopRecording, and a normal finish stops
-            // from 'hanging_up' and then hangs up, which scores the run through end().
-            if (run.closing || previous === 'hanging_up') return;
+            // Our own stops (end, abort, unmount) go through stopRecording, and a normal finish (which
+            // reported 'hanging_up' at some point) stops and then hangs up, which scores the run through end().
+            if (run.closing || reportedHangingUp) return;
             // The caller stopped itself (the server closed the run): release it the way abort() does.
             if (run.live && runRef.current === run) {
               stopRecording();

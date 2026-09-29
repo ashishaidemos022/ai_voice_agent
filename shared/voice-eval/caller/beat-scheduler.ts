@@ -7,10 +7,15 @@ export type CallerAction =
   | { kind: 'silence'; beatIndex: number; durationMs: number }
   | { kind: 'brain' };
 
+function field(value: unknown, key: string): unknown {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>)[key] : undefined;
+}
+
+/** Errors and unverified replies (200 with verification.verified === false) are not successes. */
 function hasError(result: unknown): boolean {
-  if (result === null || typeof result !== 'object' || Array.isArray(result)) return false;
-  const error = (result as Record<string, unknown>).error;
-  return error !== undefined && error !== null && error !== false;
+  const error = field(result, 'error');
+  if (error !== undefined && error !== null && error !== false) return true;
+  return field(field(result, 'verification'), 'verified') === false || field(field(result, 'action'), 'status') === 'verification_required';
 }
 
 /** Decides, per caller turn, whether a scripted beat overrides the brain; owns barge-in timing. */
