@@ -6,6 +6,7 @@ import { ElevenLabsVoiceAdapter } from '../lib/voice-adapters/elevenlabs-adapter
 import { ElevenLabsAgentAdapter } from '../lib/voice-adapters/elevenlabs-agent-adapter';
 import type { VoiceAdapter } from '../lib/voice-adapters/types';
 import { supabase } from '../lib/supabase';
+import { publishVoiceEvalSignal } from '../lib/voice-eval/signal-bus';
 import { executeTool, loadMCPTools, registerAdapterCheckpointTool, registerRagKnowledgeTool } from '../lib/tools-registry';
 import { Message, RealtimeConfig, VoiceToolEvent } from '../types/voice-agent';
 import { runRagAugmentation } from '../lib/rag-service';
@@ -184,6 +185,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
       setVoiceMetrics,
       (turn: VoiceTurnMetric, turns: VoiceTurnMetric[]) => {
         receiptBuilderRef.current?.audioTurnCompleted(turn);
+        publishVoiceEvalSignal({ kind: 'turn_metric', at: performance.now(), firstAudioMs: turn.firstAudioMs, bargeInMs: turn.bargeInMs, toolCallMs: turn.toolCallMs });
         const currentSessionId = sessionIdRef.current;
         if (!currentSessionId) return;
         const nextMetadata = {
@@ -732,15 +734,24 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
       }
     });
 
-    client.on('speech.started', () => receiptBuilderRef.current?.userSpeechStarted());
-    client.on('speech.stopped', () => receiptBuilderRef.current?.userSpeechEnded());
+    client.on('speech.started', () => {
+      receiptBuilderRef.current?.userSpeechStarted();
+      publishVoiceEvalSignal({ kind: 'caller_speech_start', at: performance.now() });
+    });
+    client.on('speech.stopped', () => {
+      receiptBuilderRef.current?.userSpeechEnded();
+      publishVoiceEvalSignal({ kind: 'caller_speech_stop', at: performance.now() });
+    });
     client.on('usage.reported', (event: { usage?: { voice_duration_seconds?: number | null } }) => {
       receiptBuilderRef.current?.voiceDuration(event?.usage?.voice_duration_seconds);
     });
 
     client.on('agent_state', (event) => {
       console.log('[useVoiceAgent] agent_state update', event);
-      if (event.state === 'speaking') receiptBuilderRef.current?.agentAudioStarted();
+      if (event.state === 'speaking') {
+        receiptBuilderRef.current?.agentAudioStarted();
+        publishVoiceEvalSignal({ kind: 'agent_audio_start', at: performance.now() });
+      }
       setAgentState(event.state);
       if (event.state === 'listening' && audioManager) {
         audioManager.stopPlayback();
@@ -840,6 +851,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
         emitBenchmarkEvent('transcript.user_final', {
           transcript: transcriptText
         });
+        publishVoiceEvalSignal({ kind: 'caller_transcript', at: performance.now(), text: transcriptText });
         receiptBuilderRef.current?.userTurn(transcriptText);
         // Start policy routing before the database write. In direct-agent
         // sessions this synchronously interrupts the provider's native answer,
@@ -859,6 +871,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
         emitBenchmarkEvent('transcript.assistant_final', {
           transcript: transcriptText
         });
+        publishVoiceEvalSignal({ kind: 'agent_transcript', at: performance.now(), text: transcriptText });
         await persistMessage('assistant', transcriptText);
         delete transcriptsRef.current.assistant[itemId];
         if (transcriptsRef.current.activeAssistantId === itemId) {
@@ -913,6 +926,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
       assistantTextBufferRef.current = '';
       if (!transcriptText) return;
       usedAssistantTextRef.current = true;
+      publishVoiceEvalSignal({ kind: 'agent_transcript', at: performance.now(), text: transcriptText });
       metricsCollectorRef.current?.setAssistantTranscript(transcriptText);
       await persistMessage('assistant', transcriptText);
       setLiveAssistantTranscript('');
@@ -974,6 +988,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
       }
       const toolEventId = id || crypto.randomUUID();
       metricsCollectorRef.current?.toolDispatched(toolEventId);
+      publishVoiceEvalSignal({ kind: 'tool_call', at: performance.now(), callId: toolEventId, name, args: parsedArgs });
       const startedAt = new Date().toISOString();
       setToolEvents((prev) => [
         ...prev,
@@ -1049,6 +1064,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
           )
         );
         client.sendFunctionCallOutput(id, result);
+        publishVoiceEvalSignal({ kind: 'tool_result', at: performance.now(), callId: toolEventId, ok: true, result });
         metricsCollectorRef.current?.toolReturned(toolEventId);
       } catch (toolError: any) {
         console.error('Tool execution error:', toolError);
@@ -1066,6 +1082,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
           )
         );
         client.sendFunctionCallOutput(id, { error: message });
+        publishVoiceEvalSignal({ kind: 'tool_result', at: performance.now(), callId: toolEventId, ok: false, result: { error: message } });
         metricsCollectorRef.current?.toolReturned(toolEventId);
       } finally {
         setIsProcessing(false);

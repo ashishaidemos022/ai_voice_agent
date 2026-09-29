@@ -8,6 +8,8 @@ import { runRagAugmentation } from './rag-service';
 import type { RagMode } from '../types/rag';
 import { DEFAULT_ADAPTER_SYSTEM_PROMPT } from '../../shared/adapter-system-prompt';
 import { estimateInklingSmallCostUsd } from './model-route-metrics';
+import { applyEvalContext } from '../../shared/voice-eval/eval-context';
+import { getActiveEvalContext } from './voice-eval/eval-context';
 import {
   HEALTHCARE_TOOL_DESCRIPTION,
   HEALTHCARE_TOOL_NAME,
@@ -213,8 +215,9 @@ function healthcarePatientAccessTools(selection: ToolSelectionState | null): Too
       workflow: 'identity-gated patient access'
     },
     execute: async (params: any) => {
+      // Eval routing is applied here, after the LLM's params are logged, so the model never sees it.
       const { data, error } = await supabase.functions.invoke('healthcare-patient-access', {
-        body: params
+        body: applyEvalContext(params, getActiveEvalContext())
       });
       if (error) throw new Error(error.message || 'Healthcare patient-access workflow failed');
       if (data?.error) throw new Error(data.error);
