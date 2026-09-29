@@ -4,6 +4,7 @@ import { cn } from '../../lib/utils';
 import { useVoiceEval } from '../../hooks/useVoiceEval';
 import { SCENARIOS } from '../../../shared/voice-eval/scenarios/index';
 import type { FingerprintInput } from '../../../shared/voice-eval/fingerprint';
+import type { ScoreEvalRunResponse } from '../../lib/voice-eval/api';
 import { Scorecard } from './Scorecard';
 
 interface EvaluatorPanelProps {
@@ -13,7 +14,7 @@ interface EvaluatorPanelProps {
   fingerprintInput: FingerprintInput;
 }
 
-const VERDICT_STYLE: Record<string, string> = {
+const VERDICT_STYLE: Record<ScoreEvalRunResponse['status'], string> = {
   pass: 'border-emerald-400/50 bg-emerald-500/15 text-emerald-100',
   fail: 'border-rose-400/50 bg-rose-500/15 text-rose-100',
   invalid_harness: 'border-amber-300/50 bg-amber-500/15 text-amber-100'
@@ -31,27 +32,37 @@ export function EvaluatorPanel({ isConnected, sessionId, agentConfigId, fingerpr
           <p className="font-semibold text-white">Evaluator</p>
           <p className="text-xs text-white/50">Scores this call against a scenario. Backend state decides pass/fail.</p>
         </div>
-        {(phase === 'arming' || phase === 'scoring') && <Loader2 className="h-4 w-4 animate-spin text-white/70" />}
+        {phase === 'arming' && <Loader2 className="h-4 w-4 animate-spin text-white/70" />}
+        {phase === 'scoring' && (
+          <span className="flex items-center gap-2 text-xs text-white/70">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Scoring…
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
         <select
           value={evalRun.scenarioId}
           disabled={running}
-          onChange={(e) => evalRun.setScenarioId(e.target.value)}
+          onChange={(e) => {
+            evalRun.setScenarioId(e.target.value);
+            if (!running) evalRun.reset();
+          }}
           className="rounded-lg border border-white/15 bg-slate-950/70 px-3 py-2 text-sm text-white disabled:opacity-50"
         >
           {SCENARIOS.map((s) => <option key={s.id} value={s.id}>{s.id} · {s.title}</option>)}
         </select>
         <div className="grid grid-cols-2 gap-1 rounded-lg border border-white/10 bg-slate-950/60 p-1 text-xs">
           <span className="rounded-md bg-cyan-500/20 px-3 py-1 text-center text-cyan-100">You</span>
-          <span className="px-3 py-1 text-center text-white/30" title="Synthetic caller arrives in phase 2">Synthetic</span>
+          <span aria-disabled="true" className="px-3 py-1 text-center text-white/30" title="Synthetic caller arrives in phase 2">Synthetic</span>
         </div>
       </div>
 
       {scenario && (
         <div className="rounded-xl border border-white/10 bg-slate-950/50 p-3 text-xs text-white/70">
           <p className="text-white/90">{scenario.goal}</p>
+          <p className="mt-1 text-white/40">{`${scenario.persona.temperament} · ${scenario.persona.accent} · noise: ${scenario.persona.noise}`}</p>
           <p className="mt-2 text-[11px] uppercase tracking-[0.3em] text-white/40">Your details</p>
           <ul className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
             {Object.entries(scenario.facts).map(([key, fact]) => <li key={key}><span className="text-white/40">{key}:</span> {fact.value}</li>)}
@@ -93,12 +104,19 @@ export function EvaluatorPanel({ isConnected, sessionId, agentConfigId, fingerpr
           {evalRun.result.status.replace('_', ' ')}
         </div>
       )}
+      {phase === 'done' && evalRun.result?.status === 'invalid_harness' && (
+        <p className="text-xs text-amber-200">
+          {evalRun.result.score.gates.some((g) => g.id.startsWith('state.') && g.passed === null)
+            ? 'Backend state could not be verified.'
+            : 'A harness error occurred during the call.'}
+        </p>
+      )}
       {phase === 'done' && evalRun.result && evalRun.evidenceIncomplete && (
         <p className="text-xs text-amber-300">Some call evidence could not be saved; transcript-based scores may be incomplete.</p>
       )}
 
       {phase === 'done' && evalRun.result
-        ? <Scorecard score={evalRun.result.score} judge={evalRun.result.judge} />
+        ? <Scorecard score={evalRun.result.score} judge={evalRun.result.judge} final />
         : evalRun.liveScore && <Scorecard score={evalRun.liveScore} />}
     </Card>
   );

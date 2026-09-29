@@ -13,15 +13,17 @@ function StatusChip({ status }: { status: DimensionStatus }) {
   return <span className={cn('rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.2em]', STATUS_STYLE[status])}>{status.replace('_', ' ')}</span>;
 }
 
-function GateRow({ gate }: { gate: Gate }) {
-  const mark = gate.passed === true ? '✓' : gate.passed === false ? '✗' : '…';
+function GateRow({ gate, final }: { gate: Gate; final: boolean }) {
+  const undecided = gate.passed === null;
+  const mark = gate.passed === true ? '✓' : gate.passed === false ? '✗' : final ? '–' : '…';
   const tone = gate.passed === true ? 'text-emerald-200' : gate.passed === false ? 'text-rose-200' : 'text-white/40';
+  const detail = final && undecided ? 'Not evaluated' : gate.detail;
   return (
     <li className="flex gap-2 text-xs">
       <span className={cn('w-3 shrink-0 font-semibold', tone)}>{mark}</span>
       <span className="min-w-0">
         <span className="text-white/90">{gate.label}</span>
-        <span className="block text-white/45">{gate.detail}</span>
+        <span className="block text-white/45">{detail}</span>
       </span>
     </li>
   );
@@ -31,10 +33,14 @@ function ms(value: number | null) {
   return value === null ? '—' : `${Math.round(value)} ms`;
 }
 
-export function Scorecard({ score, judge }: { score: RunScore; judge?: JudgeResult | null }) {
+export function Scorecard({ score, judge, final = false }: { score: RunScore; judge?: JudgeResult | null; final?: boolean }) {
   const taskGates = score.gates.filter((g) => g.id.startsWith('state.'));
   const otherGates = score.gates.filter((g) => !g.id.startsWith('state.'));
-  const taskStatus: DimensionStatus = taskGates.some((g) => g.passed === false) ? 'fail' : taskGates.every((g) => g.passed === true) ? 'pass' : 'pending';
+  const taskStatus: DimensionStatus = taskGates.some((g) => g.passed === false)
+    ? 'fail'
+    : taskGates.length > 0 && taskGates.every((g) => g.passed === true)
+      ? 'pass'
+      : final ? 'no_data' : 'pending';
   const rows: { name: string; status: DimensionStatus; detail: string }[] = [
     { name: 'Task success (backend state)', status: taskStatus, detail: `${taskGates.filter((g) => g.passed === true).length}/${taskGates.length} state checks` },
     { name: 'Tool calls', status: score.tools.status, detail: `${Math.round(score.tools.score * 100)}% · ${score.tools.calledActions.join(' → ') || 'no calls yet'}` },
@@ -46,6 +52,11 @@ export function Scorecard({ score, judge }: { score: RunScore; judge?: JudgeResu
 
   return (
     <div className="flex flex-col gap-4">
+      <div>
+        <p className="mb-2 text-[11px] uppercase tracking-[0.3em] text-white/40">Gates</p>
+        <ul className="flex flex-col gap-2">{[...taskGates, ...otherGates].map((gate) => <GateRow key={gate.id} gate={gate} final={final} />)}</ul>
+      </div>
+
       <ul className="flex flex-col gap-2">
         {rows.map((row) => (
           <li key={row.name} className="flex items-start justify-between gap-3 rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2">
@@ -57,11 +68,6 @@ export function Scorecard({ score, judge }: { score: RunScore; judge?: JudgeResu
           </li>
         ))}
       </ul>
-
-      <div>
-        <p className="mb-2 text-[11px] uppercase tracking-[0.3em] text-white/40">Gates</p>
-        <ul className="flex flex-col gap-2">{[...taskGates, ...otherGates].map((gate) => <GateRow key={gate.id} gate={gate} />)}</ul>
-      </div>
 
       {score.entities.entities.length > 0 && (
         <div>
@@ -88,7 +94,7 @@ export function Scorecard({ score, judge }: { score: RunScore; judge?: JudgeResu
                 <li key={item.item} className="rounded-lg border border-white/10 bg-slate-950/50 px-3 py-2">
                   <p className="flex justify-between text-white/90"><span>{item.item}</span><span>{item.score}/2</span></p>
                   <p className="text-white/55">{item.verdict}</p>
-                  {item.evidence.map((ev) => <p key={`${ev.turn}-${ev.quote}`} className="mt-1 border-l border-white/20 pl-2 text-white/45">[{ev.turn}] “{ev.quote}”</p>)}
+                  {item.evidence.map((ev, index) => <p key={`${ev.turn}-${index}`} className="mt-1 border-l border-white/20 pl-2 text-white/45">[{ev.turn}] “{ev.quote}”</p>)}
                 </li>
               ))}
               {judge.droppedDeductions > 0 && <li className="text-white/40">{judge.droppedDeductions} deduction(s) dropped for missing quotes</li>}
