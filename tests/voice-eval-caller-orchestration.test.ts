@@ -19,6 +19,8 @@ function harness(scenarioId: string, turns: (NextTurnResult | Error | Promise<Ne
   const nextTurnInputs: unknown[] = [];
   let hangUps = 0;
   let micClosed = false;
+  let subscribes = 0;
+  let tickers = 0;
   const adapter = {
     attached: null as unknown,
     attachSyntheticInput: async (track: MediaStreamTrack) => { adapter.attached = track; },
@@ -46,12 +48,12 @@ function harness(scenarioId: string, turns: (NextTurnResult | Error | Promise<Ne
       }
     },
     createMic: async () => mic,
-    subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+    subscribe: (listener) => { subscribes += 1; listeners.add(listener); return () => listeners.delete(listener); },
     publish: (signal) => published.push(signal),
     hangUp: () => { hangUps += 1; },
     now: () => t,
     sleep: async (ms) => { t += ms; },
-    startTicker: () => () => undefined,
+    startTicker: () => { tickers += 1; return () => undefined; },
     ...extra
   });
   return {
@@ -60,8 +62,11 @@ function harness(scenarioId: string, turns: (NextTurnResult | Error | Promise<Ne
     advance: async (ms: number) => { t += ms; caller.tick(); await settle(); },
     setVolume: (v: number) => { volume = v; },
     now: () => t,
+    passTime: (ms: number) => { t += ms; },
     get hangUps() { return hangUps; },
-    get micClosed() { return micClosed; }
+    get micClosed() { return micClosed; },
+    get subscribes() { return subscribes; },
+    get tickers() { return tickers; }
   };
 }
 
@@ -186,4 +191,86 @@ test('start failure releases the mic and rejects', async () => {
   h.adapter.attachSyntheticInput = async () => { throw new Error('no sender'); };
   await assert.rejects(h.caller.start(), /no sender/);
   assert.equal(h.micClosed, true);
+});
+
+function deferred<T = void>() {
+  let resolve: (value: T) => void = () => undefined;
+  let reject: (error: unknown) => void = () => undefined;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+
+for (const stage of ['renderBeats', 'createMic', 'attachSyntheticInput'] as const) {
+  test(`stop during start (${stage}) releases everything once start settles`, async () => {
+    const gate = deferred();
+    let ownMicClosed = false;
+    const ownMic: MicLike = {
+      track: { id: 'own' } as unknown as MediaStreamTrack,
+      play: async () => ({ startedAt: 0, endedAt: 0 }),
+      stopPlayback: () => undefined,
+      close: async () => { ownMicClosed = true; }
+    };
+    let micsCreated = 0;
+    const extra: Partial<SyntheticCallerDeps> = {
+      createMic: async () => { micsCreated += 1; if (stage === 'createMic') await gate.promise; return ownMic; }
+    };
+    if (stage === 'renderBeats') {
+      extra.api = { renderBeats: async () => { await gate.promise; return []; }, nextTurn: async () => { throw new Error('unused'); } };
+    }
+    const h = harness('hc-01', [], extra);
+    if (stage === 'attachSyntheticInput') {
+      h.adapter.attachSyntheticInput = async (track: MediaStreamTrack) => { await gate.promise; h.adapter.attached = track; };
+    }
+    const starting = h.caller.start();
+    await settle();
+    await h.caller.stop();
+    gate.resolve();
+    await starting;
+    await settle();
+    assert.equal(h.adapter.attached, null, 'adapter detached');
+    assert.equal(micsCreated === 0 || ownMicClosed, true, 'any created mic is closed');
+    if (stage !== 'renderBeats') assert.equal(ownMicClosed, true);
+    assert.equal(h.subscribes, 0, 'no subscription');
+    assert.equal(h.tickers, 0, 'no ticker');
+  });
+}
+
+test('a brain failure after the call cap fired publishes no harness_error and hangs up once', async () => {
+  const hangUpGate = deferred();
+  const firstAttempt = deferred<NextTurnResult>();
+  const h = harness('hc-01', [firstAttempt.promise, new Error('502')], {
+    limits: { maxCallMs: 5000 },
+    sleep: async (ms) => { if (ms === 1500) await hangUpGate.promise; else h.passTime(ms); }
+  });
+  await h.caller.start();
+  await h.advance(4000);
+  assert.equal(h.nextTurnInputs.length, 1, 'brain call in flight');
+  await h.advance(1000);
+  firstAttempt.reject(new Error('502'));
+  await settle();
+  assert.equal(h.nextTurnInputs.length, 2, 'retried during the hang-up delay');
+  assert.equal(h.published.some((s) => s.kind === 'harness_error'), false);
+  assert.equal(h.hangUps, 0);
+  hangUpGate.resolve();
+  await settle();
+  assert.equal(h.hangUps, 1);
+  assert.equal(h.published.some((s) => s.kind === 'harness_error'), false);
+});
+
+test('a brain line that arrives after the call cap fired is not spoken', async () => {
+  const hangUpGate = deferred();
+  const firstAttempt = deferred<NextTurnResult>();
+  const h = harness('hc-01', [firstAttempt.promise], {
+    limits: { maxCallMs: 5000 },
+    sleep: async (ms) => { if (ms === 1500) await hangUpGate.promise; else h.passTime(ms); }
+  });
+  await h.caller.start();
+  await h.advance(4000);
+  await h.advance(1000);
+  firstAttempt.resolve(say('Late line.'));
+  await settle();
+  assert.equal(h.played.length, 0);
+  hangUpGate.resolve();
+  await settle();
+  assert.equal(h.hangUps, 1);
 });

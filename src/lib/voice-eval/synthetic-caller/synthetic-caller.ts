@@ -68,15 +68,25 @@ export class SyntheticCaller implements CallerSource {
     this.scheduler = new BeatScheduler(deps.scenario.beats);
   }
 
+  /** Resolves quietly, with nothing left attached, when stop() lands while it is still starting. */
   async start(): Promise<void> {
     this.setStatus('starting');
     try {
       const lines = await this.deps.api.renderBeats(this.deps.runId);
+      if (this.stopped) return;
       for (const line of lines) this.beatAudio.set(line.beatIndex, decodePcm16Base64(line.audioB64));
       this.mic = await this.deps.createMic(this.deps.scenario.persona.noise, this.deps.runId);
+      if (this.stopped) {
+        await this.release();
+        return;
+      }
       if (!this.deps.adapter.attachSyntheticInput) throw new Error('This voice provider does not support the synthetic caller');
       await this.deps.adapter.attachSyntheticInput(this.mic.track);
       this.attached = true;
+      if (this.stopped) {
+        await this.release();
+        return;
+      }
     } catch (error) {
       this.stopped = true;
       await this.release();
@@ -167,7 +177,7 @@ export class SyntheticCaller implements CallerSource {
     const result = await this.nextTurnWithRetry();
     if (!result || this.stopped) return;
     if (result.action === 'hang_up') {
-      if (result.text && result.audioB64) await this.speak(decodePcm16Base64(result.audioB64), result.text, 'brain', null, true);
+      if (result.text && result.audioB64) await this.speak(decodePcm16Base64(result.audioB64), result.text, 'brain', null, true, true);
       await this.finish();
       return;
     }
@@ -192,10 +202,19 @@ export class SyntheticCaller implements CallerSource {
     }
   }
 
-  private async speak(samples: Float32Array, text: string, source: 'brain' | 'beat', beatIndex: number | null, guard: boolean): Promise<void> {
+  private async speak(
+    samples: Float32Array,
+    text: string,
+    source: 'brain' | 'beat',
+    beatIndex: number | null,
+    guard: boolean,
+    allowWhileFinishing = false
+  ): Promise<void> {
     if (guard) await this.waitForAgentQuiet();
     const mic = this.mic;
     if (this.stopped || !mic || !this.detector) return;
+    // Once the call is ending (cap or hang-up), only a hang-up farewell may still play.
+    if (this.finishing && !allowWhileFinishing) return;
     this.setStatus('speaking');
     this.detector.callerStarted(this.now());
     const timing = await mic.play(samples);
@@ -230,7 +249,8 @@ export class SyntheticCaller implements CallerSource {
   }
 
   private async harnessFailure(error: unknown): Promise<void> {
-    if (this.stopped) return;
+    // A call that is already ending normally is not a harness failure.
+    if (this.stopped || this.finishing) return;
     const message = error instanceof Error ? error.message : String(error);
     this.deps.publish({ kind: 'harness_error', at: this.now(), message: `synthetic caller: ${message}` });
     await this.finish();
