@@ -1,4 +1,5 @@
 import { getScenario } from '../scenarios/index.ts';
+import { spokenForTts } from './spoken.ts';
 import { buildBrainRequest, parseBrainDecision, type BrainRequest, type TranscriptTurn } from './brain-prompt.ts';
 
 export interface CallerRun { id: string; scenario_id: string; status: string; agent_config_id: string | null }
@@ -54,7 +55,7 @@ export async function handleCallerRequest(deps: CallerDeps, ownerId: string, bod
       const lines = [];
       for (const [index, beat] of scenario.beats.entries()) {
         if (!beat.line) continue;
-        lines.push({ beat_index: index, text: beat.line, audio_b64: bytesToBase64(await deps.tts(apiKey, voiceId, beat.line)) });
+        lines.push({ beat_index: index, text: beat.line, audio_b64: bytesToBase64(await deps.tts(apiKey, voiceId, spokenForTts(beat.line))) });
       }
       return { status: 200, body: { lines } };
     } catch (error) {
@@ -73,7 +74,7 @@ export async function handleCallerRequest(deps: CallerDeps, ownerId: string, bod
     return { status: 502, body: { error: `Caller brain failed: ${errorMessage(error)}` } };
   }
   try {
-    const audio = decision.text ? bytesToBase64(await deps.tts(apiKey, voiceId, decision.text)) : null;
+    const audio = decision.text ? bytesToBase64(await deps.tts(apiKey, voiceId, spokenForTts(decision.text))) : null;
     return { status: 200, body: { action: decision.action, text: decision.text, audio_b64: audio } };
   } catch (error) {
     // A farewell that can't be voiced still ends the call cleanly.

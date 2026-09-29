@@ -78,3 +78,10 @@ test('a farewell TTS failure still hangs up (no audio); a say TTS failure stays 
   const failing = deps({ tts: async () => { throw new Error('quota'); } });
   assert.equal((await handleCallerRequest(failing.deps, 'owner', { action: 'next_turn', run_id: RUN_ID, transcript: [] })).status, 502);
 });
+
+test('next_turn voices numbers in spoken form but returns the original text', async () => {
+  const { deps: d, calls } = deps({ brain: async () => '{"action":"say","text":"It is February 14th, 1988, postcode M1 1AF."}' });
+  const response = await handleCallerRequest(d, 'owner', { action: 'next_turn', run_id: RUN_ID, transcript: [] });
+  assert.equal(response.body.text, 'It is February 14th, 1988, postcode M1 1AF.');
+  assert.equal(calls.tts[0].text, 'It is February 14th, nineteen eighty-eight, postcode M one one A F.');
+});
