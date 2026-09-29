@@ -332,3 +332,25 @@ function patientAccessDecision(params: PatientAccessPolicyParams, emergency: boo
   }
   return { nextStep: 'ask_for_clarification' as const, reason: 'verification_complete', mayMutate: false };
 }
+
+export const EVAL_PATIENT_REFERENCE_PATTERN = /^EVAL-\d{4}$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isEvalPatientReference(reference: string): boolean {
+  return EVAL_PATIENT_REFERENCE_PATTERN.test(reference);
+}
+
+export function isAllowedPatientReference(reference: string): boolean {
+  return reference === HEALTHCARE_DEMO_PATIENT_REFERENCE || isEvalPatientReference(reference);
+}
+
+export function parseEvalRunId(value: unknown): string | null {
+  return typeof value === 'string' && UUID_PATTERN.test(value.trim()) ? value.trim().toLowerCase() : null;
+}
+
+/** Eval patients are only reachable inside an eval run, and eval runs never touch the demo patient. */
+export function evalAccessError(reference: string, evalRunId: string | null): string | null {
+  if (isEvalPatientReference(reference) && !evalRunId) return 'Evaluation patients require an eval run';
+  if (evalRunId && !isEvalPatientReference(reference)) return 'Eval runs must use an evaluation patient';
+  return null;
+}

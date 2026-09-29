@@ -1,12 +1,14 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
 import {
-  HEALTHCARE_DEMO_PATIENT_REFERENCE,
   HEALTHCARE_TOOL_PARAMETERS,
   JEV_DEFAULT_PRICING,
   emergencyEscalation,
   estimateJevCostUsd,
+  evalAccessError,
   healthcareJevQuestions,
   hasEmergencyLanguage,
+  isAllowedPatientReference,
+  parseEvalRunId,
   safeHealthcareAction,
   type HealthcareAction,
   type HealthcareJevResult,
@@ -71,9 +73,9 @@ async function ehrRequest(path: string, init: RequestInit = {}) {
   return body;
 }
 
-async function loadPatientAccess() {
+async function loadPatientAccess(patientReference: string) {
   const patientRows = await ehrRequest(
-    `epic_patients?select=id,mrn,first_name,last_name,dob,postal_code&mrn=eq.${encodeURIComponent(HEALTHCARE_DEMO_PATIENT_REFERENCE)}&limit=1`
+    `epic_patients?select=id,mrn,first_name,last_name,dob,postal_code&mrn=eq.${encodeURIComponent(patientReference)}&limit=1`
   );
   const patient = Array.isArray(patientRows) ? patientRows[0] : null;
   if (!patient?.id) throw new Error('Configured patient record was not found');
@@ -263,6 +265,7 @@ async function createAppointment(params: {
   referral: JsonRecord;
   slot: JsonRecord;
   bookedVia: string;
+  evalRunId: string | null;
 }) {
   const appointmentId = crypto.randomUUID();
   const confirmationNumber = `HLS-${String(params.slot.id).slice(-4).toUpperCase()}`;
@@ -285,7 +288,8 @@ async function createAppointment(params: {
         confirmation_number: confirmationNumber,
         booked_via: params.bookedVia,
         slot_id: params.slot.id,
-        referral_id: params.referral.id
+        referral_id: params.referral.id,
+        ...(params.evalRunId ? { eval_run_id: params.evalRunId } : {})
       })
     });
     return Array.isArray(rows) ? rows[0] : null;
@@ -303,6 +307,7 @@ async function executeConfirmedAction(params: {
   slots: JsonRecord[];
   appointmentId: string;
   selectedSlotId: string;
+  evalRunId: string | null;
 }) {
   const referral = params.referrals[0];
   const appointment = params.appointments.find((row) => row.id === params.appointmentId);
@@ -324,7 +329,8 @@ async function executeConfirmedAction(params: {
     patientId: params.patient.id,
     referral,
     slot,
-    bookedVia: 'agent'
+    bookedVia: 'agent',
+    evalRunId: params.evalRunId
   });
 
   if (params.action === 'reschedule_appointment') {
@@ -365,10 +371,13 @@ Deno.serve(async (req: Request) => {
     const confirmed = body.confirmed === true;
     if (!utterance) return jsonResponse({ error: 'utterance is required' }, 400);
     if (!allowedActions.has(action)) return jsonResponse({ error: 'A valid patient-access action is required' }, 400);
-    if (patientReference !== HEALTHCARE_DEMO_PATIENT_REFERENCE) return jsonResponse({ error: 'Patient reference not found' }, 404);
+    if (!isAllowedPatientReference(patientReference)) return jsonResponse({ error: 'Patient reference not found' }, 404);
+    const evalRunId = parseEvalRunId(body.eval_run_id);
+    const evalError = evalAccessError(patientReference, evalRunId);
+    if (evalError) return jsonResponse({ error: evalError }, 400);
 
     const ehrStartedAt = Date.now();
-    const access = await loadPatientAccess();
+    const access = await loadPatientAccess(patientReference);
     const ehrLatencyMs = Date.now() - ehrStartedAt;
     const verified = verifyPatient(access.patient, body.date_of_birth, body.postal_code);
     const selectedAppointment = access.appointments.find((row) => row.id === appointmentId);
@@ -418,7 +427,8 @@ Deno.serve(async (req: Request) => {
           appointments: access.appointments,
           slots: eligibleSlots,
           appointmentId,
-          selectedSlotId
+          selectedSlotId,
+          evalRunId
         })
       : null;
 
