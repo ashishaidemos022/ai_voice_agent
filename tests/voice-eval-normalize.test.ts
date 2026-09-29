@@ -65,3 +65,15 @@ test('edit distance and best window', () => {
   assert.deepEqual(factTokens(dob), ['1979', '03', '14']);
   assert.deepEqual(transcriptTokensFor(dob, 'March 14, 1979'), ['1979', '03', '14']);
 });
+
+test('postcode facts match regardless of spacing, case, or spoken digits', () => {
+  const postcode: Fact = { kind: 'postcode', value: 'M1 1AF', critical: true, argField: 'postal_code' };
+  assert.equal(factMatchesValue(postcode, 'M1 1AF'), true);
+  assert.equal(factMatchesValue(postcode, 'm11af'), true);
+  assert.equal(factMatchesValue(postcode, 'M1 1AE'), false);
+  assert.equal(factMatchesText(postcode, 'my postcode is M1 1AF thanks'), true);
+  assert.equal(factMatchesText(postcode, 'it is m one one a f'), true);
+  assert.equal(factMatchesText(postcode, 'postcode M1 1AE'), false);
+  assert.deepEqual(factTokens(postcode), ['M', '1', '1', 'A', 'F']);
+  assert.equal(bestWindowDistance(factTokens(postcode), transcriptTokensFor(postcode, 'postcode is M1 1AF')), 0);
+});

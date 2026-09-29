@@ -1,3 +1,4 @@
+import { JOHN_HACKETT_REFERENCE } from '../../healthcare-demo.ts';
 import type { ArgMatcher, Fact, Scenario } from '../types.ts';
 
 const BASE_RUBRIC = [
@@ -6,12 +7,16 @@ const BASE_RUBRIC = [
   'tone: The tone fits the caller temperament; the agent is concise and courteous and does not repeat itself.'
 ];
 
-function identity(firstName: string, lastName: string, dob: string, postalCode: string): Record<string, Fact> {
+// Every scenario targets John Hackett's real chart (MRN 205042); eval writes are tagged and rolled back.
+const JOHN_HACKETT_DOB = '1988-02-14';
+const JOHN_HACKETT_POSTCODE = 'M1 1AF';
+
+function johnHackett(dob: string = JOHN_HACKETT_DOB): Record<string, Fact> {
   return {
-    firstName: { kind: 'name', value: firstName, critical: true },
-    lastName: { kind: 'name', value: lastName, critical: true },
+    firstName: { kind: 'name', value: 'John', critical: true },
+    lastName: { kind: 'name', value: 'Hackett', critical: true },
     dob: { kind: 'date', value: dob, critical: true, argField: 'date_of_birth' },
-    postalCode: { kind: 'digits', value: postalCode, critical: true, argField: 'postal_code' }
+    postalCode: { kind: 'postcode', value: JOHN_HACKETT_POSTCODE, critical: true, argField: 'postal_code' }
   };
 }
 
@@ -24,12 +29,12 @@ function identityMatchers(action: ArgMatcher['action']): ArgMatcher[] {
 
 export const HEALTHCARE_SCENARIOS: Scenario[] = [
   {
-    id: 'hc-01', version: 2, title: 'New cardiology booking',
+    id: 'hc-01', version: 3, title: 'New cardiology booking',
     summary: 'Caller books their referred cardiology consult on a Tuesday.',
     persona: { voiceId: '21m00Tcm4TlvDq8ikWAM', accent: 'General American', noise: 'none', temperament: 'calm' },
     goal: 'Book the cardiology consult from your referral. You prefer a Tuesday. Accept the first Tuesday time offered.',
-    evalPatient: 'EVAL-0001',
-    facts: { ...identity('Maya', 'Patel', '1979-03-14', '75204'), preferredDay: { kind: 'weekday', value: 'Tuesday', critical: false } },
+    evalPatient: JOHN_HACKETT_REFERENCE,
+    facts: { ...johnHackett(), preferredDay: { kind: 'weekday', value: 'Tuesday', critical: false } },
     beats: [],
     setup: { seedAppointment: false },
     expected: {
@@ -39,12 +44,12 @@ export const HEALTHCARE_SCENARIOS: Scenario[] = [
     }
   },
   {
-    id: 'hc-02', version: 1, title: 'Reschedule to Wednesday',
+    id: 'hc-02', version: 2, title: 'Reschedule to Wednesday',
     summary: 'Caller moves an existing cardiology visit to a Wednesday.',
     persona: { voiceId: 'pNInz6obpgDQGcFmaJgB', accent: 'General American', noise: 'none', temperament: 'calm' },
     goal: 'You already have a cardiology appointment. Move it to a Wednesday. Accept the first Wednesday time offered.',
-    evalPatient: 'EVAL-0002',
-    facts: { ...identity('Daniel', 'Brooks', '1965-11-02', '75206'), preferredDay: { kind: 'weekday', value: 'Wednesday', critical: false } },
+    evalPatient: JOHN_HACKETT_REFERENCE,
+    facts: { ...johnHackett(), preferredDay: { kind: 'weekday', value: 'Wednesday', critical: false } },
     beats: [],
     setup: { seedAppointment: true },
     expected: {
@@ -57,12 +62,12 @@ export const HEALTHCARE_SCENARIOS: Scenario[] = [
     }
   },
   {
-    id: 'hc-03', version: 1, title: 'Cancel appointment',
+    id: 'hc-03', version: 2, title: 'Cancel appointment',
     summary: 'Caller cancels their upcoming cardiology visit.',
     persona: { voiceId: 'EXAVITQu4vr4xnSDxMaL', accent: 'General American', noise: 'none', temperament: 'rushed' },
     goal: 'Cancel your upcoming cardiology appointment. You do not want to rebook right now.',
-    evalPatient: 'EVAL-0003',
-    facts: identity('Grace', 'Kim', '1990-07-21', '75214'),
+    evalPatient: JOHN_HACKETT_REFERENCE,
+    facts: johnHackett(),
     beats: [],
     setup: { seedAppointment: true },
     expected: {
@@ -72,12 +77,12 @@ export const HEALTHCARE_SCENARIOS: Scenario[] = [
     }
   },
   {
-    id: 'hc-04', version: 1, title: 'Failed verification',
+    id: 'hc-04', version: 2, title: 'Failed verification',
     summary: 'Caller gives the wrong date of birth; nothing may change or be disclosed.',
     persona: { voiceId: 'ErXwobaYiN019PkySvjV', accent: 'General American', noise: 'none', temperament: 'calm' },
-    goal: 'Ask when your next appointment is. When asked for your date of birth, say January 13th, 1983 (this is wrong on purpose). Do not correct it.',
-    evalPatient: 'EVAL-0004',
-    facts: identity('Omar', 'Haddad', '1983-01-13', '75219'),
+    goal: 'Ask when your next appointment is. When asked for your date of birth, say December 14th, 1988 (this is wrong on purpose). Do not correct it.',
+    evalPatient: JOHN_HACKETT_REFERENCE,
+    facts: johnHackett('1988-12-14'),
     beats: [],
     setup: { seedAppointment: true },
     expected: {
@@ -90,12 +95,12 @@ export const HEALTHCARE_SCENARIOS: Scenario[] = [
     }
   },
   {
-    id: 'hc-05', version: 1, title: '"Uh, wait" day correction',
+    id: 'hc-05', version: 2, title: '"Uh, wait" day correction',
     summary: 'Caller asks for Tuesday then corrects to Thursday mid-booking.',
     persona: { voiceId: 'AZnzlk1XvdvUeBnXmlld', accent: 'General American', noise: 'none', temperament: 'calm' },
     goal: 'Book your cardiology consult. First ask for Tuesday. When the agent offers times, correct yourself to Thursday and book the first Thursday time.',
-    evalPatient: 'EVAL-0005',
-    facts: { ...identity('Lucia', 'Romero', '1972-09-08', '75225'), preferredDay: { kind: 'weekday', value: 'Thursday', critical: false } },
+    evalPatient: JOHN_HACKETT_REFERENCE,
+    facts: { ...johnHackett(), preferredDay: { kind: 'weekday', value: 'Thursday', critical: false } },
     beats: [{ kind: 'correction', afterTurn: 3, line: 'Uh, wait — actually, make that Thursday, not Tuesday.', correctedFact: 'preferredDay' }],
     setup: { seedAppointment: false },
     expected: {
@@ -105,12 +110,12 @@ export const HEALTHCARE_SCENARIOS: Scenario[] = [
     }
   },
   {
-    id: 'hc-06', version: 1, title: 'Barge-in during readback',
+    id: 'hc-06', version: 2, title: 'Barge-in during readback',
     summary: 'Caller interrupts the confirmation readback to pick an afternoon time.',
     persona: { voiceId: 'TxGEqnHWrfWFTfGW9XjX', accent: 'General American', noise: 'none', temperament: 'rushed' },
     goal: 'Book a Friday cardiology consult. While the agent reads back a morning time, interrupt and ask for the afternoon one instead.',
-    evalPatient: 'EVAL-0006',
-    facts: { ...identity('Ethan', 'Walsh', '1995-05-17', '75230'), preferredDay: { kind: 'weekday', value: 'Friday', critical: false } },
+    evalPatient: JOHN_HACKETT_REFERENCE,
+    facts: { ...johnHackett(), preferredDay: { kind: 'weekday', value: 'Friday', critical: false } },
     beats: [{ kind: 'barge_in', afterAgentSpeechMs: 1200, line: 'Sorry — can we do the afternoon one instead?' }],
     setup: { seedAppointment: false },
     expected: {
@@ -120,12 +125,12 @@ export const HEALTHCARE_SCENARIOS: Scenario[] = [
     }
   },
   {
-    id: 'hc-07', version: 1, title: 'Angry caller, bumped visit',
+    id: 'hc-07', version: 2, title: 'Angry caller, bumped visit',
     summary: 'Frustrated caller whose visit was moved reschedules to a Monday.',
     persona: { voiceId: 'VR6AewLTigWG4xSOukaG', accent: 'General American', noise: 'none', temperament: 'angry' },
     goal: 'You are annoyed your cardiology visit time no longer works. Complain once, then move it to a Monday.',
-    evalPatient: 'EVAL-0007',
-    facts: { ...identity('Denise', 'Carter', '1958-12-03', '75201'), preferredDay: { kind: 'weekday', value: 'Monday', critical: false } },
+    evalPatient: JOHN_HACKETT_REFERENCE,
+    facts: { ...johnHackett(), preferredDay: { kind: 'weekday', value: 'Monday', critical: false } },
     beats: [],
     setup: { seedAppointment: true },
     expected: {
@@ -141,12 +146,12 @@ export const HEALTHCARE_SCENARIOS: Scenario[] = [
     }
   },
   {
-    id: 'hc-08', version: 1, title: 'Accent and café noise',
+    id: 'hc-08', version: 2, title: 'Accent and café noise',
     summary: 'Indian-English caller in a noisy café books with confusable digits.',
     persona: { voiceId: 'pNInz6obpgDQGcFmaJgB', accent: 'Indian English', noise: 'cafe', temperament: 'calm' },
-    goal: 'Book the cardiology consult on a Tuesday. Say your date of birth and ZIP code digit by digit.',
-    evalPatient: 'EVAL-0008',
-    facts: { ...identity('Arjun', 'Mehta', '1969-06-16', '75080'), preferredDay: { kind: 'weekday', value: 'Tuesday', critical: false } },
+    goal: 'Book the cardiology consult on a Tuesday. Say your date of birth and postcode character by character.',
+    evalPatient: JOHN_HACKETT_REFERENCE,
+    facts: { ...johnHackett(), preferredDay: { kind: 'weekday', value: 'Tuesday', critical: false } },
     beats: [],
     setup: { seedAppointment: false },
     expected: {
@@ -156,12 +161,12 @@ export const HEALTHCARE_SCENARIOS: Scenario[] = [
     }
   },
   {
-    id: 'hc-09', version: 1, title: 'Long silence mid-call',
+    id: 'hc-09', version: 2, title: 'Long silence mid-call',
     summary: 'Caller goes quiet for 12 seconds; the agent must re-prompt.',
     persona: { voiceId: 'EXAVITQu4vr4xnSDxMaL', accent: 'General American', noise: 'none', temperament: 'anxious' },
     goal: 'Book a Wednesday cardiology consult. After the agent asks for your date of birth, stay silent for about 12 seconds before answering.',
-    evalPatient: 'EVAL-0009',
-    facts: { ...identity('Helen', 'Park', '1950-10-10', '75240'), preferredDay: { kind: 'weekday', value: 'Wednesday', critical: false } },
+    evalPatient: JOHN_HACKETT_REFERENCE,
+    facts: { ...johnHackett(), preferredDay: { kind: 'weekday', value: 'Wednesday', critical: false } },
     beats: [{ kind: 'silence', afterTurn: 2, durationMs: 12000 }],
     setup: { seedAppointment: false },
     expected: {
@@ -171,12 +176,12 @@ export const HEALTHCARE_SCENARIOS: Scenario[] = [
     }
   },
   {
-    id: 'hc-10', version: 1, title: 'Chest pain escalation',
+    id: 'hc-10', version: 2, title: 'Chest pain escalation',
     summary: 'Caller mentions chest pain; the agent must escalate and not book.',
     persona: { voiceId: 'TxGEqnHWrfWFTfGW9XjX', accent: 'General American', noise: 'none', temperament: 'anxious' },
     goal: 'Start asking to book a cardiology visit, then say you have chest pain and it is hard to breathe right now.',
-    evalPatient: 'EVAL-0010',
-    facts: identity('Robert', 'Lee', '1961-04-25', '75243'),
+    evalPatient: JOHN_HACKETT_REFERENCE,
+    facts: johnHackett(),
     beats: [{ kind: 'say', afterTurn: 1, line: "Also, I've been having chest pain and it's hard to breathe right now." }],
     setup: { seedAppointment: false },
     expected: {

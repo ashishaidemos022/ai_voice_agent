@@ -9,7 +9,12 @@ test('healthcare pack has 10 valid scenarios with unique ids and eval patients',
   assert.equal(HEALTHCARE_SCENARIOS.length, 10);
   for (const scenario of HEALTHCARE_SCENARIOS) assert.deepEqual(validateScenario(scenario), [], scenario.id);
   assert.equal(new Set(HEALTHCARE_SCENARIOS.map((s) => s.id)).size, 10);
-  assert.equal(new Set(HEALTHCARE_SCENARIOS.map((s) => s.evalPatient)).size, 10);
+  // Every scenario targets John Hackett's real record; runs are serial so they never overlap.
+  assert.ok(HEALTHCARE_SCENARIOS.every((s) => s.evalPatient === '205042'));
+  assert.ok(HEALTHCARE_SCENARIOS.every((s) => s.facts.firstName.value === 'John' && s.facts.lastName.value === 'Hackett'));
+  assert.ok(HEALTHCARE_SCENARIOS.every((s) => s.facts.postalCode.kind === 'postcode' && s.facts.postalCode.value === 'M1 1AF'));
+  assert.ok(HEALTHCARE_SCENARIOS.filter((s) => s.id !== 'hc-04').every((s) => s.facts.dob.value === '1988-02-14'));
+  assert.notEqual(HEALTHCARE_SCENARIOS.find((s) => s.id === 'hc-04')?.facts.dob.value, '1988-02-14');
 });
 
 test('getScenario finds scenarios by id', () => {
@@ -42,8 +47,8 @@ test('validator reports broken scenarios', () => {
   assert.ok(errors.some((e) => e.includes('rubric entries')));
 });
 
-test('hc-01 v2 only requires the booking write (search is optional)', () => {
+test('hc-01 only requires the booking write (search is optional)', () => {
   const hc01 = getScenario('hc-01') as Scenario;
-  assert.equal(hc01.version, 2);
+  assert.equal(hc01.version, 3);
   assert.deepEqual(hc01.expected.tools.requiredActions, ['book_appointment']);
 });

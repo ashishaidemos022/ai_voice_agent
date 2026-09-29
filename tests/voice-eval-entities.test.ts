@@ -9,9 +9,9 @@ const hc01 = getScenario('hc-01') as Scenario;
 
 test('all entities heard and passed correctly', () => {
   const result = scoreEntities(hc01, [
-    callerSays(100, 'Hi, this is Maya Patel.'),
-    callerSays(900, 'March 14th, 1979, and my zip is 75204.'),
-    toolCall(1000, 'a', { action: 'search_availability', date_of_birth: '1979-03-14', postal_code: '75204' })
+    callerSays(100, 'Hi, this is John Hackett.'),
+    callerSays(900, 'February 14th, 1988, and my postcode is M1 1AF.'),
+    toolCall(1000, 'a', { action: 'search_availability', date_of_birth: '1988-02-14', postal_code: 'M1 1AF' })
   ]);
   assert.equal(result.status, 'pass');
   assert.equal(result.entityWer, 0);
@@ -21,16 +21,16 @@ test('all entities heard and passed correctly', () => {
 
 test('misheard zip warns; wrong tool argument fails', () => {
   const misheard = scoreEntities(hc01, [
-    callerSays(100, 'Maya Patel, March 14th 1979, zip 75240'),
-    toolCall(1000, 'a', { action: 'search_availability', date_of_birth: '1979-03-14', postal_code: '75204' })
+    callerSays(100, 'John Hackett, February 14th 1988, postcode M1 1AE'),
+    toolCall(1000, 'a', { action: 'search_availability', date_of_birth: '1988-02-14', postal_code: 'M1 1AF' })
   ]);
   assert.equal(misheard.status, 'warn');
   assert.equal(misheard.entities.find((e) => e.fact === 'postalCode')?.heardCorrectly, false);
   assert.ok((misheard.entityWer ?? 0) > 0);
 
   const wrongArg = scoreEntities(hc01, [
-    callerSays(100, 'Maya Patel, March 14th 1979, zip 75204'),
-    toolCall(1000, 'a', { action: 'search_availability', date_of_birth: '1979-03-14', postal_code: '75240' })
+    callerSays(100, 'John Hackett, February 14th 1988, postcode M1 1AF'),
+    toolCall(1000, 'a', { action: 'search_availability', date_of_birth: '1988-02-14', postal_code: 'M1 1AE' })
   ]);
   assert.equal(wrongArg.status, 'fail');
   assert.equal(wrongArg.entities.find((e) => e.fact === 'postalCode')?.argCorrect, false);

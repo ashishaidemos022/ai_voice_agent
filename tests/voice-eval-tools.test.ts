@@ -6,7 +6,7 @@ import type { Scenario } from '../shared/voice-eval/types.ts';
 import { toolCall, toolResult } from './helpers/voice-eval-fixtures.ts';
 
 const hc01 = getScenario('hc-01') as Scenario;
-const identity = { date_of_birth: '1979-03-14', postal_code: '75204' };
+const identity = { date_of_birth: '1988-02-14', postal_code: 'M1 1AF' };
 
 test('healthcareCalls joins calls with results and ignores other tools', () => {
   const calls = healthcareCalls([
@@ -51,12 +51,12 @@ test('forbidden action fails immediately, missing order is pending live and fail
 test('wrong argument value lowers score to warn', () => {
   const events = [
     toolCall(10, 'a', { action: 'search_availability' }),
-    toolCall(30, 'b', { action: 'book_appointment', date_of_birth: '1979-03-41', postal_code: '75204' })
+    toolCall(30, 'b', { action: 'book_appointment', date_of_birth: '1988-02-41', postal_code: 'M1 1AF' })
   ];
   const { result } = scoreTools(hc01, events, 'final');
   assert.equal(result.status, 'warn');
   assert.equal(result.matchers[0].passed, false);
-  assert.equal(result.matchers[0].actual, '1979-03-41');
+  assert.equal(result.matchers[0].actual, '1988-02-41');
 });
 
 test('failed write is not a completed write', () => {

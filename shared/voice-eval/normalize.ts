@@ -22,6 +22,16 @@ export function normalizeDigits(value: string): string {
   return tokenize(value).map((token) => (/^\d+$/.test(token) ? token : DIGIT_WORDS[token] ?? '')).join('');
 }
 
+// Postcode tokens with spoken digits turned into numerals, e.g. "m one one a f" -> ["m","1","1","a","f"].
+function postcodeTokens(value: string): string[] {
+  return tokenize(value).map((token) => DIGIT_WORDS[token] ?? token);
+}
+
+/** Uppercase alphanumerics with spaces removed: "M1 1AF", "m11af" and "m one one a f" all become "M11AF". */
+export function normalizePostcode(value: string): string {
+  return postcodeTokens(value).join('').toUpperCase();
+}
+
 function pad(value: number): string {
   return String(value).padStart(2, '0');
 }
@@ -111,6 +121,10 @@ export function factMatchesText(fact: Fact, text: string): boolean {
       const day = normalizeWeekday(fact.value);
       return day !== null && tokenize(text).includes(day.toLowerCase());
     }
+    case 'postcode': {
+      const needle = normalizePostcode(fact.value).toLowerCase();
+      return needle.length > 0 && runContains(postcodeTokens(text), needle);
+    }
   }
 }
 
@@ -133,6 +147,10 @@ export function factMatchesValue(fact: Fact, value: unknown): boolean {
       const actual = normalizeWeekday(text);
       return actual !== null && actual === normalizeWeekday(fact.value);
     }
+    case 'postcode': {
+      const actual = normalizePostcode(text);
+      return actual.length > 0 && actual === normalizePostcode(fact.value);
+    }
   }
 }
 
@@ -153,12 +171,14 @@ export function wordEditDistance(a: string[], b: string[]): number {
 export function factTokens(fact: Fact): string[] {
   if (fact.kind === 'digits') return normalizeDigits(fact.value).split('');
   if (fact.kind === 'date') return (normalizeDate(fact.value) ?? '').split('-').filter(Boolean);
+  if (fact.kind === 'postcode') return normalizePostcode(fact.value).split('');
   return tokenize(fact.value);
 }
 
 export function transcriptTokensFor(fact: Fact, text: string): string[] {
   if (fact.kind === 'digits') return normalizeDigits(text).split('');
   if (fact.kind === 'date') return extractDates(text).flatMap((date) => date.split('-'));
+  if (fact.kind === 'postcode') return normalizePostcode(text).split('');
   return tokenize(text);
 }
 

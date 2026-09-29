@@ -58,10 +58,10 @@ test('missing snapshot leaves state gates undecided', () => {
 
 test('scoreRun final: happy path passes', () => {
   const events = [
-    callerSays(100, 'Maya Patel, March 14th 1979, zip 75204, Tuesday please'),
-    toolCall(1000, 'a', { action: 'search_availability', date_of_birth: '1979-03-14', postal_code: '75204' }),
+    callerSays(100, 'John Hackett, February 14th 1988, postcode M1 1AF, Tuesday please'),
+    toolCall(1000, 'a', { action: 'search_availability', date_of_birth: '1988-02-14', postal_code: 'M1 1AF' }),
     toolResult(1500, 'a', { verification: { verified: true } }),
-    toolCall(3000, 'b', { action: 'book_appointment', confirmed: true, date_of_birth: '1979-03-14', postal_code: '75204' }),
+    toolCall(3000, 'b', { action: 'book_appointment', confirmed: true, date_of_birth: '1988-02-14', postal_code: 'M1 1AF' }),
     toolResult(3500, 'b', { change: { type: 'booked' } }),
     turnMetric(4000, 700)
   ];

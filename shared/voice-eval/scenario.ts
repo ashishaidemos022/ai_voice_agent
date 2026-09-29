@@ -1,4 +1,4 @@
-import { HEALTHCARE_TOOL_PARAMETERS } from '../healthcare-demo.ts';
+import { HEALTHCARE_TOOL_PARAMETERS, isEvalPatientReference } from '../healthcare-demo.ts';
 import type { Scenario } from './types.ts';
 
 const ACTIONS = new Set<string>(HEALTHCARE_TOOL_PARAMETERS.properties.action.enum);
@@ -8,7 +8,7 @@ export function validateScenario(s: Scenario): string[] {
   const errors: string[] = [];
   if (!/^hc-\d{2}$/.test(s.id)) errors.push(`${s.id}: id must look like hc-01`);
   if (!Number.isInteger(s.version) || s.version < 1) errors.push(`${s.id}: version must be a positive integer`);
-  if (!/^EVAL-\d{4}$/.test(s.evalPatient)) errors.push(`${s.id}: evalPatient must look like EVAL-0001`);
+  if (!isEvalPatientReference(s.evalPatient)) errors.push(`${s.id}: evalPatient must be an eval target (EVAL-0001 or 205042)`);
 
   const tools = s.expected.tools;
   for (const action of [...tools.requiredActions, ...tools.forbiddenActions]) {
