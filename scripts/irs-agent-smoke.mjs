@@ -30,7 +30,7 @@ try {
   const taxpayer = checked(await admin.from('irs_taxpayers').select('demo_access_code,mailing_zip').eq('taxpayer_reference', 'IRS-DEMO-4827').single());
   const invoke = async (body) => {
     const { data, error } = await client.functions.invoke('irs-notice-resolution', { body: {
-      config_id: configId, taxpayer_reference: 'IRS-DEMO-4827', action: 'refund_status', utterance: 'Why is my refund still under review?',
+      config_id: configId, taxpayer_reference: '4827', action: 'refund_status', utterance: 'Why is my refund still under review?',
       ...body
     } });
     if (error) {
@@ -39,9 +39,9 @@ try {
     }
     return data;
   };
-  const denied = await invoke({ demo_access_code: 'invalid', mailing_zip: taxpayer.mailing_zip });
+  const denied = await invoke({ access_code: 'invalid', mailing_zip: taxpayer.mailing_zip });
   assert.equal(denied.verified, false); assert.equal(denied.notices, undefined);
-  const review = await invoke(taxpayer);
+  const review = await invoke({ access_code: taxpayer.demo_access_code, mailing_zip: taxpayer.mailing_zip });
   assert.equal(review.verified, true); assert.ok(review.notices.length > 0);
   assert.equal(review.decision.next_step.applied, 'route_to_specialist');
   assert.ok(review.jev.model); assert.equal(review.action.financial_changes, false);

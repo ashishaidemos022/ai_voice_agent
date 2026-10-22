@@ -1,12 +1,12 @@
 # IRS Notice & Refund Resolution Concierge
 
-The agent **IRS Notice & Refund Concierge · Jev + Eleven Max** helps a caller understand a demo tax notice, a held refund, missing documents, an existing proposed or active payment plan, and the status of a resolution case. Jev determines the next administrative step on every substantive request; ElevenLabs Realtime v1 Max provides the conversation and voice. The published voice is Matilda (`XrExE9yKIg1WjnnlVkGX`).
+The agent **IRS Notice & Refund Concierge · Jev + Eleven Max** helps a caller understand a tax notice, a held refund, missing documents, an existing proposed or active payment plan, and the status of a resolution case. Jev determines the next administrative step on every substantive request; ElevenLabs Realtime v1 Max provides the conversation and voice. The published voice is Matilda (`XrExE9yKIg1WjnnlVkGX`). The greeting, instructions, and tool descriptions use normal account-support language, with no demonstration labels. Callers supply a four-digit reference such as `4827`; the backend maps it to the existing internal taxpayer reference. The public tool field is `access_code`; the stored column retains its existing name.
 
 ## Connected data
 
 | Table | Agent use |
 | --- | --- |
-| `irs_taxpayers` | Match the caller's demo reference, access code, and mailing ZIP before account disclosure. |
+| `irs_taxpayers` | Match the caller's four-digit reference, access code, and mailing ZIP before account disclosure. |
 | `irs_notices` | Explain notice type, tax year, stored balance/refund, status, and response deadline. |
 | `irs_resolution_cases` | Explain the recorded next step and identify high risk or conflicting case records. |
 | `irs_case_documents` | Distinguish required, missing, received, and reviewed documents with stored due dates. |
@@ -29,7 +29,7 @@ The prompt includes explicit expressive speech instructions: natural pitch and r
 
 ## Setup and testing
 
-The agent exists under the owner of the configured ElevenLabs key. Refresh the platform, select the named preset, and use Native voice mode. To test, use an existing `IRS-DEMO-*` reference and the corresponding `demo_access_code` and `mailing_zip` from the demo taxpayer table. Ask, for example, “Why is my refund being held?” or “Which documents are still missing?” Let the agent request verification before expecting account facts.
+The agent exists under the owner of the configured ElevenLabs key. Refresh the platform, select the named preset, and start a new Native voice conversation. Supply the four-digit suffix of an existing taxpayer reference and the corresponding `demo_access_code` and `mailing_zip` from the taxpayer table. Ask, for example, “Why is my refund being held?” or “Which documents are still missing?” Let the agent request verification before expecting account facts.
 
 Deploy the function:
 

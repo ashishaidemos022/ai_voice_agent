@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
-import { IRS_AGENT_INSTRUCTIONS, IRS_TOOL_PARAMETERS, applyIrsDecision, redactIrsCredentials, verifyIrsDemoIdentity, type IrsContext } from '../shared/irs-resolution.ts';
+import { IRS_AGENT_INSTRUCTIONS, IRS_FIRST_MESSAGE, IRS_TOOL_DESCRIPTION, IRS_TOOL_PARAMETERS, applyIrsDecision, normalizeIrsReference, redactIrsCredentials, verifyIrsDemoIdentity, type IrsContext } from '../shared/irs-resolution.ts';
 import { normalizeMCPArguments } from '../src/lib/mcp-normalizer.ts';
 
 const approved = () => ({ model: 'jev-latest', answers: { intent: { choice: 'notice', confidence: 0.95 }, next_step: { choice: 'explain_notice', confidence: 0.95 }, needs_human_review: { noul: 0.01 } } });
@@ -21,14 +21,22 @@ test('normalizer preserves identity factors for execution but redacts its debug 
   const logs: any[] = [];
   t.mock.method(console, 'log', (...args: any[]) => { logs.push(args); });
   const args = normalizeMCPArguments('irs_notice_resolution', IRS_TOOL_PARAMETERS as any, {
-    utterance: 'Check my notice', taxpayer_reference: 'IRS-DEMO-5501', action: 'review_notice', demo_access_code: 'TEST-CODE', mailing_zip: '00000'
+    utterance: 'Check my notice', taxpayer_reference: '5501', action: 'review_notice', access_code: 'TEST-CODE', mailing_zip: '00000'
   }, { redactLogs: true });
-  assert.equal(args.demo_access_code, 'TEST-CODE');
+  assert.equal(args.access_code, 'TEST-CODE');
   assert.equal(args.mailing_zip, '00000');
   assert.ok(!JSON.stringify(logs).includes('TEST-CODE'));
   assert.ok(!JSON.stringify(logs).includes('00000'));
   const email = normalizeMCPArguments('send_email', { type: 'object', properties: { cc: { type: 'string' } } }, { cc: 'TEAM@EXAMPLE.COM' }, { redactLogs: true });
   assert.equal(email.cc, 'team@example.com');
+});
+
+test('caller-facing configuration has no demonstration wording and accepts a short reference', () => {
+  for (const text of [IRS_AGENT_INSTRUCTIONS, IRS_FIRST_MESSAGE, IRS_TOOL_DESCRIPTION, JSON.stringify(IRS_TOOL_PARAMETERS)]) {
+    assert.doesNotMatch(text, /demo|demonstration/i);
+  }
+  assert.equal(normalizeIrsReference('4827'), 'IRS-DEMO-4827');
+  assert.equal(normalizeIrsReference('irs-demo-4827'), 'IRS-DEMO-4827');
 });
 
 test('Jev decisions are gated by verified identity, overdue deadlines, risk, and conflicting records', () => {
@@ -62,10 +70,10 @@ test('IRS endpoint limits data to the owned agent and verified taxpayer; Jev fai
     va_users: [{ id: 'owner', auth_user_id: 'auth-user' }],
     va_agent_configs: [{ id: 'config', user_id: 'owner', voice_provider_config: { workflow: 'irs-resolution', allowed_taxpayer_references: ['IRS-DEMO-5501'] } }],
     va_agent_config_tools: [{ config_id: 'config', tool_name: 'irs_notice_resolution' }],
-    irs_taxpayers: [{ id: 'taxpayer', taxpayer_reference: 'IRS-DEMO-5501', first_name: 'Demo', identity_status: 'VERIFIED', demo_access_code: 'TEST-CODE', mailing_zip: '00000' }],
+    irs_taxpayers: [{ id: 'taxpayer', taxpayer_reference: 'IRS-DEMO-5501', first_name: 'Jordan', identity_status: 'VERIFIED', demo_access_code: 'TEST-CODE', mailing_zip: '00000' }],
     irs_notices: [{ id: 'notice', taxpayer_id: 'taxpayer', notice_number: 'CP14-ONE', notice_type: 'CP14', status: 'OPEN', issue_date: '2026-10-01', response_due_date: '2026-12-01' }, { id: 'foreign-notice', taxpayer_id: 'other', notice_number: 'PRIVATE-OTHER' }],
     irs_resolution_cases: [{ id: 'case', notice_id: 'notice', taxpayer_id: 'taxpayer', status: 'OPEN', risk_level: 'LOW' }],
-    irs_case_documents: [{ case_id: 'case', document_name: 'Demo form', status: 'RECEIVED' }, { case_id: 'foreign-case', document_name: 'PRIVATE-OTHER' }],
+    irs_case_documents: [{ case_id: 'case', document_name: 'W-2 form', status: 'RECEIVED' }, { case_id: 'foreign-case', document_name: 'PRIVATE-OTHER' }],
     irs_payment_plans: [{ taxpayer_id: 'taxpayer', notice_id: 'notice', status: 'PROPOSED', monthly_amount: 100 }],
     irs_tasks: [], irs_interactions: [], irs_kb_articles: []
   };
@@ -129,6 +137,11 @@ test('IRS endpoint limits data to the owned agent and verified taxpayer; Jev fai
       assert.ok(!JSON.stringify(result.body).includes('TEST-CODE'));
       assert.ok(!JSON.stringify(result.body).includes('PRIVATE-OTHER'));
       assert.equal(inserts.length, 1); assert.equal(inserts[0].table, 'irs_interactions');
+    });
+    await t.test('short references and access_code work without caller-facing dataset labels', async () => {
+      const result = await invoke({ taxpayer_reference: '5501', access_code: 'TEST-CODE', demo_access_code: undefined });
+      assert.equal(result.body.verified, true);
+      assert.doesNotMatch(JSON.stringify(result.body), /demo/i);
     });
     await t.test('unowned config and unconfigured taxpayer are rejected before lookup', async () => {
       assert.equal((await invoke({ config_id: 'foreign-config' })).status, 403);

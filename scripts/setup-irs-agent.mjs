@@ -31,7 +31,7 @@ const existing = check(await admin.from('va_agent_configs').select('id,voice_pro
 const preset = {
   user_id: owner, name: definition.IRS_AGENT_NAME,
   summary: 'Identity-gated notice and refund support using irs_* records, Jev decisions, and expressive ElevenLabs Realtime Max voice.',
-  tags: ['irs', 'demo', 'jev', 'elevenlabs', 'realtime-max', 'notices', 'refunds'],
+  tags: ['irs', 'jev', 'elevenlabs', 'realtime-max', 'notices', 'refunds'],
   instructions: definition.IRS_AGENT_INSTRUCTIONS,
   voice: 'alloy', voice_id: voice, voice_provider: 'elevenlabs_agent', voice_provider_key_id: providerKeys[0].id,
   model: 'gpt-realtime-2.1', chat_model: 'gpt-5.4-mini', temperature: 0.3, max_response_output_tokens: 4096,
@@ -43,7 +43,7 @@ const preset = {
     configuration_authority: 'app_managed', workflow: 'irs-resolution', jev_every_turn: true,
     allowed_taxpayer_references: taxpayers.map((row) => row.taxpayer_reference),
     realtime_model: 'eleven_realtime_v1_max', language: 'en',
-    first_message: 'Welcome to the IRS notice and refund support demo. I can help you understand a notice or check a case. What would you like help with?',
+    first_message: definition.IRS_FIRST_MESSAGE,
     llm: 'gpt-5.4-mini', model_id: 'eleven_v3', expressive_mode: true,
     output_format: 'pcm_24000', turn_eagerness: 'normal', speculative_turn: false, sync_local_instructions: false
   }, updated_at: new Date().toISOString()

@@ -1,5 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.112.2';
-import { IRS_ACTIONS, IRS_TOOL_NAME, applyIrsDecision, irsJevQuestions, irsRecordFlags, redactIrsCredentials, verifyIrsDemoIdentity, type IrsAction, type IrsJevResult } from '../../../shared/irs-resolution.ts';
+import { IRS_ACTIONS, IRS_TOOL_NAME, applyIrsDecision, irsJevQuestions, irsRecordFlags, normalizeIrsReference, redactIrsCredentials, verifyIrsDemoIdentity, type IrsAction, type IrsJevResult } from '../../../shared/irs-resolution.ts';
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey' };
 const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -26,13 +26,13 @@ Deno.serve(async (req: Request) => {
     if (!config || config.voice_provider_config?.workflow !== 'irs-resolution') return reply({ error: 'IRS agent not found' }, 403);
     const { data: selection } = await admin.from('va_agent_config_tools').select('tool_name').eq('config_id', config.id).eq('tool_name', IRS_TOOL_NAME).maybeSingle();
     if (!selection) return reply({ error: 'IRS workflow is not enabled for this preset' }, 403);
-    const reference = typeof body.taxpayer_reference === 'string' ? body.taxpayer_reference.trim().toUpperCase() : '';
+    const reference = normalizeIrsReference(body.taxpayer_reference);
     const utterance = typeof body.utterance === 'string' ? body.utterance.trim() : '';
     if (!utterance || utterance.length > 4000 || !IRS_ACTIONS.includes(body.action)) return reply({ error: 'A valid IRS action and request are required' }, 400);
-    if (!/^IRS-DEMO-\d{4}$/.test(reference) || !(config.voice_provider_config.allowed_taxpayer_references || []).includes(reference)) return reply({ error: 'Demo identity could not be verified' }, 400);
+    if (!/^IRS-DEMO-\d{4}$/.test(reference) || !(config.voice_provider_config.allowed_taxpayer_references || []).includes(reference)) return reply({ error: 'Identity could not be verified' }, 400);
     const { data: taxpayer, error: lookupError } = await admin.from('irs_taxpayers').select('id,taxpayer_reference,first_name,identity_status,demo_access_code,mailing_zip').eq('taxpayer_reference', reference).maybeSingle();
-    if (lookupError) throw new Error('Unable to verify the demo record');
-    const verified = verifyIrsDemoIdentity(taxpayer, body.demo_access_code, body.mailing_zip);
+    if (lookupError) throw new Error('Unable to verify the taxpayer record');
+    const verified = verifyIrsDemoIdentity(taxpayer, body.access_code ?? body.demo_access_code, body.mailing_zip);
     const serverNow = new Date().toISOString();
     let notices: any[] = [], cases: any[] = [], documents: any[] = [], plans: any[] = [], tasks: any[] = [], interactions: any[] = [], articles: any[] = [];
     const readStarted = Date.now();
@@ -88,13 +88,13 @@ Deno.serve(async (req: Request) => {
       interactionRecorded = !logError;
     }
     return reply({
-      demo: true, verified, server_now: serverNow,
+      verified, server_now: serverNow,
       decision: { intent: jev.answers.intent, next_step: { ...jev.answers.next_step, applied: applied.next_step }, needs_human_review: jev.answers.needs_human_review, reason: applied.reason, model: telemetry.model, answers: jev.answers },
-      ...(!applied.disclose ? { verification_message: 'Ask for the caller-supplied demo reference, access code, and mailing ZIP. Never reveal expected values.' } : {
+      ...(!applied.disclose ? { verification_message: 'Ask for the caller-supplied four-digit taxpayer reference, access code, and mailing ZIP. Never reveal expected values.' } : {
         taxpayer: { first_name: taxpayer.first_name }, notices, cases, documents, payment_plans: plans, tasks, recent_interactions: interactions,
         knowledge_articles: articles, record_flags: irsRecordFlags(context), interaction_recorded: interactionRecorded
       }),
-      handoff: { submitted: false, guidance: 'For specialist review, use the contact information on the actual notice. This demo has not contacted the IRS or submitted a request.' },
+      handoff: { submitted: false, guidance: 'For specialist review, use the contact information on the notice. No transfer or review request has been submitted.' },
       action: { status: 'read_only', financial_changes: false },
       jev: telemetry, timing: { database_ms: readMs, jev_ms: telemetry.latency_ms, total_ms: Date.now() - started }
     });
