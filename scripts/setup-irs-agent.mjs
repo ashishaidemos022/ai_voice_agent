@@ -34,10 +34,10 @@ const preset = {
   tags: ['irs', 'jev', 'elevenlabs', 'realtime-max', 'notices', 'refunds'],
   instructions: definition.IRS_AGENT_INSTRUCTIONS,
   voice: 'alloy', voice_id: voice, voice_provider: 'elevenlabs_agent', voice_provider_key_id: providerKeys[0].id,
-  model: 'gpt-realtime-2.1', chat_model: 'gpt-5.4-mini', temperature: 0.3, max_response_output_tokens: 4096,
+  model: 'gpt-realtime-2.1', chat_model: 'gpt-5.4-mini', temperature: 0.65, max_response_output_tokens: 4096,
   turn_detection_enabled: true, turn_detection_config: { type: 'server_vad', threshold: 0.65, prefix_padding_ms: 200, silence_duration_ms: 650 },
   is_default: false, rag_enabled: false, rag_mode: 'guardrail',
-  voice_persona_prompt: 'Warm, calm, naturally expressive notice-resolution specialist. Speak amounts, dates, and notice codes clearly; acknowledge financial stress without theatrical emotion.',
+  voice_persona_prompt: definition.IRS_VOICE_PERSONA,
   voice_provider_config: {
     ...(existing?.voice_provider_config || {}),
     configuration_authority: 'app_managed', workflow: 'irs-resolution', jev_every_turn: true,
