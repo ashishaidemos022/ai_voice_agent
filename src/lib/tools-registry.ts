@@ -10,6 +10,7 @@ import { DEFAULT_ADAPTER_SYSTEM_PROMPT } from '../../shared/adapter-system-promp
 import { estimateInklingSmallCostUsd } from './model-route-metrics';
 import { applyEvalContext } from '../../shared/voice-eval/eval-context';
 import { getActiveEvalContext } from './voice-eval/eval-context';
+import { IRS_TOOL_DESCRIPTION, IRS_TOOL_NAME, IRS_TOOL_PARAMETERS, redactIrsCredentials } from '../../shared/irs-resolution';
 import {
   HEALTHCARE_TOOL_DESCRIPTION,
   HEALTHCARE_TOOL_NAME,
@@ -221,6 +222,20 @@ function healthcarePatientAccessTools(selection: ToolSelectionState | null): Too
       });
       if (error) throw new Error(error.message || 'Healthcare patient-access workflow failed');
       if (data?.error) throw new Error(data.error);
+      return data;
+    }
+  }];
+}
+
+function irsResolutionTools(selection: ToolSelectionState | null, configId: string): Tool[] {
+  if (!selection?.clientToolNames?.includes(IRS_TOOL_NAME)) return [];
+  return [{
+    name: IRS_TOOL_NAME, description: IRS_TOOL_DESCRIPTION,
+    parameters: IRS_TOOL_PARAMETERS as unknown as JSONSchema,
+    executionType: 'client', source: 'client', metadata: { workflow: 'irs-resolution', decision_model: 'jev-latest' },
+    execute: async (params: any) => {
+      const { data, error } = await supabase.functions.invoke('irs-notice-resolution', { body: { ...params, config_id: configId } });
+      if (error || data?.error) throw new Error(data?.error || error?.message || 'IRS workflow failed');
       return data;
     }
   }];
@@ -507,6 +522,7 @@ export async function loadMCPTools(configId?: string, userId?: string): Promise<
       applyWebhookSelection(selectionState, n8nTools);
       registeredTools = [...registeredTools, ...enterpriseITSupportTools(selectionState)];
       registeredTools = [...registeredTools, ...healthcarePatientAccessTools(selectionState)];
+      registeredTools = [...registeredTools, ...irsResolutionTools(selectionState, configId)];
     } else {
       selectedWebhookToolNames = null;
     }
@@ -861,9 +877,9 @@ export async function executeTool(
     console.log('[MCP] Normalizing tool arguments', {
       tool: tool.name,
       connectionId: tool.connectionId,
-      rawParams: params
+      rawParams: tool.name === IRS_TOOL_NAME ? redactIrsCredentials(params) : params
     });
-    normalizedParams = normalizeMCPArguments(tool.name, tool.parameters, params);
+    normalizedParams = normalizeMCPArguments(tool.name, tool.parameters, params, { redactLogs: tool.name === IRS_TOOL_NAME });
     const nestedInfo = normalizedParams && typeof normalizedParams === 'object'
       ? getChildToolArrayKey(normalizedParams)
       : null;
@@ -872,7 +888,7 @@ export async function executeTool(
     }
     console.log('[MCP] Normalized tool arguments', {
       tool: tool.name,
-      normalizedParams
+      normalizedParams: tool.name === IRS_TOOL_NAME ? redactIrsCredentials(normalizedParams) : normalizedParams
     });
     if (tool.executionType === 'webhook') {
       const integrationId = tool.metadata?.integrationId;
@@ -904,7 +920,7 @@ export async function executeTool(
     session_id: context.sessionId || null,
     chat_session_id: context.chatSessionId || null,
     tool_name: tool.name,
-    input_params: normalizedParams,
+    input_params: tool.name === IRS_TOOL_NAME ? redactIrsCredentials(normalizedParams) : normalizedParams,
     output_result: result,
     execution_time_ms: executionTimeMs,
     status,

@@ -1,5 +1,9 @@
 # AI Voice Agent
 
+## IRS notice and refund agent
+
+The **IRS Notice & Refund Concierge · Jev + Eleven Max** preset combines the existing `irs_*` demo tables, identity-gated account lookup, Jev decisions on every substantive turn, and expressive ElevenLabs Realtime Max voice. See [setup, connected tables, behavior, and tests](docs/irs-notice-resolution.md).
+
 ## ElevenLabs Realtime models
 
 In Settings, select **ElevenLabs Agent** as the voice provider, select your ElevenLabs API key, and choose **App-managed profile**. Under **Voice mode / model**, choose **Eleven Realtime v1 Mini** or **Eleven Realtime v1 Max**, select a voice, save the preset, then **Create & publish** (or **Publish changes**). Start a Native voice session or use the preset's voice embed; both use the published ElevenLabs agent through the existing signed-session connection.

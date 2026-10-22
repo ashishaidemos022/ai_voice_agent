@@ -64,6 +64,7 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
   const [isWebSearchExpanded, setIsWebSearchExpanded] = useState(true);
   const [hasChanges, setHasChanges] = useState(false);
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [workflowTools, setWorkflowTools] = useState<SelectedTool[]>([]);
   const [webSearchDomains, setWebSearchDomains] = useState('');
   const [webSearchMaxResults, setWebSearchMaxResults] = useState(5);
   const [webSearchTimeRange, setWebSearchTimeRange] = useState('any');
@@ -149,6 +150,7 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
       setSelectedMcpTools(new Set());
       setSelectedN8nTools(new Set());
       setN8nParameters({});
+      setWorkflowTools([]);
         setMcpTools([]);
         setN8nIntegrations([]);
         setHasChanges(false);
@@ -189,6 +191,7 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
         const savedMcp = filteredTools.filter(t => t.tool_source === 'mcp').map(t => t.tool_name);
         const savedN8n = filteredTools.filter(t => t.tool_source === 'n8n').map(t => t.tool_name);
         const webSearchRow = filteredTools.find(t => t.tool_source === 'client' && t.tool_name === 'web_search');
+        setWorkflowTools(filteredTools.filter(t => t.tool_source === 'client' && !['web_search', '__none__'].includes(t.tool_name)));
 
         const hasDbSelection = filteredTools.length > 0 || selectionCleared;
 
@@ -256,6 +259,7 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
         if (isMounted) {
           setSelectedMcpTools(new Set());
           setSelectedN8nTools(new Set());
+          setWorkflowTools([]);
         }
       } finally {
         if (isMounted) {
@@ -418,6 +422,9 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
         });
       }
 
+      // Keep the preset's built-in workflow tools when editing MCP/webhook selections.
+      toolsToSave.push(...workflowTools);
+
       console.log('[ToolSelectionPanel] Saving selection', {
         configId,
         mcpCount: toolsToSave.filter(t => t.tool_source === 'mcp').length,
@@ -448,8 +455,8 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
   const mcpSelectedCount = mcpTools.filter(t => selectedMcpTools.has(t.tool_name)).length;
   const n8nSelectedCount = n8nIntegrations.filter(integration => selectedN8nTools.has(integration.toolName)).length;
   const webSearchSelectedCount = webSearchEnabled ? 1 : 0;
-  const totalSelected = mcpSelectedCount + n8nSelectedCount + webSearchSelectedCount;
-  const totalAvailable = mcpTools.length + n8nIntegrations.length + 1;
+  const totalSelected = mcpSelectedCount + n8nSelectedCount + webSearchSelectedCount + workflowTools.length;
+  const totalAvailable = mcpTools.length + n8nIntegrations.length + 1 + workflowTools.length;
 
   return (
     <div className="space-y-4">
@@ -471,6 +478,13 @@ export function ToolSelectionPanel({ configId, onToolsChanged }: ToolSelectionPa
           </Button>
         )}
       </div>
+
+      {workflowTools.length > 0 && (
+        <div className="rounded-lg border border-cyan-300/20 bg-cyan-500/5 p-3">
+          <p className="text-xs font-semibold text-cyan-100">Enabled workflow tools</p>
+          {workflowTools.map((tool) => <p key={tool.tool_name} className="text-xs text-white/65 mt-1">{tool.tool_name}</p>)}
+        </div>
+      )}
 
       {isLoading ? (
         <div className="flex items-center justify-center py-8">

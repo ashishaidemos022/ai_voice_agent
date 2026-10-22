@@ -164,7 +164,10 @@ function guessConceptForSchemaKey(schemaKey: string): string | undefined {
  */
 function isRecipientField(schemaKey: string): boolean {
   const normalized = normalizeFieldName(schemaKey);
-  return ["recipient", "recipientemail", "email", "to", "bcc", "cc"].some(token => normalized.includes(token));
+  // Match field concepts, not arbitrary substrings such as "cc" in access_code.
+  const tokens = tokenize(schemaKey);
+  return tokens.some(token => ["recipient", "recipients", "email", "emails", "to", "bcc", "cc"].includes(token))
+    || normalized.includes('recipient') || normalized.endsWith('email') || normalized.endsWith('emails');
 }
 
 /**
@@ -524,18 +527,20 @@ export function normalizeMCPArguments(
 export function normalizeMCPArguments(
   toolName: string,
   inputSchema: JSONSchema | undefined,
-  rawArgs: Record<string, any> | null | undefined
+  rawArgs: Record<string, any> | null | undefined,
+  options?: { redactLogs?: boolean }
 ): InternalNormalizationResult["normalized"];
 export function normalizeMCPArguments(
   arg1: string | MCPToolDefinition,
   arg2?: JSONSchema | Record<string, any> | null,
-  arg3?: Record<string, any> | null
+  arg3?: Record<string, any> | null,
+  options?: { redactLogs?: boolean }
 ): InternalNormalizationResult["normalized"] {
   const { toolName, schema, rawArgs } = resolveInputs(arg1, arg2, arg3);
   console.log('[MCPNormalizer] Incoming args', {
     toolName,
     schemaKeys: schema?.properties ? Object.keys(schema.properties) : [],
-    rawArgs
+    rawArgs: options?.redactLogs ? '[redacted]' : rawArgs
   });
   const result = performNormalization(schema, rawArgs);
 
@@ -545,7 +550,7 @@ export function normalizeMCPArguments(
 
   console.log('[MCPNormalizer] Normalized args result', {
     toolName,
-    normalized: result.normalized,
+    normalized: options?.redactLogs ? '[redacted]' : result.normalized,
     missingRequired: result.missingRequired
   });
 
