@@ -36,6 +36,8 @@ import { isGPTLiveModel, OPENAI_MODELS } from '../../../shared/openai-models';
 import { ELEVENLABS_REALTIME_MODELS } from '../../../shared/elevenlabs-realtime-models';
 import {
   normalizeXAIVoiceLanguage,
+  normalizeXAIVoice,
+  normalizeXAIVoiceModel,
   XAI_VOICE_LANGUAGES,
   XAI_VOICE_MODELS,
   XAI_VOICES
@@ -1034,13 +1036,15 @@ export function SettingsPanel({
                     {isXAI ? 'Grok voice model' : 'OpenAI voice model'}
                   </label>
                   <select
-                    value={config.model}
+                    value={isXAI ? normalizeXAIVoiceModel(config.model) : config.model}
                     onChange={(e) => {
                       const model = e.target.value;
                       onConfigChange({
                         ...config,
                         model,
-                        voice: isGPTLiveModel(model)
+                        voice: isXAI
+                          ? normalizeXAIVoice(config.voice)
+                          : isGPTLiveModel(model)
                           ? (GPT_LIVE_VOICE_OPTIONS.some((option) => option.value === config.voice) ? config.voice : 'quartz')
                           : (VOICE_OPTIONS.some((option) => option.value === config.voice) ? config.voice : 'alloy')
                       });
@@ -1049,9 +1053,8 @@ export function SettingsPanel({
                   >
                     {isXAI ? (
                       <>
-                        <option value={XAI_VOICE_MODELS.default}>Grok Voice latest · recommended</option>
-                        <option value={XAI_VOICE_MODELS.flagship}>Grok Voice Think Fast 2.0 · pinned</option>
-                        <option value={XAI_VOICE_MODELS.previous}>Grok Voice Think Fast 1.0 · previous</option>
+                        <option value={XAI_VOICE_MODELS.default}>Grok Voice latest · currently 3.0</option>
+                        <option value={XAI_VOICE_MODELS.flagship}>Grok Voice 3.0 · pinned</option>
                       </>
                     ) : (
                       <>
@@ -1063,7 +1066,7 @@ export function SettingsPanel({
                   </select>
                   <p className="text-xs text-white/50 mt-1">
                     {isXAI
-                      ? 'The latest alias follows xAI’s recommended production model.'
+                      ? 'Use Grok Voice 3.0 to pin this release, or latest to follow xAI’s current model.'
                       : isGPTLive
                         ? 'GPT-Live handles the conversation while a Responses model handles delegated work.'
                         : 'Realtime 2.1 is the recommended production default.'}
@@ -1345,7 +1348,7 @@ export function SettingsPanel({
                       </div>
                     ) : (
                       <select
-                        value={isPersonaPlex ? (config.voice_id ?? 'NATF0') : config.voice}
+                        value={isPersonaPlex ? (config.voice_id ?? 'NATF0') : isXAI ? normalizeXAIVoice(config.voice) : config.voice}
                         onChange={(e) => {
                           if (isPersonaPlex) {
                             onConfigChange({ ...config, voice_id: e.target.value });
@@ -1355,6 +1358,9 @@ export function SettingsPanel({
                         }}
                         className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-400/60 focus:border-cyan-300 bg-slate-900 text-sm text-white"
                       >
+                        {isXAI && config.voice && !XAI_VOICES.some((voice) => voice.value === normalizeXAIVoice(config.voice)) && (
+                          <option value={config.voice}>Saved voice · {config.voice}</option>
+                        )}
                         {(isPersonaPlex ? PERSONAPLEX_VOICE_OPTIONS : isXAI ? XAI_VOICES : isGPTLive ? GPT_LIVE_VOICE_OPTIONS : VOICE_OPTIONS).map((option) => (
                           <option key={option.value} value={option.value}>
                             {option.label} — {option.description}
@@ -1362,6 +1368,7 @@ export function SettingsPanel({
                         ))}
                       </select>
                     )}
+                    {isXAI && <p className="text-xs text-white/50">28 multilingual voices for Grok Voice 3.0, including Iris, Celeste, Aurora, and Carina.</p>}
                   </div>
                   <div className="space-y-2">
                     <label className="flex items-center gap-2 cursor-pointer">

@@ -1,5 +1,9 @@
 # AI Voice Agent
 
+## Grok Voice 3.0
+
+In Settings, select **Grok Voice (direct)**, choose your xAI API key, then select **Grok Voice 3.0 · pinned** (or **latest · currently 3.0**) and a voice. The picker includes all 28 built-in voices, with descriptions to help choose a style. Save the preset and start a new call. See [Grok V3 integration and verification](docs/grok-voice-v3.md).
+
 ## IRS notice and refund agent
 
 The **IRS Notice & Refund Concierge · Jev + Eleven Max** preset combines the existing `irs_*` demo tables, identity-gated account lookup, Jev decisions on every substantive turn, and expressive ElevenLabs Realtime Max voice. See [setup, connected tables, behavior, and tests](docs/irs-notice-resolution.md).

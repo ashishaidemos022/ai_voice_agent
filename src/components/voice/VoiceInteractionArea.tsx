@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { AgentState } from '../../lib/realtime-client';
 import { isGPTLiveModel, OPENAI_MODELS } from '../../../shared/openai-models';
+import { normalizeXAIVoice, normalizeXAIVoiceModel } from '../../../shared/xai-voice-models';
 import { elevenLabsRealtimeLabel, effectiveElevenLabsRealtimeModel } from '../../../shared/elevenlabs-realtime-models';
 import type { RealtimeConfig } from '../../types/voice-agent';
 import type { VoiceMetricsSnapshot, VoiceTurnMetric } from '../../lib/voice-metrics';
@@ -161,15 +162,15 @@ function runtimeProfile(config: RealtimeConfig): RuntimeProfile {
         },
         {
           label: 'Realtime intelligence',
-          model: config.model,
+          model: normalizeXAIVoiceModel(config.model),
           detail: 'Native Grok reasoning and tool calling',
           icon: BrainCircuit,
           accent: 'text-violet-200'
         },
         {
           label: 'Native speech output',
-          model: config.model,
-          detail: `Grok voice · ${config.voice || 'eve'}`,
+          model: normalizeXAIVoiceModel(config.model),
+          detail: `Grok voice · ${normalizeXAIVoice(config.voice)}`,
           icon: AudioWaveform,
           accent: 'text-amber-200'
         }

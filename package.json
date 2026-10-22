@@ -10,6 +10,7 @@
     "test:gateway": "node --test tests/elevenlabs-gateway.test.js",
     "test:elevenlabs-realtime": "node --experimental-strip-types --test tests/elevenlabs-realtime.test.ts",
     "test:irs": "node --experimental-strip-types --test tests/irs-resolution.test.ts",
+    "test:xai-voice": "node --experimental-strip-types --test tests/xai-voice-v3.test.ts",
     "test:chat-ui": "node --experimental-strip-types --test tests/chat-rich-content.test.ts tests/chat-source-context.test.ts",
     "test:memory": "node --experimental-strip-types --test tests/agent-memory.test.ts tests/agent-memory-db.test.ts",
     "test:routing-eval": "node --experimental-strip-types --test tests/routing-eval.test.ts",

@@ -1,5 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
 import { OPENAI_MODELS, normalizeRealtimeModel } from '../../../shared/openai-models.ts';
+import { normalizeXAIVoice, normalizeXAIVoiceModel } from '../../../shared/xai-voice-models.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -186,7 +187,7 @@ function resolveAgentVoice(
     return sanitizeVoice(embedTtsVoice || agentVoice || null);
   }
   if (provider === 'xai_realtime') {
-    return agentVoice || 'eve';
+    return normalizeXAIVoice(agentVoice);
   }
   return agentVoiceId || null;
 }
@@ -1103,7 +1104,7 @@ Deno.serve(async (req: Request) => {
           voice_sample_rate_hz: agentConfig.voice_sample_rate_hz || null,
           turn_detection: resolveTurnDetection(agentConfig),
           model: provider === 'xai_realtime'
-            ? (agentConfig.model || 'grok-voice-latest')
+            ? normalizeXAIVoiceModel(agentConfig.model)
             : normalizeRealtimeModel(agentConfig.model || OPENAI_MODELS.realtime.default),
           instructions: agentConfig.instructions || '',
           a2ui_enabled: agentConfig.a2ui_enabled ?? false,

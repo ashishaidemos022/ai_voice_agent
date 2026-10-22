@@ -308,7 +308,7 @@ test('WebRTC speech clears buffered audio and suppresses responses interrupted b
   const xai = new RealtimeAPIClient({ model: 'grok-voice-latest', voice: 'Rex' }, { routedVoice: true, provider: 'xai' });
   xai.dataChannel = { readyState: 'open', send: (text: string) => xaiSent.push(JSON.parse(text)) };
   xai.sendSessionUpdate(); xai.speakAnswer('Saved size is US 10 wide.');
-  assert.equal(xaiSent[0].session.voice, 'Rex');
+  assert.equal(xaiSent[0].session.voice, 'rex');
   assert.equal(xaiSent[0].session.turn_detection, null);
   assert.equal(xaiSent[1].item.type, 'force_message');
   assert.equal(xaiSent[1].item.interruptible, true);

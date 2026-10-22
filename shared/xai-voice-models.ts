@@ -1,16 +1,45 @@
 export const XAI_VOICE_MODELS = {
   default: 'grok-voice-latest',
-  flagship: 'grok-voice-think-fast-2.0',
-  previous: 'grok-voice-think-fast-1.0'
+  flagship: 'grok-voice-3.0',
+  previous: 'grok-voice-2.0'
 } as const;
 
 export const XAI_VOICES = [
-  { value: 'ara', label: 'Ara', description: 'Multilingual' },
-  { value: 'eve', label: 'Eve', description: 'Multilingual · default' },
-  { value: 'leo', label: 'Leo', description: 'Multilingual' },
-  { value: 'rex', label: 'Rex', description: 'Multilingual' },
-  { value: 'sal', label: 'Sal', description: 'Multilingual' }
+  { value: 'ara', label: 'Ara', description: 'Welcoming and warm' },
+  { value: 'eve', label: 'Eve', description: 'Lively British delivery · default' },
+  { value: 'leo', label: 'Leo', description: 'Strong British delivery' },
+  { value: 'rex', label: 'Rex', description: 'Clear and assured' },
+  { value: 'sal', label: 'Sal', description: 'Even, smooth delivery' },
+  { value: 'altair', label: 'Altair', description: 'Polished premium delivery' },
+  { value: 'atlas', label: 'Atlas', description: 'Commanding yet reassuring' },
+  { value: 'aurora', label: 'Aurora', description: 'Radiant and serene' },
+  { value: 'carina', label: 'Carina', description: 'Soothing, gentle empathy' },
+  { value: 'castor', label: 'Castor', description: 'Relaxed conversational charm' },
+  { value: 'celeste', label: 'Celeste', description: 'Assured, compassionate support' },
+  { value: 'cosmo', label: 'Cosmo', description: 'Curious and accessible' },
+  { value: 'helios', label: 'Helios', description: 'Versatile upbeat energy' },
+  { value: 'helix', label: 'Helix', description: 'High-energy bold delivery' },
+  { value: 'iris', label: 'Iris', description: 'Cheerful, personable charm' },
+  { value: 'kepler', label: 'Kepler', description: 'Inventive charismatic delivery' },
+  { value: 'liora', label: 'Liora', description: 'Grounded, calming presence' },
+  { value: 'lumen', label: 'Lumen', description: 'Articulate engaging warmth' },
+  { value: 'luna', label: 'Luna', description: 'Patient nurturing delivery' },
+  { value: 'lux', label: 'Lux', description: 'Quietly thoughtful delivery' },
+  { value: 'naksh', label: 'Naksh', description: 'Thoughtful warmth · Indian accent' },
+  { value: 'orion', label: 'Orion', description: 'Resonant cinematic depth' },
+  { value: 'perseus', label: 'Perseus', description: 'Trustworthy assured delivery' },
+  { value: 'rigel', label: 'Rigel', description: 'Professional precision · Australian accent' },
+  { value: 'sirius', label: 'Sirius', description: 'Playful quick wit' },
+  { value: 'ursa', label: 'Ursa', description: 'Steady companionable warmth' },
+  { value: 'zagan', label: 'Zagan', description: 'Distinctive dramatic power' },
+  { value: 'zenith', label: 'Zenith', description: 'Focused purposeful energy' }
 ] as const;
+
+export function normalizeXAIVoice(voice?: string | null): string {
+  const candidate = voice?.trim();
+  // Canonicalize built-ins while preserving saved custom voice IDs verbatim.
+  return XAI_VOICES.find((entry) => entry.value === candidate?.toLowerCase())?.value || candidate || 'eve';
+}
 
 export const XAI_VOICE_LANGUAGES = [
   { value: 'auto', label: 'Auto-detect' },
@@ -50,5 +79,8 @@ export function getXAIVoiceLanguageLabel(language: XAIVoiceLanguage): string {
 
 export function normalizeXAIVoiceModel(model?: string | null): string {
   const candidate = model?.trim();
+  if ([XAI_VOICE_MODELS.previous, 'grok-voice-think-fast-2.0', 'grok-voice-think-fast-1.0'].includes(candidate || '')) {
+    return XAI_VOICE_MODELS.flagship;
+  }
   return candidate?.startsWith('grok-voice-') ? candidate : XAI_VOICE_MODELS.default;
 }

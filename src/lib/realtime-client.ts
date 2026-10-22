@@ -3,7 +3,9 @@ import { RealtimeConfig } from '../types/voice-agent';
 import { isGPTLiveModel, OPENAI_MODELS } from '../../shared/openai-models';
 import {
   getXAIVoiceLanguageLabel,
-  normalizeXAIVoiceLanguage
+  normalizeXAIVoiceLanguage,
+  normalizeXAIVoice,
+  normalizeXAIVoiceModel
 } from '../../shared/xai-voice-models';
 import { getToolSchemas } from './tools-registry';
 import { getAudioManager } from './audio-manager';
@@ -195,7 +197,7 @@ export class RealtimeAPIClient {
       try {
         const isXAI = this.provider === 'xai';
         const url = isXAI
-          ? `wss://api.x.ai/v1/realtime?model=${encodeURIComponent(this.config.model)}`
+          ? `wss://api.x.ai/v1/realtime?model=${encodeURIComponent(normalizeXAIVoiceModel(this.config.model))}`
           : `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(this.config.model)}`;
         const protocols = isXAI
           ? [`xai-client-secret.${apiKey}`]
@@ -465,7 +467,7 @@ export class RealtimeAPIClient {
       return;
     }
     if (this.routedVoice) {
-      this.send({ type: 'session.update', session: this.provider === 'xai' ? { voice: this.config.voice, instructions: LIVE_VOICE_INSTRUCTIONS, turn_detection: null, tools: [], audio: { output: { format: { type: 'audio/pcm', rate: 24000 } } } } : liveVoiceSession({ model: this.config.model, voice: this.config.voice, textOnly: this.textOnly, turn_detection: this.config.turn_detection }) });
+      this.send({ type: 'session.update', session: this.provider === 'xai' ? { voice: normalizeXAIVoice(this.config.voice), instructions: LIVE_VOICE_INSTRUCTIONS, turn_detection: null, tools: [], audio: { output: { format: { type: 'audio/pcm', rate: 24000 } } } } : liveVoiceSession({ model: this.config.model, voice: this.config.voice, textOnly: this.textOnly, turn_detection: this.config.turn_detection }) });
       this.sessionUpdateSent = true;
       return;
     }
@@ -487,7 +489,7 @@ export class RealtimeAPIClient {
     const sessionConfig: any = {
       type: 'session.update',
       session: isXAI ? {
-        voice: this.config.voice,
+        voice: normalizeXAIVoice(this.config.voice),
         instructions: ragInstructions,
         reasoning: {
           effort: this.config.voice_provider_config?.reasoning_effort === 'none' ? 'none' : 'high'
