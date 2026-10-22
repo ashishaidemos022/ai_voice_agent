@@ -33,6 +33,7 @@ import { Card, CardHeader } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { ToolSelectionPanel } from '../settings/ToolSelectionPanel';
 import { isGPTLiveModel, OPENAI_MODELS } from '../../../shared/openai-models';
+import { ELEVENLABS_REALTIME_MODELS } from '../../../shared/elevenlabs-realtime-models';
 import {
   normalizeXAIVoiceLanguage,
   XAI_VOICE_LANGUAGES,
@@ -248,6 +249,11 @@ export function SettingsPanel({
   const isGPTLive = resolvedProvider === 'openai_realtime' && isGPTLiveModel(config.model);
   const isAppManagedElevenLabs = isElevenLabsAgent
     && config.voice_provider_config?.configuration_authority === 'app_managed';
+  const isElevenLabsRealtime = isAppManagedElevenLabs && Boolean(config.voice_provider_config?.realtime_model);
+  const hasInvalidElevenLabsMaxTokens = isElevenLabsRealtime
+    && config.voice_provider_config?.realtime_model === 'eleven_realtime_v1_max'
+    && config.max_response_output_tokens !== -1
+    && (!Number.isInteger(config.max_response_output_tokens) || config.max_response_output_tokens < 1024);
   const isElevenLabs = isElevenLabsTts || isElevenLabsAgent;
   const requiresProviderKey = isElevenLabs || isXAI;
   const rawVoiceProviderKeyId = config.voice_provider_key_id ?? null;
@@ -1132,7 +1138,7 @@ export function SettingsPanel({
                   </label>
                   <input
                     type="number"
-                    min={256}
+                    min={isElevenLabsRealtime && config.voice_provider_config?.realtime_model === 'eleven_realtime_v1_max' ? 1024 : 256}
                     max={16000}
                     step={128}
                     value={config.max_response_output_tokens}
@@ -1646,11 +1652,47 @@ export function SettingsPanel({
                       </div>
                       {isAppManagedElevenLabs ? (
                         <>
+                          <div>
+                            <label htmlFor="elevenlabs-voice-mode" className="text-sm font-semibold text-white/80">Voice mode / model</label>
+                            <select
+                              id="elevenlabs-voice-mode"
+                              value={elevenLabsConfig.realtime_model ?? ''}
+                              onChange={(e) => onConfigChange({
+                                ...config,
+                                max_response_output_tokens: e.target.value === 'eleven_realtime_v1_max'
+                                  && config.max_response_output_tokens !== -1
+                                  ? Math.max(1024, config.max_response_output_tokens)
+                                  : config.max_response_output_tokens,
+                                voice_provider_config: { ...elevenLabsConfig, realtime_model: e.target.value || null }
+                              })}
+                              className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-violet-400/60 focus:border-violet-300 bg-slate-900 text-sm text-white"
+                            >
+                              <option value="">Custom — choose LLM and TTS</option>
+                              {ELEVENLABS_REALTIME_MODELS.map((model) => (
+                                <option key={model.id} value={model.id}>{model.label}</option>
+                              ))}
+                            </select>
+                            <p className="text-xs text-white/55 mt-1">
+                              Mini prioritizes latency and cost. Max reasons through complex instructions and multi-step tools.
+                              Realtime manages the LLM, TTS, expressive mode, and ASR; your prompt, voice, and tools still apply.
+                              Save and publish to apply this choice. Requires ElevenLabs workspace access to Realtime.
+                            </p>
+                            {isElevenLabsRealtime && (
+                              <p className="text-xs text-amber-200 mt-1">
+                                Max requires at least 1,024 response tokens. For HIPAA or Zero Retention Mode, use Max in the US or EU.
+                                Max is unavailable in India and Singapore. Agent transfers must stay within Realtime mode.
+                              </p>
+                            )}
+                            {hasInvalidElevenLabsMaxTokens && (
+                              <p className="text-xs text-rose-300 mt-1">Set Max response tokens to at least 1,024 before publishing Max.</p>
+                            )}
+                          </div>
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                             <div>
                               <label className="text-sm font-semibold text-white/80">LLM</label>
                               <select
                                 value={elevenLabsConfig.llm ?? 'gpt-5.4-mini'}
+                                disabled={isElevenLabsRealtime}
                                 onChange={(e) => updateElevenLabsConfig({ llm: e.target.value })}
                                 className="w-full px-3 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-violet-400/60 focus:border-violet-300 bg-slate-900 text-sm text-white"
                               >
@@ -1685,7 +1727,7 @@ export function SettingsPanel({
                               <span className="text-sm font-semibold text-white/80">Speculative turn</span>
                             </label>
                           </div>
-                          <div className="rounded-xl border border-violet-300/25 bg-slate-950/50 p-4 space-y-4">
+                          {!isElevenLabsRealtime && <div className="rounded-xl border border-violet-300/25 bg-slate-950/50 p-4 space-y-4">
                             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
                               <div>
                                 <p className="text-sm font-semibold text-white">Voice model & expression</p>
@@ -1781,7 +1823,7 @@ export function SettingsPanel({
                                 </div>
                               </div>
                             )}
-                          </div>
+                          </div>}
                           <div className="rounded-xl border border-violet-300/25 bg-slate-950/50 p-4 space-y-3">
                             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                               <div>
@@ -1799,9 +1841,9 @@ export function SettingsPanel({
                                     Last published {new Date(elevenLabsSyncedAt).toLocaleString()} · {elevenLabsSync.tool_count ?? 0} tools
                                   </p>
                                 )}
-                                {elevenLabsSync.effective_tts_model_id && (
+                                {(elevenLabsSync.effective_realtime_model || elevenLabsSync.effective_tts_model_id) && (
                                   <p className="text-[11px] text-violet-200/80 mt-1 font-mono">
-                                    Effective model: {elevenLabsSync.effective_tts_model_id}
+                                    Effective model: {elevenLabsSync.effective_realtime_model || elevenLabsSync.effective_tts_model_id}
                                     {elevenLabsSync.remote_version_id ? ` · Version ${elevenLabsSync.remote_version_id}` : ''}
                                   </p>
                                 )}
@@ -1809,7 +1851,7 @@ export function SettingsPanel({
                               <Button
                                 size="sm"
                                 onClick={handlePublishElevenLabs}
-                                disabled={isPublishingElevenLabs || !activeConfigId || hasUnsavedChanges || !effectiveVoiceProviderKeyId}
+                                disabled={isPublishingElevenLabs || !activeConfigId || hasUnsavedChanges || !effectiveVoiceProviderKeyId || hasInvalidElevenLabsMaxTokens}
                                 className="bg-violet-400 text-slate-950 hover:bg-violet-300"
                               >
                                 <UploadCloud className="w-3 h-3" />

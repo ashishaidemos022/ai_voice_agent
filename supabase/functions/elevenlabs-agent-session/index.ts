@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.112.2';
+import { effectiveElevenLabsRealtimeModel, resolveElevenLabsRealtimeModel, validateElevenLabsRealtimeTokens } from '../../../shared/elevenlabs-realtime-models.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -311,6 +312,8 @@ async function syncAppManagedAgent(configId: string, vaUserId: string) {
   if (providerConfig.configuration_authority !== 'app_managed') {
     throw new Error('Switch the preset to app-managed configuration before publishing');
   }
+  const realtimeModel = resolveElevenLabsRealtimeModel(providerConfig.realtime_model);
+  validateElevenLabsRealtimeTokens(realtimeModel, config.max_response_output_tokens);
   const apiKey = await resolveProviderKey(config.voice_provider_key_id, vaUserId);
   const localTools = await loadLocalTools(configId, vaUserId);
   const previousToolMap = providerConfig.app_managed?.tool_map || {};
@@ -342,6 +345,7 @@ async function syncAppManagedAgent(configId: string, vaUserId: string) {
   const currentRuntime = currentConversation.conversation || {};
   const voiceSettings = providerConfig.voice_settings || {};
   const desiredProfile = {
+    realtime_model: realtimeModel,
     name: config.name,
     instructions: config.instructions,
     first_message: providerConfig.first_message || '',
@@ -364,6 +368,8 @@ async function syncAppManagedAgent(configId: string, vaUserId: string) {
   delete nextPrompt.tools;
 
   const conversationConfig = {
+    // Explicit null restores Custom mode when updating an existing Realtime agent.
+    realtime_model: desiredProfile.realtime_model,
     agent: {
       ...currentAgent,
       first_message: desiredProfile.first_message,
@@ -427,6 +433,10 @@ async function syncAppManagedAgent(configId: string, vaUserId: string) {
   // Read the canonical provider state after both creates and updates so the UI
   // can show what ElevenLabs actually accepted, rather than only the local intent.
   remoteAgent = await providerJson(apiKey, `/v1/convai/agents/${remoteAgentId}`);
+  const effectiveRealtimeModel = resolveElevenLabsRealtimeModel(remoteAgent?.conversation_config?.realtime_model);
+  if (effectiveRealtimeModel !== realtimeModel) {
+    throw new Error('ElevenLabs did not apply the selected voice mode. Check workspace Realtime access and publish again.');
+  }
   const effectiveTts = remoteAgent?.conversation_config?.tts || {};
 
   const syncedAt = new Date().toISOString();
@@ -441,6 +451,7 @@ async function syncAppManagedAgent(configId: string, vaUserId: string) {
       synced_at: syncedAt,
       sync_hash: syncHash,
       remote_version_id: remoteAgent?.version_id || null,
+      effective_realtime_model: effectiveRealtimeModel,
       effective_tts_model_id: effectiveTts.model_id || desiredProfile.tts_model_id,
       effective_voice_settings: {
         stability: effectiveTts.stability ?? null,
@@ -616,7 +627,8 @@ async function finalizeUsage(request: RequestPayload, vaUserId: string) {
   const durationSeconds = Math.round(finiteNonNegative(metadata.call_duration_secs));
   const costUsd = finiteNonNegative(metadata.cost_fiat);
   const messageCount = Array.isArray(details?.transcript) ? details.transcript.length : 0;
-  const model = `${config.voice_provider_config?.model_id || config.voice_provider_config?.app_managed?.effective_tts_model_id || ''}`.trim() || null;
+  const model = effectiveElevenLabsRealtimeModel(config.voice_provider_config || {})
+    || `${config.voice_provider_config?.app_managed?.effective_tts_model_id || config.voice_provider_config?.model_id || ''}`.trim() || null;
   const providerMetricValues = providerMetrics(details);
 
   if (details?.status !== 'done' && details?.status !== 'failed') {

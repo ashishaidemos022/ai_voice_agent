@@ -1,5 +1,15 @@
 # AI Voice Agent
 
+## ElevenLabs Realtime models
+
+In Settings, select **ElevenLabs Agent** as the voice provider, select your ElevenLabs API key, and choose **App-managed profile**. Under **Voice mode / model**, choose **Eleven Realtime v1 Mini** or **Eleven Realtime v1 Max**, select a voice, save the preset, then **Create & publish** (or **Publish changes**). Start a Native voice session or use the preset's voice embed; both use the published ElevenLabs agent through the existing signed-session connection.
+
+The server sends `conversation_config.realtime_model` when creating or updating the remote agent. Realtime manages the LLM, TTS model, expressive mode, and ASR. The preset's prompt, voice, tools, language, and turn settings still apply. Selecting **Custom** and publishing sends `null` and restores the stored LLM/TTS choices. Existing presets remain in Custom mode until changed. ElevenLabs-managed profiles continue to use the mode configured in ElevenLabs.
+
+Max requires at least 1,024 response tokens (or `-1` for unlimited). Selecting Max raises a lower local limit to 1,024; the server also validates the limit before provider writes. Mini is unavailable with HIPAA or Zero Retention Mode; Max supports those configurations in US/EU and is unavailable in India/Singapore. Transfers must remain between Realtime agents, and workflow overrides of managed settings are unsupported. Provider validation errors appear in the publish panel, including workspace rollout restrictions. See [ElevenLabs Realtime documentation](https://elevenlabs.io/docs/eleven-agents/customization/realtime-models).
+
+Deploy the updated `elevenlabs-agent-session` Supabase function and frontend together. No database migration or additional provider key is required. Run `npm run test:elevenlabs-realtime` for mocked provider create/update, mode switching, and rejection coverage. A live voice check still requires an authenticated preset and Realtime-enabled ElevenLabs workspace.
+
 ## GPT-Live smoke test
 
 The workspace voice client supports `gpt-live-1` through the deployed `realtime-session` function. To verify a real authenticated WebRTC handshake, save a browser-generated audio SDP offer and run:

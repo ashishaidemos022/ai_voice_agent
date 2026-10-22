@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { AgentState } from '../../lib/realtime-client';
 import { isGPTLiveModel, OPENAI_MODELS } from '../../../shared/openai-models';
+import { elevenLabsRealtimeLabel, effectiveElevenLabsRealtimeModel } from '../../../shared/elevenlabs-realtime-models';
 import type { RealtimeConfig } from '../../types/voice-agent';
 import type { VoiceMetricsSnapshot, VoiceTurnMetric } from '../../lib/voice-metrics';
 import type { VoiceProviderMetrics } from '../../hooks/useVoiceAgent';
@@ -177,15 +178,16 @@ function runtimeProfile(config: RealtimeConfig): RuntimeProfile {
   }
 
   if (provider === 'elevenlabs_agent') {
+    const realtimeModel = effectiveElevenLabsRealtimeModel(providerConfig);
     const effectiveModel = providerConfig.app_managed?.effective_tts_model_id
       || normalizeElevenLabsModel(providerConfig.model_id);
-    const llm = providerConfig.llm || 'ElevenLabs-managed LLM';
-    const transcriptionModel = providerConfig.asr_model_id
+    const llm = realtimeModel ? elevenLabsRealtimeLabel(realtimeModel) : providerConfig.llm || 'ElevenLabs-managed LLM';
+    const transcriptionModel = realtimeModel ? 'ElevenLabs managed STT' : providerConfig.asr_model_id
       || (effectiveModel === 'eleven_v3_conversational' ? 'scribe_v2_realtime' : 'ElevenLabs managed STT');
     const outputFormat = formatAudioFormat(providerConfig.output_format);
     return {
       provider: 'ElevenLabs',
-      architecture: 'Direct agent · full stack',
+      architecture: realtimeModel ? 'Direct agent · Realtime' : 'Direct agent · full stack',
       summary: 'ElevenLabs owns transcription, turn-taking, reasoning orchestration, and speech synthesis.',
       transport: 'WebSocket · signed session',
       audio: `${outputFormat} output · 25 ms input chunks`,
@@ -194,7 +196,7 @@ function runtimeProfile(config: RealtimeConfig): RuntimeProfile {
         {
           label: 'Speech recognition',
           model: transcriptionModel,
-          detail: effectiveModel === 'eleven_v3_conversational' ? 'Expressive Mode turn signals' : 'Native conversational input',
+          detail: !realtimeModel && effectiveModel === 'eleven_v3_conversational' ? 'Expressive Mode turn signals' : 'Native conversational input',
           icon: Mic,
           accent: 'text-cyan-200'
         },
@@ -207,7 +209,7 @@ function runtimeProfile(config: RealtimeConfig): RuntimeProfile {
         },
         {
           label: 'Speech synthesis',
-          model: effectiveModel,
+          model: realtimeModel || effectiveModel,
           detail: `Voice · ${config.voice_id || config.voice || 'provider default'}`,
           icon: AudioWaveform,
           accent: 'text-amber-200'
