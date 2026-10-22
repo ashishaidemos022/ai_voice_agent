@@ -7,6 +7,8 @@ export class AudioManager {
   private stream: MediaStream | null = null;
   private dataArray: Uint8Array | null = null;
   private workletNode: AudioWorkletNode | null = null;
+  private captureSink: GainNode | null = null;
+  private captureGeneration = 0;
   private onAudioDataCallback: ((data: Int16Array) => void) | null = null;
   private isInitializing = false;
   private isInitialized = false;
@@ -165,6 +167,15 @@ export class AudioManager {
       throw new Error('Microphone source not available. Initialization may have failed.');
     }
 
+    this.stopCapture();
+    const generation = this.captureGeneration;
+    const context = this.audioContext;
+    // Unmute runs in the user's click handler; resume Web Audio before awaiting
+    // module loading so browsers can authorize capture and playback together.
+    if (context.state === 'suspended') await context.resume();
+    if (generation !== this.captureGeneration) return;
+    if (context.state !== 'running') throw new Error('Browser audio is paused. Allow microphone access and click Unmute again.');
+
     this.onAudioDataCallback = onAudioData;
     emitBenchmarkEvent('microphone.capture_started', {
       sample_rate_hz: this.targetSampleRate
@@ -174,6 +185,7 @@ export class AudioManager {
       try {
         const moduleUrl = new URL('/audio-worklet-processor.js', window.location.origin);
         await this.audioContext.audioWorklet.addModule(moduleUrl.toString());
+        if (generation !== this.captureGeneration) return;
         this.workletReady = true;
       } catch (err) {
         console.error('Failed to load audio worklet module', err);
@@ -181,12 +193,12 @@ export class AudioManager {
       }
     }
 
-    this.workletNode = new AudioWorkletNode(this.audioContext, 'pcm-downsampler', {
+    this.workletNode = new AudioWorkletNode(context, 'pcm-downsampler', {
       processorOptions: { targetSampleRate: this.targetSampleRate }
     });
 
     this.workletNode.port.onmessage = (event: MessageEvent<Int16Array>) => {
-      if (this.onAudioDataCallback) {
+      if (generation === this.captureGeneration && this.onAudioDataCallback) {
         emitBenchmarkMilestone('input.first_audio', {
           samples: event.data.length
         });
@@ -195,14 +207,22 @@ export class AudioManager {
     };
 
     this.microphone.connect(this.workletNode);
+    // Keep the processor in an actively rendered graph without monitoring the
+    // caller's microphone through their speakers.
+    this.captureSink = context.createGain();
+    this.captureSink.gain.value = 0;
+    this.workletNode.connect(this.captureSink);
+    this.captureSink.connect(context.destination);
   }
 
   stopCapture(): void {
+    this.captureGeneration++;
     console.log('[AudioManager] stopCapture invoked');
     this.onAudioDataCallback = null;
 
     if (this.workletNode) {
       try {
+        this.microphone?.disconnect(this.workletNode);
         this.workletNode.port.onmessage = null;
         this.workletNode.disconnect();
       } catch (err) {
@@ -210,6 +230,8 @@ export class AudioManager {
       }
       this.workletNode = null;
     }
+    this.captureSink?.disconnect();
+    this.captureSink = null;
   }
 
   getWaveformData(): Uint8Array | null {
@@ -362,6 +384,7 @@ export class AudioManager {
     console.log('[AudioManager] Performing cleanup');
 
     this.stopPlayback();
+    this.stopCapture();
 
     if (this.stream) {
       this.stream.getTracks().forEach((track) => track.stop());

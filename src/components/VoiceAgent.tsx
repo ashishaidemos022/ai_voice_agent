@@ -246,6 +246,7 @@ export function VoiceAgent({
   const {
     isConnected,
     isRecording,
+    isStartingRecording,
     messages,
     waveformData,
     volume,
@@ -1139,12 +1140,13 @@ export function VoiceAgent({
                                 <button
                                   type="button"
                                   onClick={toggleRecording}
-                                  aria-label={isRecording ? 'Mute microphone' : 'Unmute microphone'}
+                                  disabled={isStartingRecording}
+                                  aria-label={isStartingRecording ? 'Unmuting microphone' : isRecording ? 'Mute microphone' : 'Unmute microphone'}
                                   aria-pressed={!isRecording}
                                   className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition ${isRecording ? 'border-white/15 bg-white/5 text-white hover:bg-white/10' : 'border-rose-300/40 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25'}`}
                                 >
                                   {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                                  {isRecording ? 'Mute' : 'Unmute'}
+                                  {isStartingRecording ? 'Unmuting…' : isRecording ? 'Mute' : 'Unmute'}
                                 </button>
                               )}
                               <button
@@ -1239,6 +1241,7 @@ export function VoiceAgent({
                                     isRecording={isRecording}
                                     isConnected={isConnected}
                                     onToggle={toggleRecording}
+                                    isStartingRecording={isStartingRecording}
                                     waveformData={waveformData}
                                     volume={volume}
                                     config={config ?? currentConfig}

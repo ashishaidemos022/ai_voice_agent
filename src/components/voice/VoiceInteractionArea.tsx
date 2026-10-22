@@ -25,6 +25,7 @@ import { AgentStatusBar } from './AgentStatusBar';
 interface VoiceInteractionAreaProps {
   agentState: AgentState;
   isRecording: boolean;
+  isStartingRecording?: boolean;
   isConnected: boolean;
   waveformData: Uint8Array | null;
   volume: number;
@@ -372,6 +373,7 @@ function buildWaveHeights(waveformData: Uint8Array | null, volume: number) {
 export function VoiceInteractionArea({
   agentState,
   isRecording,
+  isStartingRecording = false,
   isConnected,
   waveformData,
   volume,
@@ -575,18 +577,18 @@ export function VoiceInteractionArea({
             <div className="flex items-center gap-2 self-end sm:self-auto">
               <InputSparkline levels={voiceMetrics.inputLevels} micLive={isRecording} />
               <span className={`text-[10px] font-medium ${isRecording ? 'text-emerald-200' : 'text-rose-200'}`}>
-                {isRecording ? 'Mic live' : 'Mic muted'}
+                {isStartingRecording ? 'Starting microphone…' : isRecording ? 'Mic live' : 'Mic muted'}
               </span>
               <button
                 type="button"
                 onClick={onToggle}
-                disabled={!isConnected}
+                disabled={!isConnected || isStartingRecording}
                 className={`h-9 rounded-xl flex items-center justify-center gap-2 px-3 text-xs font-semibold text-white shadow-lg transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40 ${isRecording ? 'bg-white/10 hover:bg-white/20 border border-white/15' : 'bg-rose-500 hover:bg-rose-400'}`}
-                aria-label={isRecording ? 'Mute microphone' : 'Unmute microphone'}
+                aria-label={isStartingRecording ? 'Unmuting microphone' : isRecording ? 'Mute microphone' : 'Unmute microphone'}
                 aria-pressed={!isRecording}
               >
                 {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                {isRecording ? 'Mute' : 'Unmute'}
+                {isStartingRecording ? 'Unmuting…' : isRecording ? 'Mute' : 'Unmute'}
               </button>
             </div>
           </div>

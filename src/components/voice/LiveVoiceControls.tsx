@@ -31,6 +31,7 @@ export function LiveVoiceControls({ agentId, sessionId, busy, messages, onSubmit
   const [, setTranscript] = useState('');
   const [queued, setQueued] = useState('');
   const [muted, setMuted] = useState(false);
+  const [unmuting, setUnmuting] = useState(false);
   const [transcriptionNotice, setTranscriptionNotice] = useState('');
   const [attempt, setAttempt] = useState(0);
   const client = useRef<RoutedVoiceAdapter | null>(null);
@@ -47,7 +48,7 @@ export function LiveVoiceControls({ agentId, sessionId, busy, messages, onSubmit
     segments.current = [];
     coordinator.current?.close(); coordinator.current = null;
     client.current?.disconnect(); client.current = null;
-    setStatus('idle'); setTranscript(''); setQueued(''); setMuted(false); setTranscriptionNotice(''); publishTranscript.current?.('');
+    setStatus('idle'); setTranscript(''); setQueued(''); setMuted(false); setUnmuting(false); setTranscriptionNotice(''); publishTranscript.current?.('');
   }, []);
 
   useEffect(() => {
@@ -125,11 +126,19 @@ export function LiveVoiceControls({ agentId, sessionId, busy, messages, onSubmit
 
   const toggleMute = useCallback(async () => {
     const transport = client.current;
-    if (!transport || status === 'idle' || status === 'connecting') return;
+    if (!transport || status === 'idle' || status === 'connecting' || unmuting) return;
     if (muted) {
-      await transport.startCapture();
-      setMuted(false);
-      setStatus('listening');
+      const token = generation.current;
+      setUnmuting(true);
+      setError('');
+      try {
+        await transport.startCapture();
+        if (generation.current === token) { setMuted(false); setStatus('listening'); }
+      } catch (err) {
+        if (generation.current === token) setError(err instanceof Error ? `Unable to unmute: ${err.message}` : 'Unable to unmute. Check microphone access and try again.');
+      } finally {
+        if (generation.current === token) setUnmuting(false);
+      }
       return;
     }
     transport.stopCapture();
@@ -137,7 +146,7 @@ export function LiveVoiceControls({ agentId, sessionId, busy, messages, onSubmit
     setStatus('muted');
     setTranscript('');
     publishTranscript.current?.('');
-  }, [muted, status]);
+  }, [muted, status, unmuting]);
 
   return <div className="mb-3 space-y-2 rounded-xl border border-cyan-300/30 bg-cyan-400/5 p-4">
     <div className="flex flex-wrap items-center gap-3">
@@ -147,9 +156,9 @@ export function LiveVoiceControls({ agentId, sessionId, busy, messages, onSubmit
         <p className="mt-0.5 text-xs text-cyan-200/70">{providerLabel}</p>
       </div>
       {sessionId && status !== 'idle' && (
-        <button type="button" aria-pressed={muted} aria-label={muted ? 'Unmute microphone' : 'Mute microphone'} className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition ${muted ? 'border-rose-300/50 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30' : 'border-white/20 bg-white/5 text-white hover:bg-white/10'}`} onClick={() => void toggleMute()}>
+        <button type="button" disabled={unmuting || status === 'connecting'} aria-pressed={muted} aria-label={unmuting ? 'Unmuting microphone' : muted ? 'Unmute microphone' : 'Mute microphone'} className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition ${muted ? 'border-rose-300/50 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30' : 'border-white/20 bg-white/5 text-white hover:bg-white/10'}`} onClick={() => void toggleMute()}>
           {muted ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
-          {muted ? 'Unmute' : 'Mute'}
+          {unmuting ? 'Unmuting…' : muted ? 'Unmute' : 'Mute'}
         </button>
       )}
       {sessionId && status === 'idle' && <button type="button" className="rounded-lg border border-white/20 px-3 py-2 text-xs" onClick={() => setAttempt(value => value + 1)}>Reconnect microphone</button>}

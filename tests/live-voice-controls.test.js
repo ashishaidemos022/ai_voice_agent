@@ -72,6 +72,15 @@ test('live controls keep capture active through reasoning and speech and stop on
     const before = transport.interrupted;
     await act(async () => { transport.emit('speech.started'); });
     assert.equal(transport.interrupted, before + 1);
+    await click('Mute');
+    const startCapture = transport.startCapture.bind(transport);
+    transport.startCapture = async () => { throw new Error('Microphone permission denied'); };
+    await click('Unmute');
+    assert.match(buttonText(renderer.root.findByProps({ role: 'alert' })), /Microphone permission denied/);
+    assert.ok(renderer.root.findAllByType('button').some(node => buttonText(node) === 'Unmute'));
+    transport.startCapture = startCapture;
+    await click('Unmute');
+    assert.equal(transport.captured, 3, 'a failed Unmute can be retried');
     await act(async () => { renderer.unmount(); }); renderer = null;
     assert.equal(transport.disconnected, true);
     transport.emit('transcript.done', { role: 'user', transcript: 'stale', itemId: 'two' });

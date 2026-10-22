@@ -83,6 +83,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
   const { vaUser } = useAuth();
   const [isConnected, setIsConnected] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [isStartingRecording, setIsStartingRecording] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [waveformData, setWaveformData] = useState<Uint8Array | null>(null);
   const [volume, setVolume] = useState(0);
@@ -122,6 +123,8 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
   const savedMessagesRef = useRef<Set<string>>(new Set());
   const isCleaningUpRef = useRef(false);
   const micStartedRef = useRef(false);
+  const micStartPendingRef = useRef(false);
+  const micStartGenerationRef = useRef(0);
   const isRecordingRef = useRef(false);
   const agentStateRef = useRef<AgentState>('idle');
   // Previous agent_state event value, updated synchronously per event (agentStateRef lags via an effect).
@@ -700,6 +703,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
     lastAgentStateEventRef.current = 'idle';
 
     client.on('connected', () => {
+      if (realtimeClientRef.current !== client) return;
       console.log('[useVoiceAgent] realtime event: connected');
       setError(null);
       setIsConnected(true);
@@ -707,9 +711,16 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
     });
 
     client.on('disconnected', (event) => {
+      if (realtimeClientRef.current !== client) return;
       console.warn('[useVoiceAgent] realtime event: disconnected', event);
       setIsConnected(false);
       setAgentState('idle');
+      micStartGenerationRef.current++;
+      micStartPendingRef.current = false;
+      micStartedRef.current = false;
+      isRecordingRef.current = false;
+      client.stopCapture?.();
+      setIsStartingRecording(false);
       setIsRecording(false);
       if (configRef.current?.voice_provider === 'elevenlabs_agent' && event?.reason !== 'user') {
         const detailMessage =
@@ -1127,36 +1138,56 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
   }, []);
 
   const startRecording = useCallback(async () => {
-    if (!realtimeClientRef.current) return;
-    if (isRecording || micStartedRef.current) return;
+    const client = realtimeClientRef.current;
+    if (!client?.isConnected()) {
+      setError('The voice connection is not ready. Reconnect the agent, then unmute.');
+      return;
+    }
+    if (isRecordingRef.current || micStartedRef.current || micStartPendingRef.current) return;
+    const generation = ++micStartGenerationRef.current;
+    micStartPendingRef.current = true;
+    setIsStartingRecording(true);
+    setError(null);
 
     try {
-      if (typeof realtimeClientRef.current.startCapture === 'function') {
-        await realtimeClientRef.current.startCapture();
+      if (typeof client.startCapture === 'function') {
+        await client.startCapture();
       } else {
         if (!audioManagerRef.current) {
           audioManagerRef.current = getAudioManager();
         }
         await audioManagerRef.current.startCapture((audioData: Int16Array) => {
-          realtimeClientRef.current?.sendAudio(audioData);
+          if (generation === micStartGenerationRef.current && realtimeClientRef.current === client) client.sendAudio(audioData);
         });
       }
 
+      if (generation !== micStartGenerationRef.current || realtimeClientRef.current !== client || !client.isConnected()) return;
       isRecordingRef.current = true;
       setIsRecording(true);
       micStartedRef.current = true;
     } catch (err) {
+      if (generation !== micStartGenerationRef.current || realtimeClientRef.current !== client) return;
       console.error('Failed to start recording:', err);
-      setError('Failed to start recording');
+      micStartedRef.current = false;
+      isRecordingRef.current = false;
+      setIsRecording(false);
+      setError(err instanceof Error ? `Unable to unmute: ${err.message}` : 'Unable to unmute. Check microphone access and try again.');
+    } finally {
+      if (generation === micStartGenerationRef.current) {
+        micStartPendingRef.current = false;
+        setIsStartingRecording(false);
+      }
     }
-  }, [isRecording]);
+  }, []);
 
   const stopRecording = useCallback(() => {
+    micStartGenerationRef.current++;
+    micStartPendingRef.current = false;
+    setIsStartingRecording(false);
     if (realtimeClientRef.current?.stopCapture) {
       realtimeClientRef.current.stopCapture();
     } else {
-      if (!audioManagerRef.current) return;
-      audioManagerRef.current.stopCapture();
+      audioManagerRef.current?.stopCapture();
     }
     isRecordingRef.current = false;
     setIsRecording(false);
@@ -1164,12 +1195,13 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
   }, []);
 
   const toggleRecording = useCallback(() => {
-    if (isRecording) {
+    if (micStartPendingRef.current) return;
+    if (isRecordingRef.current) {
       stopRecording();
     } else {
       startRecording();
     }
-  }, [isRecording, startRecording, stopRecording]);
+  }, [startRecording, stopRecording]);
 
   const interrupt = useCallback(() => {
     if (realtimeClientRef.current) {
@@ -1234,6 +1266,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
 
         if (realtimeClientRef.current) {
           console.log('[useVoiceAgent] disposing previous realtime client instance');
+          stopRecording();
           realtimeClientRef.current.disconnect();
           realtimeClientRef.current = null;
         }
@@ -1461,6 +1494,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
       mergeRealtimeConfig,
       resetTranscripts,
       startMetering,
+      stopRecording,
       syncRagMetadata,
       vaUser?.id
     ]
@@ -1624,6 +1658,7 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
   return {
     isConnected,
     isRecording,
+    isStartingRecording,
     messages,
     waveformData,
     volume,
