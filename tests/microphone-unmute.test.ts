@@ -78,6 +78,21 @@ test('Unmute works after reconnect and recovers from a failed or canceled start'
     client.start = async () => {};
     await act(async () => { await client.connect(); hook.toggleRecording(); });
     assert.equal(hook.isRecording, true, 'retry succeeds after canceled startup');
+    await act(async () => { hook.toggleRecording(); });
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    client.start = () => new Promise(() => {});
+    await act(async () => { hook.toggleRecording(); });
+    assert.equal(hook.isStartingRecording, true);
+    const stopsBeforeTimeout = client.stops;
+    await act(async () => { t.mock.timers.tick(10000); });
+    assert.equal(hook.isStartingRecording, false, 'a stalled browser request must release the button');
+    assert.equal(hook.isRecording, false);
+    assert.match(hook.error, /Microphone did not start/);
+    assert.equal(client.stops, stopsBeforeTimeout + 1, 'timeout cancels capture before retry');
+    client.start = async () => {};
+    await act(async () => { hook.toggleRecording(); });
+    assert.equal(hook.isRecording, true, 'Unmute can be retried after timeout');
+    t.mock.timers.reset();
     await act(async () => { await hook.cleanup(); renderer.unmount(); }); renderer = null;
   } finally {
     if (renderer) await act(async () => renderer.unmount());
@@ -118,6 +133,16 @@ test('Web Audio unmute resumes the context, renders a silent capture graph, and 
     await manager.startCapture((frame: any) => frames.push(frame));
     assert.equal(manager.microphone.connections.size, 1);
     manager.stopCapture();
+    context.state = 'interrupted';
+    await manager.startCapture(() => {});
+    assert.equal(resumes, 2, 'browser-interrupted audio must be resumed as well as suspended audio');
+    manager.stopCapture();
+    let resolveResume!: () => void;
+    context.state = 'suspended';
+    context.resume = () => new Promise(resolve => { resolveResume = () => { context.state = 'running'; resolve(); }; });
+    const pausedStart = manager.startCapture(() => {});
+    manager.stopCapture(); resolveResume(); await pausedStart;
+    assert.equal(manager.workletNode, null, 'late browser resume must not reopen a canceled microphone');
     let resolveModule!: () => void;
     manager.workletReady = false;
     context.audioWorklet.addModule = () => new Promise(resolve => { resolveModule = resolve; });

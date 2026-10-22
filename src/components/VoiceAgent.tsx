@@ -1123,6 +1123,7 @@ export function VoiceAgent({
                     <div className="flex flex-col p-6 gap-6 h-full overflow-hidden">
                       <div className="flex-1 grid grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] gap-6 min-h-0 overflow-hidden">
                         <div className="flex flex-col gap-4 min-h-0 overflow-y-auto pr-1 pb-2">
+                          {error && <p role="alert" className="rounded-xl border border-rose-300/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{error}</p>}
                           <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3">
                             <div className="flex items-center gap-3">
                               <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-400/30 flex items-center justify-center">

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AudioManager, getAudioManager } from '../lib/audio-manager';
+import { startMicrophone } from '../lib/microphone-start';
 import { AgentState, RealtimeAPIClient } from '../lib/realtime-client';
 import { PersonaPlexVoiceAdapter } from '../lib/voice-adapters/personaplex-adapter';
 import { ElevenLabsVoiceAdapter } from '../lib/voice-adapters/elevenlabs-adapter';
@@ -1151,14 +1152,15 @@ export function useVoiceAgent(modelPolicy: AgentModelPolicyConfig = DEFAULT_MODE
 
     try {
       if (typeof client.startCapture === 'function') {
-        await client.startCapture();
+        await startMicrophone(() => client.startCapture!(), () => client.stopCapture?.());
       } else {
         if (!audioManagerRef.current) {
           audioManagerRef.current = getAudioManager();
         }
-        await audioManagerRef.current.startCapture((audioData: Int16Array) => {
+        const manager = audioManagerRef.current;
+        await startMicrophone(() => manager.startCapture((audioData: Int16Array) => {
           if (generation === micStartGenerationRef.current && realtimeClientRef.current === client) client.sendAudio(audioData);
-        });
+        }), () => manager.stopCapture());
       }
 
       if (generation !== micStartGenerationRef.current || realtimeClientRef.current !== client || !client.isConnected()) return;

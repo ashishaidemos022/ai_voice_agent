@@ -4,6 +4,7 @@ import { createRoutedVoiceAdapter, type RoutedVoiceAdapter } from '../../lib/voi
 import { LiveVoiceCoordinator } from '../../lib/live-voice-coordinator';
 import { speechSegments } from '../../../shared/voice-speech';
 import type { ChatMessage } from '../../types/chat';
+import { startMicrophone } from '../../lib/microphone-start';
 
 type Props = { agentId: string | null; sessionId?: string; busy: boolean; messages: ChatMessage[]; onSubmit: (text: string) => void; onTranscript?: (text: string) => void };
 
@@ -115,7 +116,7 @@ export function LiveVoiceControls({ agentId, sessionId, busy, messages, onSubmit
         await transport.connect();
         clearTimeout(timeout);
         if (!current()) { transport.disconnect(); return; }
-        await transport.startCapture();
+        await startMicrophone(() => transport.startCapture(), () => transport.stopCapture());
         if (current()) { setMuted(false); setStatus('listening'); }
       } catch (err) { if (current()) { stop(); setError(err instanceof Error ? err.message : 'Unable to connect live voice.'); } }
     })();
@@ -132,7 +133,7 @@ export function LiveVoiceControls({ agentId, sessionId, busy, messages, onSubmit
       setUnmuting(true);
       setError('');
       try {
-        await transport.startCapture();
+        await startMicrophone(() => transport.startCapture(), () => transport.stopCapture());
         if (generation.current === token) { setMuted(false); setStatus('listening'); }
       } catch (err) {
         if (generation.current === token) setError(err instanceof Error ? `Unable to unmute: ${err.message}` : 'Unable to unmute. Check microphone access and try again.');

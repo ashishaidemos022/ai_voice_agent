@@ -89,6 +89,7 @@ export class RealtimeAPIClient {
   private reconnectDelay = 1000;
   private agentState: AgentState = 'idle';
   private intentionalClose = false;
+  private captureGeneration = 0;
   private hasBufferedAudio = false;
   private bufferedSamples = 0;
   private hasReceivedAudio = false;
@@ -1496,19 +1497,25 @@ export class RealtimeAPIClient {
   }
 
   async startCapture(): Promise<void> {
+    const generation = ++this.captureGeneration;
     if (!this.webrtc) {
       const audioManager = getAudioManager();
       if (!audioManager.isReady()) await audioManager.initialize();
+      if (generation !== this.captureGeneration || this.intentionalClose) return;
       await audioManager.startCapture((audioData) => this.sendAudio(audioData));
       return;
     }
-    if (this.audioContext?.state === 'suspended') await this.audioContext.resume();
-    this.mediaStream?.getAudioTracks().forEach((track) => {
+    if (this.audioContext && this.audioContext.state !== 'running' && this.audioContext.state !== 'closed') await this.audioContext.resume();
+    if (generation !== this.captureGeneration || this.intentionalClose) return;
+    const tracks = this.mediaStream?.getAudioTracks().filter(track => track.readyState === 'live') || [];
+    if (!tracks.length) throw new Error('Microphone is no longer available. Reconnect the voice session to select your microphone again.');
+    tracks.forEach((track) => {
       track.enabled = true;
     });
   }
 
   stopCapture(): void {
+    this.captureGeneration++;
     if (!this.webrtc) {
       getAudioManager().stopCapture();
       return;

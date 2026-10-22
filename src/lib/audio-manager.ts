@@ -172,7 +172,7 @@ export class AudioManager {
     const context = this.audioContext;
     // Unmute runs in the user's click handler; resume Web Audio before awaiting
     // module loading so browsers can authorize capture and playback together.
-    if (context.state === 'suspended') await context.resume();
+    if (context.state !== 'running' && context.state !== 'closed') await context.resume();
     if (generation !== this.captureGeneration) return;
     if (context.state !== 'running') throw new Error('Browser audio is paused. Allow microphone access and click Unmute again.');
 

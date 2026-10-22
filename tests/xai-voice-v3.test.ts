@@ -20,7 +20,8 @@ test('Grok Voice 3.0 catalog and legacy saved selections', () => {
 test('native and routed sessions send the selected Grok V3 model and voice to xAI', async (t) => {
   t.mock.method(console, 'log', () => {});
   const runtime = globalThis as any;
-  const original = { WebSocket: runtime.WebSocket, window: runtime.window };
+  const original = { WebSocket: runtime.WebSocket, window: runtime.window, audio: runtime.captureTestAudio };
+  runtime.captureTestAudio = {};
   const sockets: any[] = [];
   class Socket {
     static OPEN = 1; static CONNECTING = 0;
@@ -38,7 +39,7 @@ test('native and routed sessions send the selected Grok V3 model and voice to xA
   try {
     const bundle = await build({ entryPoints: ['src/lib/realtime-client.ts'], bundle: true, write: false, platform: 'node', format: 'esm', plugins: [{ name: 'browser-boundaries', setup(builder) {
       builder.onResolve({ filter: /(?:tools-registry|audio-manager|benchmark-instrumentation|benchmark-audio-store)$/ }, args => ({ path: args.path, namespace: 'mock' }));
-      builder.onLoad({ filter: /.*/, namespace: 'mock' }, () => ({ contents: 'export const getToolSchemas=()=>[{type:"function",name:"lookup_account",parameters:{type:"object",properties:{}}}]; export const getAudioManager=()=>({}); export const beginBenchmarkTurn=()=>{}; export const emitBenchmarkEvent=()=>{}; export const emitBenchmarkMilestone=()=>{}; export const getBenchmarkTrace=()=>null; export const recordBenchmarkWaveform=()=>{}; export const saveBenchmarkOutputAudio=async()=>{};' }));
+      builder.onLoad({ filter: /.*/, namespace: 'mock' }, () => ({ contents: 'export const getToolSchemas=()=>[{type:"function",name:"lookup_account",parameters:{type:"object",properties:{}}}]; export const getAudioManager=()=>globalThis.captureTestAudio; export const beginBenchmarkTurn=()=>{}; export const emitBenchmarkEvent=()=>{}; export const emitBenchmarkMilestone=()=>{}; export const getBenchmarkTrace=()=>null; export const recordBenchmarkWaveform=()=>{}; export const saveBenchmarkOutputAudio=async()=>{};' }));
     } }] });
     const { RealtimeAPIClient } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
     for (const routed of [false, true]) for (const voice of ['iris', 'celeste', 'aurora', 'carina', 'Rex']) {
@@ -65,5 +66,26 @@ test('native and routed sessions send the selected Grok V3 model and voice to xA
     legacy.updateSessionConfig({ model: 'grok-voice-latest', voice: 'iris', instructions: 'Hello' });
     assert.equal(sockets.at(-1).sent.at(-1).session.voice, 'iris');
     legacy.disconnect();
-  } finally { runtime.WebSocket = original.WebSocket; runtime.window = original.window; }
+    let resolveInitialization!: () => void;
+    let captures = 0;
+    runtime.captureTestAudio = { isReady: () => false, initialize: () => new Promise(resolve => { resolveInitialization = resolve; }), startCapture: async () => { captures++; }, stopCapture() {} };
+    const capture = new RealtimeAPIClient({ model: 'grok-voice-3.0', voice: 'iris', instructions: 'Help' }, { provider: 'xai' });
+    const pending = capture.startCapture();
+    capture.stopCapture(); resolveInitialization(); await pending;
+    assert.equal(captures, 0, 'a canceled permission request cannot restart capture after Unmute times out');
+    runtime.captureTestAudio.isReady = () => true;
+    await capture.startCapture();
+    assert.equal(captures, 1, 'a fresh Unmute succeeds after the canceled request');
+    let resume!: () => void;
+    const track = { enabled: false, readyState: 'live' };
+    const rtc = new RealtimeAPIClient({ instructions: 'Help' }, { webrtc: { sessionUrl: 'https://test.invalid' } });
+    rtc.mediaStream = { getAudioTracks: () => [track] };
+    rtc.audioContext = { state: 'interrupted', resume: () => new Promise(resolve => { resume = resolve; }) };
+    const paused = rtc.startCapture();
+    rtc.stopCapture(); resume(); await paused;
+    assert.equal(track.enabled, false, 'late WebRTC resume cannot unmute after cancellation');
+    rtc.audioContext.state = 'running';
+    track.readyState = 'ended';
+    await assert.rejects(rtc.startCapture(), /Microphone is no longer available/);
+  } finally { runtime.WebSocket = original.WebSocket; runtime.window = original.window; runtime.captureTestAudio = original.audio; }
 });
