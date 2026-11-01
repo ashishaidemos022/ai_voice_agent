@@ -8,6 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "test:gateway": "node --test tests/elevenlabs-gateway.test.js",
+    "test:translation": "node --experimental-strip-types --test tests/realtime-translation.test.ts tests/translation-gateway.test.js",
     "test:elevenlabs-realtime": "node --experimental-strip-types --test tests/elevenlabs-realtime.test.ts",
     "test:irs": "node --experimental-strip-types --test tests/irs-resolution.test.ts",
     "test:xai-voice": "node --experimental-strip-types --test tests/xai-voice-v3.test.ts",

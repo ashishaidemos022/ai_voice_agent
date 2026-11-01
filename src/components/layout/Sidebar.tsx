@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useState } from 'react';
 import {
-  BarChart3, BookOpen, Code2, FlaskConical, MessageSquare, Mic, PanelLeftClose, PanelLeftOpen, Sparkles, Wrench,
+  BarChart3, BookOpen, Code2, FlaskConical, Languages, MessageSquare, Mic, PanelLeftClose, PanelLeftOpen, Sparkles, Wrench,
   type LucideIcon
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -8,11 +8,12 @@ import { cn } from '../../lib/utils';
 interface SidebarProps {
   isConnected?: boolean;
   children?: ReactNode;
-  activeNav?: 'voice' | 'chat' | 'voice-lab' | 'open-weight-lab' | 'create' | 'skills' | 'usage' | 'embed-usage';
+  activeNav?: 'voice' | 'chat' | 'voice-lab' | 'open-weight-lab' | 'translation' | 'create' | 'skills' | 'usage' | 'embed-usage';
   onNavigateVoice?: () => void;
   onNavigateChat?: () => void;
   onNavigateVoiceLab?: () => void;
   onNavigateOpenWeightLab?: () => void;
+  onNavigateTranslation?: () => void;
   onNavigateSkills?: () => void;
   onOpenKnowledgeBase?: () => void;
   onOpenUsage?: () => void;
@@ -90,6 +91,7 @@ export function Sidebar({
   onNavigateChat,
   onNavigateVoiceLab,
   onNavigateOpenWeightLab,
+  onNavigateTranslation,
   onNavigateSkills,
   onOpenKnowledgeBase,
   onOpenUsage,
@@ -104,6 +106,8 @@ export function Sidebar({
         ? 'Voice Lab'
       : activeNav === 'open-weight-lab'
         ? 'Open Weight Lab'
+      : activeNav === 'translation'
+        ? 'Live Translation'
       : activeNav === 'create'
         ? 'Create Agent'
         : activeNav === 'skills'
@@ -120,10 +124,11 @@ export function Sidebar({
   }, [collapsed]);
 
   const showConnectionStatus =
-    activeNav !== 'create' && activeNav !== 'skills' && activeNav !== 'usage' && activeNav !== 'embed-usage' && activeNav !== 'voice-lab' && activeNav !== 'open-weight-lab';
+    activeNav !== 'create' && activeNav !== 'skills' && activeNav !== 'usage' && activeNav !== 'embed-usage' && activeNav !== 'voice-lab' && activeNav !== 'open-weight-lab' && activeNav !== 'translation';
 
   const HeaderIcon =
     activeNav === 'voice-lab' ? FlaskConical
+      : activeNav === 'translation' ? Languages
       : activeNav === 'chat' ? MessageSquare
         : activeNav === 'create' || activeNav === 'skills' ? Wrench
           : activeNav === 'usage' ? BarChart3
@@ -153,6 +158,12 @@ export function Sidebar({
       ? [{
         key: 'open-weight-lab', label: 'Open Weight Lab', icon: FlaskConical, active: activeNav === 'open-weight-lab',
         onClick: onNavigateOpenWeightLab, disabled: activeNav === 'open-weight-lab', tone: 'amber' as const
+      }]
+      : []),
+    ...(onNavigateTranslation
+      ? [{
+        key: 'translation', label: 'Live Translation', icon: Languages, active: activeNav === 'translation',
+        onClick: onNavigateTranslation, disabled: activeNav === 'translation'
       }]
       : []),
     ...(onOpenKnowledgeBase

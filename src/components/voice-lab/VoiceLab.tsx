@@ -70,6 +70,7 @@ type VoiceLabProps = {
   onNavigateVoice: () => void;
   onNavigateChat?: () => void;
   onNavigateOpenWeightLab?: () => void;
+  onNavigateTranslation?: () => void;
   onOpenCreateAgent?: () => void;
   onOpenSkills?: () => void;
   onOpenKnowledgeBase?: () => void;
@@ -475,6 +476,7 @@ export function VoiceLab(props: VoiceLabProps) {
       onNavigateChat={props.onNavigateChat}
       onNavigateVoiceLab={() => undefined}
       onNavigateOpenWeightLab={props.onNavigateOpenWeightLab}
+      onNavigateTranslation={props.onNavigateTranslation}
       onNavigateSkills={props.onOpenSkills}
       onOpenKnowledgeBase={props.onOpenKnowledgeBase}
       onOpenUsage={props.onOpenUsage}

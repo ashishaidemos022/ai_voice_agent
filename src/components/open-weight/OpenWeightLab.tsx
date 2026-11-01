@@ -13,7 +13,7 @@ type TrainingJob = { id: string; backend?: 'local' | 'tinker'; name: string; dat
 type LabResult = { modelId: string; text?: string; responseModel?: string | null; finishReason?: string; usage?: { inputTokens: number; outputTokens: number } | null; costUsd?: number | null; latencyMs?: number; error?: string };
 type SavedRun = { id: string; createdAt: string; systemPrompt: string; prompt: string; temperature: number; maxTokens: number; modelIds: string[]; results: LabResult[] };
 type LabView = 'run' | 'training' | 'evaluation' | 'history' | 'models';
-type OpenWeightLabProps = { onNavigateVoice: () => void; onNavigateChat: () => void; onNavigateVoiceLab: () => void; onOpenCreateAgent?: () => void; onOpenSkills?: () => void; onOpenKnowledgeBase?: () => void; onOpenUsage?: () => void; onOpenEmbedUsage?: () => void };
+type OpenWeightLabProps = { onNavigateVoice: () => void; onNavigateChat: () => void; onNavigateVoiceLab: () => void; onNavigateTranslation?: () => void; onOpenCreateAgent?: () => void; onOpenSkills?: () => void; onOpenKnowledgeBase?: () => void; onOpenUsage?: () => void; onOpenEmbedUsage?: () => void };
 
 const HISTORY_KEY = 'viaana-open-weight-lab-history-v1';
 const promptPresets = [
@@ -154,7 +154,7 @@ export function OpenWeightLab(props: OpenWeightLabProps) {
     setSystemPrompt(run.systemPrompt); setPrompt(run.prompt); setTemperature(run.temperature); setMaxTokens(run.maxTokens); setSelectedModels(run.modelIds); setResults(run.results); setView('run');
   };
 
-  const sidebar = <Sidebar activeNav="open-weight-lab" onNavigateVoice={props.onNavigateVoice} onNavigateChat={props.onNavigateChat} onNavigateVoiceLab={props.onNavigateVoiceLab} onNavigateOpenWeightLab={() => undefined} onNavigateSkills={props.onOpenSkills} onOpenKnowledgeBase={props.onOpenKnowledgeBase} onOpenUsage={props.onOpenUsage} onOpenEmbedUsage={props.onOpenEmbedUsage} onOpenSettings={props.onOpenCreateAgent} />;
+  const sidebar = <Sidebar activeNav="open-weight-lab" onNavigateVoice={props.onNavigateVoice} onNavigateChat={props.onNavigateChat} onNavigateVoiceLab={props.onNavigateVoiceLab} onNavigateOpenWeightLab={() => undefined} onNavigateTranslation={props.onNavigateTranslation} onNavigateSkills={props.onOpenSkills} onOpenKnowledgeBase={props.onOpenKnowledgeBase} onOpenUsage={props.onOpenUsage} onOpenEmbedUsage={props.onOpenEmbedUsage} onOpenSettings={props.onOpenCreateAgent} />;
   const topBar = <header className="flex h-16 items-center justify-between border-b border-white/10 bg-slate-950/60 px-6"><div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.3em] text-white/40"><span>Agent Workspace</span><ArrowRight className="h-3 w-3" /><span className="text-amber-200">Open Weight Lab</span></div><div className="flex items-center gap-2"><a href="/" className="rounded-lg px-3 py-2 text-xs text-white/45 hover:bg-white/5 hover:text-white">Public evidence</a><Button variant="ghost" size="sm" onClick={signOut}>Sign out</Button></div></header>;
 
   return <MainLayout sidebar={sidebar} topBar={topBar}><div className="h-full overflow-y-auto px-5 py-6"><div className="mx-auto max-w-6xl space-y-5">

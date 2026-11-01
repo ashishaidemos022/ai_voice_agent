@@ -3,10 +3,11 @@ import { ChatAgent } from '../chat/ChatAgent';
 import { VoiceAgent } from '../VoiceAgent';
 import { VoiceLab } from '../voice-lab/VoiceLab';
 import { OpenWeightLab } from '../open-weight/OpenWeightLab';
+import { LiveTranslation } from '../translation/LiveTranslation';
 import { KnowledgeBaseDrawer } from '../rag/KnowledgeBaseDrawer';
 import { useAuth } from '../../context/AuthContext';
 
-type WorkspaceTab = 'chat' | 'voice' | 'voice-lab' | 'routed-voice' | 'open-weight-lab';
+type WorkspaceTab = 'chat' | 'voice' | 'voice-lab' | 'routed-voice' | 'open-weight-lab' | 'translation';
 
 export function AgentWorkspace() {
   const { vaUser } = useAuth();
@@ -60,6 +61,14 @@ export function AgentWorkspace() {
     setTab('open-weight-lab');
   };
 
+  const handleNavigateTranslation = () => {
+    setShowCreateAgent(false);
+    setShowSkills(false);
+    setShowUsage(false);
+    setShowEmbedUsage(false);
+    setTab('translation');
+  };
+
   const handleOpenCreateAgent = () => {
     setShowCreateAgent(true);
     setShowSkills(false);
@@ -102,6 +111,7 @@ export function AgentWorkspace() {
           onNavigateChat={handleNavigateChat}
           onNavigateVoice={handleNavigateVoice}
           onNavigateVoiceLab={handleNavigateVoiceLab}
+          onNavigateTranslation={handleNavigateTranslation}
           onNavigateOpenWeightLab={handleNavigateOpenWeightLab}
           onOpenCreateAgent={handleOpenCreateAgent}
           onOpenSkills={handleOpenSkills}
@@ -114,6 +124,19 @@ export function AgentWorkspace() {
           onNavigateVoice={handleNavigateVoice}
           onNavigateChat={handleNavigateChat}
           onNavigateOpenWeightLab={handleNavigateOpenWeightLab}
+          onNavigateTranslation={handleNavigateTranslation}
+          onOpenCreateAgent={handleOpenCreateAgent}
+          onOpenSkills={handleOpenSkills}
+          onOpenKnowledgeBase={() => setIsKnowledgeDrawerOpen(true)}
+          onOpenUsage={handleOpenUsage}
+          onOpenEmbedUsage={handleOpenEmbedUsage}
+        />
+      ) : tab === 'translation' ? (
+        <LiveTranslation
+          onNavigateVoice={handleNavigateVoice}
+          onNavigateChat={handleNavigateChat}
+          onNavigateVoiceLab={handleNavigateVoiceLab}
+          onNavigateOpenWeightLab={handleNavigateOpenWeightLab}
           onOpenCreateAgent={handleOpenCreateAgent}
           onOpenSkills={handleOpenSkills}
           onOpenKnowledgeBase={() => setIsKnowledgeDrawerOpen(true)}
@@ -125,6 +148,7 @@ export function AgentWorkspace() {
           onNavigateVoice={handleNavigateVoice}
           onNavigateChat={handleNavigateChat}
           onNavigateVoiceLab={handleNavigateVoiceLab}
+          onNavigateTranslation={handleNavigateTranslation}
           onOpenCreateAgent={handleOpenCreateAgent}
           onOpenSkills={handleOpenSkills}
           onOpenKnowledgeBase={() => setIsKnowledgeDrawerOpen(true)}
@@ -136,6 +160,7 @@ export function AgentWorkspace() {
           onNavigateRoutedVoice={agentId => { setRoutedAgentId(agentId); setTab('routed-voice'); }}
           onNavigateChat={handleNavigateChat}
           onNavigateVoiceLab={handleNavigateVoiceLab}
+          onNavigateTranslation={handleNavigateTranslation}
           onNavigateOpenWeightLab={handleNavigateOpenWeightLab}
           onOpenKnowledgeBase={() => setIsKnowledgeDrawerOpen(true)}
           showCreateAgent={showCreateAgent}
