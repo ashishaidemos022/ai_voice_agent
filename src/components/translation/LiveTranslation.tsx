@@ -426,6 +426,11 @@ export function LiveTranslation(props: LiveTranslationProps) {
             <div className="h-full bg-teal-300 transition-[width] duration-75" style={{ width: `${Math.round(micLevel * 100)}%` }} />
           </div>
         )}
+        {running && status[side].state === 'error' && status[side].detail && (
+          <p className="text-xs text-rose-200 bg-rose-500/10 border border-rose-400/20 rounded-lg px-3 py-2 break-words" role="alert">
+            {status[side].detail}
+          </p>
+        )}
         <p className="text-xs text-white/40">
           {languageLabel(person.language)} → {languageLabel(listener.language)}
         </p>

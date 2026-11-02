@@ -170,6 +170,12 @@ wss.on('connection', async (client, req) => {
       const hint = response.statusCode === 401 || response.statusCode === 403
         ? ' — Realtime Translation is currently limited to ElevenLabs enterprise workspaces.'
         : '';
+      console.warn(JSON.stringify({
+        event: 'translation_upstream_rejected',
+        session_id: sessionId,
+        status: response.statusCode,
+        detail: `${typeof detail === 'string' ? detail : JSON.stringify(detail)}`.slice(0, 300)
+      }));
       sendJson(client, {
         message_type: 'gateway_error',
         error: `ElevenLabs rejected the connection (${response.statusCode})${detail ? `: ${`${typeof detail === 'string' ? detail : JSON.stringify(detail)}`.slice(0, 300)}` : ''}${hint}`
@@ -189,7 +195,24 @@ wss.on('connection', async (client, req) => {
     if (client.readyState !== WebSocket.OPEN) return;
     const text = isBinary ? null : data.toString();
     if (text === null) return; // the API only speaks JSON text frames
-    if (text.includes('"message_type":"audio"') || text.includes('"message_type": "audio"')) audioOut += 1;
+    if (text.includes('"message_type":"audio"') || text.includes('"message_type": "audio"')) {
+      audioOut += 1;
+    } else {
+      // Log lifecycle and error events (never transcript/translation text).
+      try {
+        const parsed = JSON.parse(text);
+        const type = parsed?.message_type;
+        if (type && !['partial_transcript', 'final_transcript', 'translation'].includes(type)) {
+          console.log(JSON.stringify({
+            event: 'translation_upstream_message',
+            session_id: sessionId,
+            message_type: type,
+            ...(typeof parsed.error === 'string' ? { error: parsed.error.slice(0, 500) } : {}),
+            ...(typeof parsed.status === 'string' ? { status: parsed.status } : {})
+          }));
+        }
+      } catch { /* non-JSON frame; forward as-is */ }
+    }
     client.send(text);
   });
 
@@ -199,6 +222,13 @@ wss.on('connection', async (client, req) => {
 
   ws.on('close', (code, reason) => {
     clearTimeout(connectTimeout);
+    console.log(JSON.stringify({
+      event: 'translation_upstream_closed',
+      session_id: sessionId,
+      code,
+      reason: safeReason(reason?.toString()),
+      client_closed_first: clientClosed
+    }));
     if (client.readyState === WebSocket.OPEN) client.close(safeCloseCode(code), safeReason(reason?.toString()));
   });
 });
