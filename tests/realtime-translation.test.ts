@@ -105,6 +105,12 @@ test('parseTranslationMessage validates every server message type', () => {
   assert.equal(parseTranslationMessage('{"message_type":"something_new"}'), null);
   assert.deepEqual(parseTranslationMessage('{"message_type":"quota_exceeded","error":"Out of credits"}'), { message_type: 'quota_exceeded', error: 'Out of credits' });
   assert.deepEqual(parseTranslationMessage('{"message_type":"gateway_error","error":"nope"}'), { message_type: 'gateway_error', error: 'nope' });
+  assert.deepEqual(
+    parseTranslationMessage('{"message_type":"invalid_request","error":"Realtime translation is only available for enterprise workspaces"}'),
+    { message_type: 'invalid_request', error: 'Realtime translation is only available for enterprise workspaces' }
+  );
+  assert.deepEqual(parseTranslationMessage('{"message_type":"brand_new_error","error":"boom"}'), { message_type: 'error', error: 'boom' });
+  assert.equal(isFatalTranslationError('invalid_request'), true);
   assert.equal(isFatalTranslationError('auth_error'), true);
   assert.equal(isFatalTranslationError('rate_limited'), false);
 });

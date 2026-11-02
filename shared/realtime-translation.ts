@@ -110,6 +110,7 @@ export const TRANSLATION_ERROR_TYPES = [
   'quota_exceeded',
   'payment_issue',
   'unaccepted_terms',
+  'invalid_request',
   'gateway_error'
 ] as const;
 export type TranslationErrorType = typeof TRANSLATION_ERROR_TYPES[number];
@@ -120,7 +121,7 @@ export function isTranslationError(message: TranslationServerMessage): message i
 
 /** Errors after which the stream is unusable and should not be retried automatically. */
 export function isFatalTranslationError(type: string): boolean {
-  return ['auth_error', 'quota_exceeded', 'payment_issue', 'unaccepted_terms'].includes(type);
+  return ['auth_error', 'quota_exceeded', 'payment_issue', 'unaccepted_terms', 'invalid_request'].includes(type);
 }
 
 export function parseTranslationMessage(raw: string): TranslationServerMessage | null {
@@ -152,7 +153,9 @@ export function parseTranslationMessage(raw: string): TranslationServerMessage |
     }
     default: {
       const errorType = TRANSLATION_ERROR_TYPES.find((entry) => entry === type);
-      return errorType ? { message_type: errorType, error: `${value.error ?? 'Unknown error'}` } : null;
+      if (errorType) return { message_type: errorType, error: `${value.error ?? 'Unknown error'}` };
+      // Undocumented message types that carry an error string are still surfaced as errors.
+      return typeof value.error === 'string' && value.error ? { message_type: 'error', error: value.error } : null;
     }
   }
 }
